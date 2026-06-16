@@ -20,11 +20,20 @@ const STATUS_LABEL: Record<Status, string> = {
 export function VoiceCompanion() {
   const [status, setStatus] = useState<Status>("idle");
   const [errorMsg, setErrorMsg] = useState<string>("");
+  const [muted, setMuted] = useState(false);
 
   const engineRef = useRef<AudioEngine | null>(null);
   const clientRef = useRef<QwenLiveClient | null>(null);
   const activeRef = useRef(false);
   const micStartedRef = useRef(false);
+
+  const toggleMute = useCallback(() => {
+    setMuted((m) => {
+      const next = !m;
+      engineRef.current?.setMuted(next);
+      return next;
+    });
+  }, []);
 
   const fetchSession = useServerFn(getVoiceSession);
 
