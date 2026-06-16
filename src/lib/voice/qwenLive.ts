@@ -138,6 +138,10 @@ export class QwenLiveClient {
   private intentionallyClosed = false;
   private reconnectTimer: number | null = null;
   private reconnectAttempts = 0;
+  // True from the moment we see a function_call streaming until we've sent
+  // back the tool result. While true we drop any response.audio.delta so the
+  // model's pre-tool partial sentence never reaches the speaker.
+  private toolInProgress = false;
 
   constructor(cbs: QwenCallbacks) {
     this.cbs = cbs;
