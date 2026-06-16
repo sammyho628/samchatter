@@ -16,7 +16,6 @@ const INITIAL_JITTER_SECONDS = 0.35;
 // If we detect we've drifted behind mid-turn, pad by this much before
 // resuming so we don't immediately underrun again.
 const UNDERRUN_REPAIR_SECONDS = 0.18;
-const INITIAL_PLAYBACK_BUFFER_SECONDS = 0.22;
 const OUTPUT_PLAYBACK_SPEED = 0.96;
 
 export class AudioEngine {
