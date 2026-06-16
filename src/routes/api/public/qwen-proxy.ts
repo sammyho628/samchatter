@@ -19,7 +19,7 @@ export const Route = createFileRoute("/api/public/qwen-proxy")({
         }
 
         const url = new URL(request.url);
-        const model = url.searchParams.get("model") || "qwen3-omni-flash-realtime";
+        const model = url.searchParams.get("model") || "qwen3.5-omni-flash-realtime";
         // Workers initiate outbound WebSocket handshakes via fetch() to the
         // HTTPS endpoint plus `Upgrade: websocket`; using a `wss:` URL here
         // can fail before DashScope accepts the upgrade.
