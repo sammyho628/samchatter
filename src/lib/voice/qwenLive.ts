@@ -84,6 +84,8 @@ export type QwenCallbacks = {
   onUserTranscript?: (text: string) => void;
   // Arbitrary debug event.
   onDebug?: (msg: string) => void;
+  // Ask the UI to flush any queued/playing audio immediately (e.g. tool call).
+  onFlushPlayback?: () => void;
 };
 
 export type QwenOptions = {
