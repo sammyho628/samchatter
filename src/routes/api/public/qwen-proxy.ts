@@ -37,6 +37,7 @@ export const Route = createFileRoute("/api/public/qwen-proxy")({
             },
           });
         } catch (e) {
+          console.error("[qwen-proxy] upstream connect failed", (e as Error).message);
           return new Response(`Upstream connect failed: ${(e as Error).message}`, { status: 502 });
         }
 
@@ -44,6 +45,7 @@ export const Route = createFileRoute("/api/public/qwen-proxy")({
         const upstream: WebSocket | null = upstreamResp.webSocket;
         if (!upstream) {
           const txt = await upstreamResp.text().catch(() => "");
+          console.error("[qwen-proxy] upstream did not upgrade", upstreamResp.status, txt.slice(0, 500));
           return new Response(
             `Upstream did not upgrade (status ${upstreamResp.status}): ${txt.slice(0, 500)}`,
             { status: 502 }
