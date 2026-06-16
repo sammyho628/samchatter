@@ -69,6 +69,7 @@ export type QwenCallbacks = {
   onToolCall?: (info: { name: string; args: unknown; callId: string }) => void;
   onToolResult?: (info: { name: string; summary: string; callId: string }) => void;
   onError?: (msg: string) => void;
+  onReconnecting?: () => void;
   onClose?: () => void;
 };
 
@@ -116,12 +117,24 @@ export class QwenLiveClient {
   private cbs: QwenCallbacks;
   // Accumulate streamed function-call arguments by call_id.
   private pendingCalls = new Map<string, { name: string; args: string }>();
+  private handledToolCalls = new Set<string>();
+  private opts: QwenOptions | null = null;
+  private intentionallyClosed = false;
+  private reconnectTimer: number | null = null;
+  private reconnectAttempts = 0;
 
   constructor(cbs: QwenCallbacks) {
     this.cbs = cbs;
   }
 
   connect(opts: QwenOptions): Promise<void> {
+    this.opts = opts;
+    this.intentionallyClosed = false;
+    this.reconnectAttempts = 0;
+    return this.openSocket(opts);
+  }
+
+  private openSocket(opts: QwenOptions): Promise<void> {
     const model = opts.model ?? "qwen3.5-omni-flash-realtime";
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
     const url = `${proto}//${window.location.host}/api/public/qwen-proxy?model=${encodeURIComponent(model)}`;
@@ -132,6 +145,7 @@ export class QwenLiveClient {
       ws.binaryType = "arraybuffer";
 
       ws.onopen = () => {
+        this.reconnectAttempts = 0;
         ws.send(
           JSON.stringify({
             event_id: `evt_${Date.now()}`,
@@ -172,11 +186,14 @@ export class QwenLiveClient {
       };
 
       ws.onerror = () => {
-        this.cbs.onError?.("Qwen WebSocket error");
+        if (!this.intentionallyClosed) this.cbs.onError?.("Qwen WebSocket error");
         reject(new Error("WebSocket error"));
       };
 
       ws.onclose = (ev) => {
+        if (!this.intentionallyClosed && ev.code === 1006 && this.scheduleReconnect()) {
+          return;
+        }
         if (ev.code !== 1000 && ev.code !== 1005) {
           this.cbs.onError?.(
             `Closed (${ev.code})${ev.reason ? ": " + ev.reason : ""}`,
@@ -185,6 +202,25 @@ export class QwenLiveClient {
         this.cbs.onClose?.();
       };
     });
+  }
+
+  private scheduleReconnect() {
+    if (!this.opts || this.reconnectAttempts >= 3 || this.reconnectTimer !== null) {
+      return false;
+    }
+    this.reconnectAttempts += 1;
+    this.cbs.onReconnecting?.();
+    const delay = 350 * this.reconnectAttempts;
+    this.reconnectTimer = window.setTimeout(() => {
+      this.reconnectTimer = null;
+      if (this.intentionallyClosed || !this.opts) return;
+      void this.openSocket(this.opts).catch((err) => {
+        if (!this.intentionallyClosed) {
+          this.cbs.onError?.(`Reconnect failed: ${(err as Error).message}`);
+        }
+      });
+    }, delay);
+    return true;
   }
 
   private async handleMessage(msg: Record<string, unknown>) {
@@ -257,6 +293,8 @@ export class QwenLiveClient {
     name: string;
     argsStr: string;
   }) {
+    if (this.handledToolCalls.has(callId)) return;
+    this.handledToolCalls.add(callId);
     let parsed: unknown = {};
     try {
       parsed = argsStr ? JSON.parse(argsStr) : {};
@@ -305,6 +343,11 @@ export class QwenLiveClient {
   }
 
   close() {
+    this.intentionallyClosed = true;
+    if (this.reconnectTimer !== null) {
+      window.clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     try {
       this.ws?.close();
     } catch {
