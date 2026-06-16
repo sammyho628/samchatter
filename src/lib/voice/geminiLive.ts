@@ -43,7 +43,7 @@ export class GeminiLiveClient {
       ws.onopen = () => {
         const setup = {
           setup: {
-            model: "models/gemini-live-2.5-flash-native-audio",
+            model: "models/gemini-2.5-flash-native-audio-latest",
             generationConfig: { responseModalities: ["AUDIO"] },
             systemInstruction: { parts: [{ text: systemInstruction }] },
           },
