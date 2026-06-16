@@ -21,7 +21,10 @@ export const Route = createFileRoute("/api/public/qwen-proxy")({
         const url = new URL(request.url);
         const model =
           url.searchParams.get("model") || "qwen3-omni-flash-realtime";
-        const upstreamUrl = `wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime?model=${encodeURIComponent(model)}`;
+        // Workers initiate outbound WebSocket handshakes via fetch() to the
+        // HTTPS endpoint plus `Upgrade: websocket`; using a `wss:` URL here
+        // can fail before DashScope accepts the upgrade.
+        const upstreamUrl = `https://dashscope-intl.aliyuncs.com/api-ws/v1/realtime?model=${encodeURIComponent(model)}`;
 
         // Open upstream WS by issuing a fetch with Upgrade headers.
         // This is Cloudflare Workers' supported pattern.
