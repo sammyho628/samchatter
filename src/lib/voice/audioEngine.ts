@@ -9,6 +9,13 @@ const PLAYBACK_RATE = 24000;
 const CAPTURE_RATE = 16000;
 const BARGE_IN_RMS = 0.08;
 const BARGE_IN_FRAMES = 2;
+// Larger initial jitter buffer to smooth out the first few chunks of a
+// turn over flaky mobile networks. Trade-off: ~0.35s of latency before the
+// AI's voice starts, but no underrun stutter.
+const INITIAL_JITTER_SECONDS = 0.35;
+// If we detect we've drifted behind mid-turn, pad by this much before
+// resuming so we don't immediately underrun again.
+const UNDERRUN_REPAIR_SECONDS = 0.18;
 const INITIAL_PLAYBACK_BUFFER_SECONDS = 0.22;
 const OUTPUT_PLAYBACK_SPEED = 0.96;
 
