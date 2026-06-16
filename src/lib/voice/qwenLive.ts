@@ -183,8 +183,8 @@ export class QwenLiveClient {
               tool_choice: "auto",
               turn_detection: {
                 type: "server_vad",
-                threshold: 0.75,
-                silence_duration_ms: 700,
+                threshold: 0.5,
+                silence_duration_ms: 800,
               },
               temperature: 0.6,
               repetition_penalty: 1.15,
