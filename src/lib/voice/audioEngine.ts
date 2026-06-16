@@ -53,10 +53,26 @@ export class AudioEngine {
     void this.playbackCtx.resume();
 
     this.playbackGain = this.playbackCtx.createGain();
+    this.playbackGain.gain.value = this.muted ? 0 : 1;
     this.playbackAnalyser = this.playbackCtx.createAnalyser();
     this.playbackAnalyser.fftSize = 1024;
     this.playbackGain.connect(this.playbackAnalyser);
     this.playbackAnalyser.connect(this.playbackCtx.destination);
+  }
+
+  private muted = false;
+
+  setMuted(muted: boolean) {
+    this.muted = muted;
+    const g = this.playbackGain;
+    if (!g) return;
+    const ctx = this.playbackCtx!;
+    g.gain.cancelScheduledValues(ctx.currentTime);
+    g.gain.setTargetAtTime(muted ? 0 : 1, ctx.currentTime, 0.015);
+  }
+
+  isMuted() {
+    return this.muted;
   }
 
   async startMic() {
