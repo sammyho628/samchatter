@@ -193,7 +193,12 @@ export class QwenLiveClient {
       };
 
       ws.onclose = (ev) => {
-        if (!this.intentionallyClosed && ev.code === 1006 && this.scheduleReconnect()) {
+        if (this.intentionallyClosed) {
+          // User-initiated stop — silent regardless of code (including 1006).
+          this.cbs.onClose?.();
+          return;
+        }
+        if (ev.code === 1006 && this.scheduleReconnect()) {
           return;
         }
         if (ev.code !== 1000 && ev.code !== 1005) {
@@ -358,7 +363,11 @@ export class QwenLiveClient {
       this.reconnectTimer = null;
     }
     try {
-      this.ws?.close();
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.close(1000, "User ended session");
+      } else {
+        this.ws?.close();
+      }
     } catch {
       /* ignore */
     }
