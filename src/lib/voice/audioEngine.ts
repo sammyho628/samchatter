@@ -242,7 +242,7 @@ export class AudioEngine {
     this.scheduleBuffer(buf);
   }
 
-  stopPlayback() {
+  stopPlayback(opts: { holdMic?: boolean } = {}) {
     for (const src of this.playQueue) {
       try {
         src.onended = null;
@@ -260,6 +260,9 @@ export class AudioEngine {
     this.nextStartTime = 0;
     this.playing = false;
     this.inTurn = false;
+    if (opts.holdMic !== false) {
+      this.micHoldUntil = performance.now() + INPUT_RESUME_AFTER_PLAYBACK_MS;
+    }
     this.bargeInFrames = 0;
   }
 
