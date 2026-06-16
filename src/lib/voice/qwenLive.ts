@@ -71,6 +71,13 @@ export type QwenCallbacks = {
   onError?: (msg: string) => void;
   onReconnecting?: () => void;
   onClose?: () => void;
+  // Streaming text — assistant audio transcript (what the AI is saying).
+  onAssistantTranscriptDelta?: (text: string) => void;
+  onAssistantTranscriptDone?: (text: string) => void;
+  // Final user transcript from server-side ASR.
+  onUserTranscript?: (text: string) => void;
+  // Arbitrary debug event.
+  onDebug?: (msg: string) => void;
 };
 
 export type QwenOptions = {
@@ -159,6 +166,7 @@ export class QwenLiveClient {
               instructions: opts.instructions,
               input_audio_format: "pcm16",
               output_audio_format: "pcm16",
+              input_audio_transcription: { model: "gummy-realtime-v1" },
               tools: opts.tools ?? DEFAULT_TOOLS,
               tool_choice: "auto",
               turn_detection: {
@@ -240,11 +248,42 @@ export class QwenLiveClient {
     }
     if (type === "input_audio_buffer.speech_started") {
       this.cbs.onSpeechStarted?.();
+      this.cbs.onDebug?.("🎤 speech_started");
+      return;
+    }
+    if (type === "input_audio_buffer.speech_stopped") {
+      this.cbs.onDebug?.("🎤 speech_stopped");
+      return;
+    }
+    if (type === "input_audio_buffer.committed") {
+      this.cbs.onDebug?.("🎤 audio committed → model");
+      return;
+    }
+    // Assistant audio transcript (streamed text of what AI says).
+    if (type === "response.audio_transcript.delta" && typeof msg.delta === "string") {
+      this.cbs.onAssistantTranscriptDelta?.(msg.delta);
+      return;
+    }
+    if (type === "response.audio_transcript.done") {
+      const t = typeof msg.transcript === "string" ? msg.transcript : "";
+      if (t) this.cbs.onAssistantTranscriptDone?.(t);
+      return;
+    }
+    // User transcript completed (server-side ASR).
+    if (type === "conversation.item.input_audio_transcription.completed") {
+      const t = typeof msg.transcript === "string" ? msg.transcript : "";
+      if (t) this.cbs.onUserTranscript?.(t);
+      return;
+    }
+    if (type === "response.created") {
+      this.cbs.onDebug?.("🧠 response.created");
       return;
     }
     if (type === "error") {
       const err = msg.error as { message?: string } | undefined;
-      this.cbs.onError?.(err?.message ?? JSON.stringify(msg.error ?? msg));
+      const m = err?.message ?? JSON.stringify(msg.error ?? msg);
+      this.cbs.onError?.(m);
+      this.cbs.onDebug?.(`❌ error: ${m}`);
       return;
     }
 
@@ -270,7 +309,6 @@ export class QwenLiveClient {
       return;
     }
 
-    // Some implementations emit the function_call inside response.output_item.done
     if (type === "response.output_item.done") {
       const item = msg.item as
         | { type?: string; name?: string; call_id?: string; arguments?: string }
@@ -287,6 +325,7 @@ export class QwenLiveClient {
 
     if (type === "response.done" || type === "response.audio.done") {
       this.cbs.onTurnComplete?.();
+      this.cbs.onDebug?.(`✓ ${type}`);
       return;
     }
   }

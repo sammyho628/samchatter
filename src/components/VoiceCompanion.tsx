@@ -22,6 +22,20 @@ export function VoiceCompanion() {
   const [errorMsg, setErrorMsg] = useState<string>("");
   const [muted, setMuted] = useState(false);
   const [micMuted, setMicMuted] = useState(false);
+  const [debugOpen, setDebugOpen] = useState(false);
+  const [debugLog, setDebugLog] = useState<
+    Array<{ t: number; kind: "user" | "ai" | "tool" | "evt" | "err"; text: string }>
+  >([]);
+  const assistantBufRef = useRef<string>("");
+  const pushLog = useCallback(
+    (kind: "user" | "ai" | "tool" | "evt" | "err", text: string) => {
+      setDebugLog((prev) => {
+        const next = [...prev, { t: Date.now(), kind, text }];
+        return next.length > 80 ? next.slice(next.length - 80) : next;
+      });
+    },
+    [],
+  );
 
   const engineRef = useRef<AudioEngine | null>(null);
   const clientRef = useRef<QwenLiveClient | null>(null);
@@ -73,6 +87,7 @@ export function VoiceCompanion() {
     const engine = new AudioEngine({
       onMicChunk: (pcm) => clientRef.current?.sendAudioChunk(pcm),
       onBargeIn: () => setStatus("listening"),
+      onDebug: (m) => pushLog("evt", m),
     });
     engine.unlock();
     engine.setMuted(muted);
@@ -81,6 +96,8 @@ export function VoiceCompanion() {
     activeRef.current = true;
     setStatus("connecting");
     setErrorMsg("");
+    setDebugLog([]);
+    assistantBufRef.current = "";
 
     void (async () => {
       try {
@@ -115,23 +132,41 @@ export function VoiceCompanion() {
           },
           onToolCall: ({ name, args }) => {
             console.log("[Qwen] tool call:", name, args);
+            pushLog("tool", `→ ${name}(${JSON.stringify(args)})`);
             engine.stopPlayback();
             if (activeRef.current) setStatus("listening");
           },
           onToolResult: ({ name, summary }) => {
             console.log("[Qwen] tool_result <-", name, summary);
+            pushLog(
+              "tool",
+              `← ${name}: ${summary.length > 240 ? summary.slice(0, 240) + "…" : summary}`,
+            );
           },
+          onUserTranscript: (t) => pushLog("user", t),
+          onAssistantTranscriptDelta: (d) => {
+            assistantBufRef.current += d;
+          },
+          onAssistantTranscriptDone: (t) => {
+            const finalText = t || assistantBufRef.current;
+            assistantBufRef.current = "";
+            if (finalText) pushLog("ai", finalText);
+          },
+          onDebug: (m) => pushLog("evt", m),
           onError: (msg: string) => {
             console.error("[QwenLive] error:", msg);
+            pushLog("err", msg);
             setErrorMsg(msg);
             setStatus("error");
             activeRef.current = false;
           },
           onReconnecting: () => {
+            pushLog("evt", "reconnecting…");
             if (activeRef.current) setStatus("connecting");
           },
           onClose: () => {
             console.log("[QwenLive] closed");
+            pushLog("evt", "ws closed");
             setStatus((s) => (s === "error" ? s : "idle"));
             activeRef.current = false;
           },
@@ -232,8 +267,76 @@ export function VoiceCompanion() {
             {errorMsg}
           </div>
         ) : null}
-        <div className="mt-3 text-xs text-white/30">v{APP_VERSION}</div>
+        <div className="mt-3 flex items-center justify-center gap-3 text-xs text-white/40">
+          <span>v{APP_VERSION}</span>
+          <button
+            type="button"
+            onClick={() => setDebugOpen((v) => !v)}
+            className="rounded-full border border-white/20 px-3 py-1 text-white/60 hover:bg-white/5"
+          >
+            {debugOpen ? "Hide debug" : "Show debug"} ({debugLog.length})
+          </button>
+        </div>
       </div>
+
+      {debugOpen ? (
+        <div className="fixed inset-x-0 bottom-0 z-50 max-h-[55vh] overflow-y-auto border-t border-white/10 bg-black/80 p-3 text-xs backdrop-blur">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="font-mono text-white/70">Debug ({debugLog.length})</div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setDebugLog([])}
+                className="rounded border border-white/20 px-2 py-0.5 text-white/70 hover:bg-white/10"
+              >
+                Clear
+              </button>
+              <button
+                type="button"
+                onClick={() => setDebugOpen(false)}
+                className="rounded border border-white/20 px-2 py-0.5 text-white/70 hover:bg-white/10"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+          {debugLog.length === 0 ? (
+            <div className="text-white/40">No events yet. Press 開始傾偈 then speak.</div>
+          ) : (
+            <ul className="space-y-1 font-mono">
+              {debugLog.map((e, i) => {
+                const ts = new Date(e.t).toLocaleTimeString();
+                const color =
+                  e.kind === "user"
+                    ? "text-emerald-300"
+                    : e.kind === "ai"
+                      ? "text-sky-300"
+                      : e.kind === "tool"
+                        ? "text-amber-300"
+                        : e.kind === "err"
+                          ? "text-rose-300"
+                          : "text-white/50";
+                const tag =
+                  e.kind === "user"
+                    ? "YOU"
+                    : e.kind === "ai"
+                      ? "AI "
+                      : e.kind === "tool"
+                        ? "TOOL"
+                        : e.kind === "err"
+                          ? "ERR"
+                          : "evt";
+                return (
+                  <li key={i} className={`break-words ${color}`}>
+                    <span className="text-white/30">{ts}</span>{" "}
+                    <span className="text-white/40">{tag}</span> {e.text}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }
