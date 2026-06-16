@@ -83,14 +83,15 @@ export function VoiceCompanion() {
             if (activeRef.current) setStatus("listening");
           },
           onError: (msg) => {
+            console.error("[GeminiLive] error:", msg);
             setErrorMsg(msg);
             setStatus("error");
+            activeRef.current = false;
           },
           onClose: () => {
-            if (activeRef.current) {
-              setStatus("idle");
-              activeRef.current = false;
-            }
+            console.log("[GeminiLive] closed");
+            setStatus((s) => (s === "error" ? s : "idle"));
+            activeRef.current = false;
           },
         });
         clientRef.current = client;

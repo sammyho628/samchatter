@@ -77,6 +77,7 @@ export class GeminiLiveClient {
       };
 
       ws.onclose = (ev) => {
+        console.log("[GeminiLive] ws close", { code: ev.code, reason: ev.reason, wasClean: ev.wasClean });
         if (ev.code !== 1000 && ev.code !== 1005) {
           this.cbs.onError?.(
             `Closed (${ev.code})${ev.reason ? ": " + ev.reason : ""}`,
