@@ -83,13 +83,20 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       },
       { name: "apple-mobile-web-app-capable", content: "yes" },
       { name: "mobile-web-app-capable", content: "yes" },
-      { title: "傾偈 — Voice Companion" },
+      { title: "傾吓偈" },
       {
         name: "description",
         content: "A warm Cantonese voice companion for elderly family members.",
       },
-      { property: "og:title", content: "傾偈 — Voice Companion" },
+      { property: "og:title", content: "傾吓偈" },
       { property: "og:type", content: "website" },
+      { name: "twitter:title", content: "傾吓偈" },
+      { name: "description", content: "傾吓偈" },
+      { property: "og:description", content: "傾吓偈" },
+      { name: "twitter:description", content: "傾吓偈" },
+      { property: "og:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/586def97-1f90-4992-8fd9-8918160b2ae1/id-preview-bb449339--710f820d-117b-431d-9c0a-e5f0144eabc5.lovable.app-1781609888125.png" },
+      { name: "twitter:image", content: "https://pub-bb2e103a32db4e198524a2e9ed8f35b4.r2.dev/586def97-1f90-4992-8fd9-8918160b2ae1/id-preview-bb449339--710f820d-117b-431d-9c0a-e5f0144eabc5.lovable.app-1781609888125.png" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
     links: [
       {
