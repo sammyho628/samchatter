@@ -191,7 +191,7 @@ function TestQwenPage() {
           voice: "Cherry",
           instructions: SYSTEM_PROMPT,
           input_audio_format: "pcm16",
-          output_audio_format: "pcm24",
+          output_audio_format: "pcm16",
           turn_detection: {
             type: "semantic_vad",
             threshold: 0.5,
