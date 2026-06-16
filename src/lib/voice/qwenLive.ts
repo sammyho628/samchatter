@@ -314,6 +314,7 @@ export class QwenLiveClient {
       const name = String(msg.name ?? "");
       const delta = String(msg.delta ?? "");
       if (!callId) return;
+      this.beginToolSuppression();
       const cur = this.pendingCalls.get(callId) ?? { name, args: "" };
       cur.name = cur.name || name;
       cur.args += delta;
