@@ -136,7 +136,6 @@ export class QwenLiveClient {
   private intentionallyClosed = false;
   private reconnectTimer: number | null = null;
   private reconnectAttempts = 0;
-  private responseInProgress = false;
 
   constructor(cbs: QwenCallbacks) {
     this.cbs = cbs;
