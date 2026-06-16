@@ -9,9 +9,15 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as TestqwenRouteImport } from './routes/testqwen'
 import { Route as TestGeminiRouteImport } from './routes/test-gemini'
 import { Route as IndexRouteImport } from './routes/index'
 
+const TestqwenRoute = TestqwenRouteImport.update({
+  id: '/testqwen',
+  path: '/testqwen',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TestGeminiRoute = TestGeminiRouteImport.update({
   id: '/test-gemini',
   path: '/test-gemini',
@@ -26,31 +32,42 @@ const IndexRoute = IndexRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/test-gemini': typeof TestGeminiRoute
+  '/testqwen': typeof TestqwenRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/test-gemini': typeof TestGeminiRoute
+  '/testqwen': typeof TestqwenRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/test-gemini': typeof TestGeminiRoute
+  '/testqwen': typeof TestqwenRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/test-gemini'
+  fullPaths: '/' | '/test-gemini' | '/testqwen'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/test-gemini'
-  id: '__root__' | '/' | '/test-gemini'
+  to: '/' | '/test-gemini' | '/testqwen'
+  id: '__root__' | '/' | '/test-gemini' | '/testqwen'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   TestGeminiRoute: typeof TestGeminiRoute
+  TestqwenRoute: typeof TestqwenRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/testqwen': {
+      id: '/testqwen'
+      path: '/testqwen'
+      fullPath: '/testqwen'
+      preLoaderRoute: typeof TestqwenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/test-gemini': {
       id: '/test-gemini'
       path: '/test-gemini'
@@ -71,17 +88,8 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   TestGeminiRoute: TestGeminiRoute,
+  TestqwenRoute: TestqwenRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { startInstance } from './start.ts'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-    config: Awaited<ReturnType<typeof startInstance.getOptions>>
-  }
-}
