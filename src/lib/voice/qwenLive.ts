@@ -130,6 +130,7 @@ export class QwenLiveClient {
   private intentionallyClosed = false;
   private reconnectTimer: number | null = null;
   private reconnectAttempts = 0;
+  private responseInProgress = false;
 
   constructor(cbs: QwenCallbacks) {
     this.cbs = cbs;
@@ -165,15 +166,18 @@ export class QwenLiveClient {
               voice: opts.voice ?? "Rocky",
               instructions: opts.instructions,
               input_audio_format: "pcm16",
-              output_audio_format: "pcm16",
-              input_audio_transcription: { model: "gummy-realtime-v1" },
+              output_audio_format: "pcm",
+              input_audio_transcription: { model: "qwen3-asr-flash-realtime" },
               tools: opts.tools ?? DEFAULT_TOOLS,
               tool_choice: "auto",
               turn_detection: {
-                type: "semantic_vad",
-                threshold: 0.5,
-                silence_duration_ms: 800,
+                type: "server_vad",
+                threshold: 0.75,
+                silence_duration_ms: 700,
               },
+              temperature: 0.6,
+              repetition_penalty: 1.15,
+              presence_penalty: 0.3,
             },
           }),
         );
