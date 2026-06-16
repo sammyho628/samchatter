@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { Settings, Mic, Square } from "lucide-react";
+import { DEFAULT_TOOLS, executeQwenTool } from "@/lib/voice/qwenLive";
 
 export const Route = createFileRoute("/testqwen")({
   head: () => ({ meta: [{ title: "Voice Playground — Qwen / Gemini" }] }),
@@ -181,6 +182,27 @@ function TestQwenPage() {
     playbackRateRef.current = 24000;
 
 
+    const pendingCalls = new Map<string, { name: string; args: string }>();
+
+    const runTool = async (callId: string, name: string, argsStr: string) => {
+      let parsed: unknown = {};
+      try { parsed = argsStr ? JSON.parse(argsStr) : {}; } catch { parsed = {}; }
+      console.log("[Qwen] tool_call ->", name, parsed);
+      stopPlayback();
+      const summary = await executeQwenTool(name, parsed);
+      console.log("[Qwen] tool_result <-", name, summary);
+      if (ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({
+        event_id: `evt_tool_${Date.now()}`,
+        type: "conversation.item.create",
+        item: { type: "function_call_output", call_id: callId, output: summary },
+      }));
+      ws.send(JSON.stringify({
+        event_id: `evt_resp_${Date.now()}`,
+        type: "response.create",
+      }));
+    };
+
     ws.onopen = () => {
       console.log("[Qwen] ws.open — sending session.update");
       ws.send(JSON.stringify({
@@ -192,6 +214,8 @@ function TestQwenPage() {
           instructions: SYSTEM_PROMPT,
           input_audio_format: "pcm16",
           output_audio_format: "pcm16",
+          tools: DEFAULT_TOOLS,
+          tool_choice: "auto",
           turn_detection: {
             type: "semantic_vad",
             threshold: 0.5,
@@ -207,7 +231,6 @@ function TestQwenPage() {
           : ev.data instanceof Blob ? await ev.data.text()
           : new TextDecoder().decode(ev.data);
         const msg = JSON.parse(text);
-        // Log everything except audio bytes (too noisy)
         if (msg.type !== "response.audio.delta") {
           console.log("[Qwen] <-", msg.type, msg);
         }
@@ -216,6 +239,25 @@ function TestQwenPage() {
         } else if (msg.type === "input_audio_buffer.speech_started") {
           stopPlayback();
           setStatus((s) => (s === "error" ? s : "listening"));
+        } else if (msg.type === "response.function_call_arguments.delta") {
+          const callId = String(msg.call_id ?? "");
+          if (!callId) return;
+          const cur = pendingCalls.get(callId) ?? { name: String(msg.name ?? ""), args: "" };
+          cur.name = cur.name || String(msg.name ?? "");
+          cur.args += String(msg.delta ?? "");
+          pendingCalls.set(callId, cur);
+        } else if (msg.type === "response.function_call_arguments.done") {
+          const callId = String(msg.call_id ?? "");
+          const pending = pendingCalls.get(callId);
+          const name = String(msg.name ?? pending?.name ?? "");
+          const argsStr = String(msg.arguments ?? pending?.args ?? "");
+          pendingCalls.delete(callId);
+          await runTool(callId, name, argsStr);
+        } else if (msg.type === "response.output_item.done") {
+          const item = msg.item ?? {};
+          if (item.type === "function_call" && item.call_id && item.name) {
+            await runTool(item.call_id, item.name, item.arguments ?? "{}");
+          }
         } else if (msg.type === "error") {
           fail(msg.error?.message ?? JSON.stringify(msg.error ?? msg));
         }
