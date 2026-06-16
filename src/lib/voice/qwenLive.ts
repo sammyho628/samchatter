@@ -1,5 +1,7 @@
 // Qwen Realtime client — connects through our server proxy so the
 // Authorization: Bearer header can be set server-side.
+// Supports function/tool calling.
+import { supabase } from "@/integrations/supabase/client";
 
 function bytesToBase64(bytes: Uint8Array): string {
   let bin = "";
@@ -17,11 +19,55 @@ function base64ToBytes(b64: string): Uint8Array {
   return out;
 }
 
+export type QwenToolDef = {
+  type: "function";
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
+};
+
+export const DEFAULT_TOOLS: QwenToolDef[] = [
+  {
+    type: "function",
+    name: "search_places",
+    description:
+      "Search for real restaurants, businesses, or locations in Hong Kong. Returns name, address and rating of top results.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Natural-language place search query, e.g. 'dim sum in Sham Shui Po'.",
+        },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    type: "function",
+    name: "web_search",
+    description:
+      "Search the internet for current events, news, or general factual knowledge.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "What to look up on the web.",
+        },
+      },
+      required: ["query"],
+    },
+  },
+];
+
 export type QwenCallbacks = {
   onSetupComplete?: () => void;
-  onAudio?: (pcm: Uint8Array) => void; // 24kHz mono 16-bit LE
+  onAudio?: (pcm: Uint8Array) => void;
   onTurnComplete?: () => void;
   onSpeechStarted?: () => void;
+  onToolCall?: (info: { name: string; args: unknown; callId: string }) => void;
+  onToolResult?: (info: { name: string; summary: string; callId: string }) => void;
   onError?: (msg: string) => void;
   onClose?: () => void;
 };
@@ -30,11 +76,46 @@ export type QwenOptions = {
   voice?: string;
   model?: string;
   instructions: string;
+  tools?: QwenToolDef[];
 };
+
+// Default handler: routes Qwen function calls to the matching Supabase Edge Function.
+export async function executeQwenTool(
+  name: string,
+  args: unknown,
+): Promise<string> {
+  const query =
+    typeof args === "object" && args && "query" in args
+      ? String((args as Record<string, unknown>).query ?? "")
+      : "";
+  if (!query) return `Error: missing 'query' for ${name}.`;
+
+  const fn = name === "search_places"
+    ? "search-places"
+    : name === "web_search"
+      ? "web-search"
+      : null;
+  if (!fn) return `Error: unknown tool '${name}'.`;
+
+  try {
+    const { data, error } = await supabase.functions.invoke(fn, {
+      body: { query },
+    });
+    if (error) return `Tool ${name} error: ${error.message}`;
+    const summary = (data as { summary?: string; error?: string } | null)?.summary
+      ?? (data as { error?: string } | null)?.error
+      ?? "No results.";
+    return summary;
+  } catch (e) {
+    return `Tool ${name} threw: ${(e as Error).message}`;
+  }
+}
 
 export class QwenLiveClient {
   private ws: WebSocket | null = null;
   private cbs: QwenCallbacks;
+  // Accumulate streamed function-call arguments by call_id.
+  private pendingCalls = new Map<string, { name: string; args: string }>();
 
   constructor(cbs: QwenCallbacks) {
     this.cbs = cbs;
@@ -61,6 +142,8 @@ export class QwenLiveClient {
               instructions: opts.instructions,
               input_audio_format: "pcm16",
               output_audio_format: "pcm16",
+              tools: opts.tools ?? DEFAULT_TOOLS,
+              tool_choice: "auto",
               turn_detection: {
                 type: "semantic_vad",
                 threshold: 0.5,
@@ -82,15 +165,7 @@ export class QwenLiveClient {
                 ? await ev.data.text()
                 : new TextDecoder().decode(ev.data as ArrayBuffer);
           const msg = JSON.parse(text);
-          if (msg.type === "response.audio.delta" && msg.delta) {
-            this.cbs.onAudio?.(base64ToBytes(msg.delta));
-          } else if (msg.type === "response.done" || msg.type === "response.audio.done") {
-            this.cbs.onTurnComplete?.();
-          } else if (msg.type === "input_audio_buffer.speech_started") {
-            this.cbs.onSpeechStarted?.();
-          } else if (msg.type === "error") {
-            this.cbs.onError?.(msg.error?.message ?? JSON.stringify(msg.error ?? msg));
-          }
+          await this.handleMessage(msg);
         } catch (err) {
           console.warn("[QwenLive] parse error", err);
         }
@@ -112,6 +187,111 @@ export class QwenLiveClient {
     });
   }
 
+  private async handleMessage(msg: Record<string, unknown>) {
+    const type = msg.type as string | undefined;
+    if (!type) return;
+
+    if (type === "response.audio.delta" && typeof msg.delta === "string") {
+      this.cbs.onAudio?.(base64ToBytes(msg.delta));
+      return;
+    }
+    if (type === "input_audio_buffer.speech_started") {
+      this.cbs.onSpeechStarted?.();
+      return;
+    }
+    if (type === "error") {
+      const err = msg.error as { message?: string } | undefined;
+      this.cbs.onError?.(err?.message ?? JSON.stringify(msg.error ?? msg));
+      return;
+    }
+
+    // Function call streaming — same shape as OpenAI Realtime.
+    if (type === "response.function_call_arguments.delta") {
+      const callId = String(msg.call_id ?? "");
+      const name = String(msg.name ?? "");
+      const delta = String(msg.delta ?? "");
+      if (!callId) return;
+      const cur = this.pendingCalls.get(callId) ?? { name, args: "" };
+      cur.name = cur.name || name;
+      cur.args += delta;
+      this.pendingCalls.set(callId, cur);
+      return;
+    }
+
+    if (type === "response.function_call_arguments.done") {
+      const callId = String(msg.call_id ?? "");
+      const name = String(msg.name ?? this.pendingCalls.get(callId)?.name ?? "");
+      const argsStr = String(msg.arguments ?? this.pendingCalls.get(callId)?.args ?? "");
+      this.pendingCalls.delete(callId);
+      await this.runTool({ callId, name, argsStr });
+      return;
+    }
+
+    // Some implementations emit the function_call inside response.output_item.done
+    if (type === "response.output_item.done") {
+      const item = msg.item as
+        | { type?: string; name?: string; call_id?: string; arguments?: string }
+        | undefined;
+      if (item?.type === "function_call" && item.call_id && item.name) {
+        await this.runTool({
+          callId: item.call_id,
+          name: item.name,
+          argsStr: item.arguments ?? "{}",
+        });
+      }
+      return;
+    }
+
+    if (type === "response.done" || type === "response.audio.done") {
+      this.cbs.onTurnComplete?.();
+      return;
+    }
+  }
+
+  private async runTool({
+    callId,
+    name,
+    argsStr,
+  }: {
+    callId: string;
+    name: string;
+    argsStr: string;
+  }) {
+    let parsed: unknown = {};
+    try {
+      parsed = argsStr ? JSON.parse(argsStr) : {};
+    } catch {
+      parsed = {};
+    }
+    this.cbs.onToolCall?.({ name, args: parsed, callId });
+
+    const summary = await executeQwenTool(name, parsed);
+    this.cbs.onToolResult?.({ name, summary, callId });
+    this.sendToolResult(callId, summary);
+  }
+
+  private sendToolResult(callId: string, output: string) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    this.ws.send(
+      JSON.stringify({
+        event_id: `evt_tool_${Date.now()}`,
+        type: "conversation.item.create",
+        item: {
+          type: "function_call_output",
+          call_id: callId,
+          output,
+        },
+      }),
+    );
+    // Ask the model to continue with the tool result.
+    this.ws.send(
+      JSON.stringify({
+        event_id: `evt_resp_${Date.now()}`,
+        type: "response.create",
+      }),
+    );
+  }
+
   sendAudioChunk(pcm: ArrayBuffer) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     const audio = bytesToBase64(new Uint8Array(pcm));
@@ -127,7 +307,9 @@ export class QwenLiveClient {
   close() {
     try {
       this.ws?.close();
-    } catch {}
+    } catch {
+      /* ignore */
+    }
     this.ws = null;
   }
 }
