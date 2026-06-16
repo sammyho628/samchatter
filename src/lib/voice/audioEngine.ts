@@ -65,6 +65,7 @@ export class AudioEngine {
   }
 
   private muted = false;
+  private micMuted = false;
 
   setMuted(muted: boolean) {
     this.muted = muted;
@@ -77,6 +78,20 @@ export class AudioEngine {
 
   isMuted() {
     return this.muted;
+  }
+
+  setMicMuted(muted: boolean) {
+    this.micMuted = muted;
+    // Also mute the underlying mic tracks so the OS-level indicator reflects state.
+    if (this.micStream) {
+      for (const t of this.micStream.getTracks()) t.enabled = !muted;
+    }
+    // Reset barge-in counter so we don't immediately fire on un-mute.
+    this.bargeInFrames = 0;
+  }
+
+  isMicMuted() {
+    return this.micMuted;
   }
 
   async startMic() {
