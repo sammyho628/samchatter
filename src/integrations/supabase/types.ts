@@ -14,7 +14,24 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      "Voice-Bot-1": {
+        Row: {
+          content_text: string | null
+          created_at: string
+          id: number
+        }
+        Insert: {
+          content_text?: string | null
+          created_at?: string
+          id?: number
+        }
+        Update: {
+          content_text?: string | null
+          created_at?: string
+          id?: number
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
