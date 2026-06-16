@@ -5,6 +5,7 @@ import { buildSystemPrompt } from "@/lib/voice/systemPrompt";
 import { QwenLiveClient } from "@/lib/voice/qwenLive";
 import { AudioEngine } from "@/lib/voice/audioEngine";
 import { getVoiceSession } from "@/lib/voice/session.functions";
+import { APP_VERSION } from "@/lib/version";
 
 type Status = "idle" | "connecting" | "listening" | "speaking" | "error";
 
@@ -19,11 +20,20 @@ const STATUS_LABEL: Record<Status, string> = {
 export function VoiceCompanion() {
   const [status, setStatus] = useState<Status>("idle");
   const [errorMsg, setErrorMsg] = useState<string>("");
+  const [muted, setMuted] = useState(false);
 
   const engineRef = useRef<AudioEngine | null>(null);
   const clientRef = useRef<QwenLiveClient | null>(null);
   const activeRef = useRef(false);
   const micStartedRef = useRef(false);
+
+  const toggleMute = useCallback(() => {
+    setMuted((m) => {
+      const next = !m;
+      engineRef.current?.setMuted(next);
+      return next;
+    });
+  }, []);
 
   const fetchSession = useServerFn(getVoiceSession);
 
@@ -56,6 +66,7 @@ export function VoiceCompanion() {
       onBargeIn: () => setStatus("listening"),
     });
     engine.unlock();
+    engine.setMuted(muted);
     engineRef.current = engine;
     activeRef.current = true;
     setStatus("connecting");
@@ -144,6 +155,24 @@ export function VoiceCompanion() {
           <div className="text-3xl font-black tracking-tight">傾偈</div>
           <div className="mt-1 text-sm text-white/60">Voice Companion</div>
         </div>
+        <button
+          type="button"
+          onClick={toggleMute}
+          aria-pressed={muted}
+          aria-label={muted ? "解除靜音" : "靜音"}
+          className={[
+            "flex h-12 w-12 items-center justify-center rounded-full border transition-colors active:scale-95",
+            muted
+              ? "border-rose-400/60 bg-rose-500/20 text-rose-200"
+              : "border-white/20 bg-white/5 text-white/80 hover:bg-white/10",
+          ].join(" ")}
+        >
+          {muted ? (
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 5 6 9H2v6h4l5 4z"/><line x1="22" y1="9" x2="16" y2="15"/><line x1="16" y1="9" x2="22" y2="15"/></svg>
+          ) : (
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+          )}
+        </button>
       </div>
 
       <div className="relative flex w-full flex-1 items-center justify-center">
@@ -171,6 +200,7 @@ export function VoiceCompanion() {
             {errorMsg}
           </div>
         ) : null}
+        <div className="mt-3 text-xs text-white/30">v{APP_VERSION}</div>
       </div>
     </div>
   );

@@ -9,7 +9,13 @@ const PLAYBACK_RATE = 24000;
 const CAPTURE_RATE = 16000;
 const BARGE_IN_RMS = 0.08;
 const BARGE_IN_FRAMES = 2;
-const INITIAL_PLAYBACK_BUFFER_SECONDS = 0.22;
+// Larger initial jitter buffer to smooth out the first few chunks of a
+// turn over flaky mobile networks. Trade-off: ~0.35s of latency before the
+// AI's voice starts, but no underrun stutter.
+const INITIAL_JITTER_SECONDS = 0.35;
+// If we detect we've drifted behind mid-turn, pad by this much before
+// resuming so we don't immediately underrun again.
+const UNDERRUN_REPAIR_SECONDS = 0.18;
 const OUTPUT_PLAYBACK_SPEED = 0.96;
 
 export class AudioEngine {
@@ -47,10 +53,26 @@ export class AudioEngine {
     void this.playbackCtx.resume();
 
     this.playbackGain = this.playbackCtx.createGain();
+    this.playbackGain.gain.value = this.muted ? 0 : 1;
     this.playbackAnalyser = this.playbackCtx.createAnalyser();
     this.playbackAnalyser.fftSize = 1024;
     this.playbackGain.connect(this.playbackAnalyser);
     this.playbackAnalyser.connect(this.playbackCtx.destination);
+  }
+
+  private muted = false;
+
+  setMuted(muted: boolean) {
+    this.muted = muted;
+    const g = this.playbackGain;
+    if (!g) return;
+    const ctx = this.playbackCtx!;
+    g.gain.cancelScheduledValues(ctx.currentTime);
+    g.gain.setTargetAtTime(muted ? 0 : 1, ctx.currentTime, 0.015);
+  }
+
+  isMuted() {
+    return this.muted;
   }
 
   async startMic() {
@@ -114,10 +136,13 @@ export class AudioEngine {
     src.playbackRate.value = OUTPUT_PLAYBACK_SPEED;
     src.connect(this.playbackGain);
     const now = ctx.currentTime;
-    // If we've fallen behind (underrun) or this is the first chunk of a turn,
-    // schedule ahead with a small jitter buffer.
-    if (this.nextStartTime < now) {
-      this.nextStartTime = now + INITIAL_PLAYBACK_BUFFER_SECONDS;
+    // First chunk of a turn — pad with the larger initial jitter buffer.
+    // Mid-turn underrun — pad with the smaller repair buffer so the gap
+    // is short but we don't immediately stutter again.
+    if (this.nextStartTime === 0) {
+      this.nextStartTime = now + INITIAL_JITTER_SECONDS;
+    } else if (this.nextStartTime < now) {
+      this.nextStartTime = now + UNDERRUN_REPAIR_SECONDS;
     }
     const startAt = this.nextStartTime;
     src.start(startAt);
