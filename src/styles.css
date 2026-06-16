@@ -137,8 +137,34 @@
     border-color: var(--color-border);
   }
 
+  html,
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
+    overscroll-behavior: none;
+    -webkit-tap-highlight-color: transparent;
   }
+
+  body {
+    touch-action: manipulation;
+  }
+
+  button {
+    white-space: pre-line;
+  }
+}
+
+@keyframes vc-pulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.55);
+  }
+  50% {
+    transform: scale(1.035);
+    box-shadow: 0 0 0 28px rgba(251, 191, 36, 0);
+  }
+}
+
+.animate-vc-pulse {
+  animation: vc-pulse 2.2s ease-in-out infinite;
 }
