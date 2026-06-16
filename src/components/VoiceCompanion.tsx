@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { WaveformOrb } from "./WaveformOrb";
 import { buildSystemPrompt } from "@/lib/voice/systemPrompt";
-import { GeminiLiveClient } from "@/lib/voice/geminiLive";
+import { QwenLiveClient } from "@/lib/voice/qwenLive";
 import { AudioEngine } from "@/lib/voice/audioEngine";
 import { getVoiceSession } from "@/lib/voice/session.functions";
 
