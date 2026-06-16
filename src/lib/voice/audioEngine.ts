@@ -115,18 +115,21 @@ export class AudioEngine {
     this.workletNode = new AudioWorkletNode(this.captureCtx, "pcm-capture");
     this.workletNode.port.onmessage = (ev) => {
       const data = ev.data;
-      if (data?.type === "chunk") {
-        if (this.playing && typeof data.rms === "number") {
-          this.bargeInFrames = data.rms > BARGE_IN_RMS ? this.bargeInFrames + 1 : 0;
-          if (this.bargeInFrames >= BARGE_IN_FRAMES) {
-            this.stopPlayback();
-            this.cbs.onBargeIn?.();
-            this.cbs.onMicChunk(data.pcm as ArrayBuffer);
-          }
-        } else {
-          this.bargeInFrames = 0;
+      if (data?.type !== "chunk") return;
+      if (this.micMuted) {
+        this.bargeInFrames = 0;
+        return; // drop chunk entirely while mic is muted
+      }
+      if (this.playing && typeof data.rms === "number") {
+        this.bargeInFrames = data.rms > BARGE_IN_RMS ? this.bargeInFrames + 1 : 0;
+        if (this.bargeInFrames >= BARGE_IN_FRAMES) {
+          this.stopPlayback();
+          this.cbs.onBargeIn?.();
           this.cbs.onMicChunk(data.pcm as ArrayBuffer);
         }
+      } else {
+        this.bargeInFrames = 0;
+        this.cbs.onMicChunk(data.pcm as ArrayBuffer);
       }
     };
     this.micSource.connect(this.micAnalyser);
