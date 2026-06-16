@@ -114,9 +114,12 @@ export class AudioEngine {
     src.playbackRate.value = OUTPUT_PLAYBACK_SPEED;
     src.connect(this.playbackGain);
     const now = ctx.currentTime;
-    const startAt = this.playQueue.length === 0 || this.nextStartTime <= now
-      ? now + INITIAL_PLAYBACK_BUFFER_SECONDS
-      : this.nextStartTime;
+    // If we've fallen behind (underrun) or this is the first chunk of a turn,
+    // schedule ahead with a small jitter buffer.
+    if (this.nextStartTime < now) {
+      this.nextStartTime = now + INITIAL_PLAYBACK_BUFFER_SECONDS;
+    }
+    const startAt = this.nextStartTime;
     src.start(startAt);
     this.nextStartTime = startAt + buf.duration / OUTPUT_PLAYBACK_SPEED;
     this.playing = true;
