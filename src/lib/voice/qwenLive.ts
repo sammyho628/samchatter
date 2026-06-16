@@ -166,6 +166,7 @@ export class QwenLiveClient {
               instructions: opts.instructions,
               input_audio_format: "pcm16",
               output_audio_format: "pcm16",
+              input_audio_transcription: { model: "gummy-realtime-v1" },
               tools: opts.tools ?? DEFAULT_TOOLS,
               tool_choice: "auto",
               turn_detection: {
