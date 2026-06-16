@@ -23,7 +23,9 @@ If she just wants to chat, be a great listener — no tool call needed.`;
 
 export function buildSystemPrompt(template: string, context: string): string {
   const ctx = context.trim() || "(暫時冇額外背景資料)";
-  return template.includes("{{context}}")
+  const base = template.includes("{{context}}")
     ? template.replaceAll("{{context}}", ctx)
     : `${template}\n\nFamily and local context: ${ctx}.`;
+
+  return `${base}\n\nRUNTIME SAFETY RULES — these override any earlier wording:\n- Never call her 媽媽/Mum/Mom/Mother. Use 明囡 only.\n- If she asks you to check, search, look up, Yahoo Finance, stock market, US stocks, Hong Kong stocks, current prices/news/weather, or anything current, you MUST call web_search before answering. Do not say “I will check” unless you are actually calling the tool.\n- If tool use is needed, call the tool silently first, then answer from the result in short spoken Cantonese.\n- Background voices or your own speaker audio may be transcribed incorrectly; ignore unclear fragments and ask one short clarifying question instead of inventing an answer.`;
 }
