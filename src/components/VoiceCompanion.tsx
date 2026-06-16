@@ -23,6 +23,7 @@ export function VoiceCompanion() {
   const engineRef = useRef<AudioEngine | null>(null);
   const clientRef = useRef<QwenLiveClient | null>(null);
   const activeRef = useRef(false);
+  const micStartedRef = useRef(false);
 
   const fetchSession = useServerFn(getVoiceSession);
 
@@ -32,6 +33,7 @@ export function VoiceCompanion() {
     clientRef.current = null;
     await engineRef.current?.stop();
     engineRef.current = null;
+    micStartedRef.current = false;
     setStatus("idle");
   }, []);
 
@@ -67,7 +69,10 @@ export function VoiceCompanion() {
         const client = new QwenLiveClient({
           onSetupComplete: async () => {
             try {
-              await engine.startMic();
+              if (!micStartedRef.current) {
+                await engine.startMic();
+                micStartedRef.current = true;
+              }
               setStatus("listening");
             } catch (err) {
               setErrorMsg(`Mic: ${(err as Error).message}`);
@@ -99,6 +104,9 @@ export function VoiceCompanion() {
             setErrorMsg(msg);
             setStatus("error");
             activeRef.current = false;
+          },
+          onReconnecting: () => {
+            if (activeRef.current) setStatus("connecting");
           },
           onClose: () => {
             console.log("[QwenLive] closed");

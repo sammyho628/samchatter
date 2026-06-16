@@ -143,8 +143,10 @@ export class QwenLiveClient {
       const ws = new WebSocket(url);
       this.ws = ws;
       ws.binaryType = "arraybuffer";
+      let opened = false;
 
       ws.onopen = () => {
+        opened = true;
         this.reconnectAttempts = 0;
         ws.send(
           JSON.stringify({
@@ -186,8 +188,7 @@ export class QwenLiveClient {
       };
 
       ws.onerror = () => {
-        if (!this.intentionallyClosed) this.cbs.onError?.("Qwen WebSocket error");
-        reject(new Error("WebSocket error"));
+        if (!opened) reject(new Error("WebSocket error"));
       };
 
       ws.onclose = (ev) => {
