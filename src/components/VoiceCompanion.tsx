@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Settings } from "lucide-react";
-import { SettingsSheet } from "./SettingsSheet";
+import { useServerFn } from "@tanstack/react-start";
 import { WaveformOrb } from "./WaveformOrb";
-import { loadSettings, settingsComplete, type VoiceSettings } from "@/lib/voice/settings";
-import { fetchVoiceBotContext } from "@/lib/voice/supabaseContext";
 import { buildSystemPrompt } from "@/lib/voice/systemPrompt";
 import { GeminiLiveClient } from "@/lib/voice/geminiLive";
 import { AudioEngine } from "@/lib/voice/audioEngine";
+import { getVoiceSession } from "@/lib/voice/session.functions";
 
 type Status = "idle" | "connecting" | "listening" | "speaking" | "error";
 
@@ -20,15 +18,13 @@ const STATUS_LABEL: Record<Status, string> = {
 
 export function VoiceCompanion() {
   const [status, setStatus] = useState<Status>("idle");
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settings, setSettings] = useState<VoiceSettings>(() => loadSettings());
   const [errorMsg, setErrorMsg] = useState<string>("");
 
   const engineRef = useRef<AudioEngine | null>(null);
   const clientRef = useRef<GeminiLiveClient | null>(null);
   const activeRef = useRef(false);
 
-  const ready = settingsComplete(settings);
+  const fetchSession = useServerFn(getVoiceSession);
 
   const stopAll = useCallback(async () => {
     activeRef.current = false;
@@ -51,10 +47,6 @@ export function VoiceCompanion() {
       void stopAll();
       return;
     }
-    if (!ready) {
-      setSettingsOpen(true);
-      return;
-    }
 
     // CRITICAL — synchronous unlock inside the gesture for iOS Safari.
     const engine = new AudioEngine({
@@ -69,11 +61,8 @@ export function VoiceCompanion() {
 
     void (async () => {
       try {
-        const context = await fetchVoiceBotContext(
-          settings.supabaseUrl,
-          settings.supabaseAnonKey,
-        );
-        const prompt = buildSystemPrompt(context);
+        const { geminiKey, contextText } = await fetchSession();
+        const prompt = buildSystemPrompt(contextText);
 
         const client = new GeminiLiveClient({
           onSetupComplete: async () => {
@@ -105,7 +94,7 @@ export function VoiceCompanion() {
           },
         });
         clientRef.current = client;
-        await client.connect(settings.geminiKey, prompt);
+        await client.connect(geminiKey, prompt);
       } catch (err) {
         setErrorMsg((err as Error).message);
         setStatus("error");
@@ -133,13 +122,6 @@ export function VoiceCompanion() {
           <div className="text-3xl font-black tracking-tight">傾偈</div>
           <div className="mt-1 text-sm text-white/60">Voice Companion</div>
         </div>
-        <button
-          aria-label="Settings"
-          onClick={() => setSettingsOpen(true)}
-          className="grid h-12 w-12 place-items-center rounded-full bg-white/10 text-white/70 active:scale-95"
-        >
-          <Settings className="h-6 w-6" />
-        </button>
       </div>
 
       <div className="relative flex w-full flex-1 items-center justify-center">
@@ -166,18 +148,8 @@ export function VoiceCompanion() {
           <div className="mt-2 text-base text-red-300/90 break-words">
             {errorMsg}
           </div>
-        ) : !ready ? (
-          <div className="mt-2 text-base text-white/60">
-            撳右上角齒輪輸入 API Keys
-          </div>
         ) : null}
       </div>
-
-      <SettingsSheet
-        open={settingsOpen}
-        onOpenChange={setSettingsOpen}
-        onSaved={(s) => setSettings(s)}
-      />
     </div>
   );
 }
