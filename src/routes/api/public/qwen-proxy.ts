@@ -52,10 +52,10 @@ export const Route = createFileRoute("/api/public/qwen-proxy")({
         const client = pair[0];
         const server = pair[1];
 
-        // @ts-expect-error — Cloudflare-only method
-        server.accept();
+        (server as unknown as { accept: () => void }).accept();
         // @ts-expect-error — Cloudflare-only method
         upstream.accept();
+
 
         // Pipe both directions
         const closeBoth = (code = 1000, reason = "") => {
