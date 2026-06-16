@@ -190,8 +190,8 @@ function TestQwenPage() {
           modalities: ["text", "audio"],
           voice: "Cherry",
           instructions: SYSTEM_PROMPT,
-          input_audio_format: "pcm",
-          output_audio_format: "pcm",
+          input_audio_format: "pcm16",
+          output_audio_format: "pcm24",
           turn_detection: {
             type: "semantic_vad",
             threshold: 0.5,
@@ -282,7 +282,11 @@ function TestQwenPage() {
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
     const audio = b64encode(new Uint8Array(pcm));
     if (providerRef.current === "Qwen") {
-      ws.send(JSON.stringify({ type: "input_audio_buffer.append", audio }));
+      ws.send(JSON.stringify({
+        event_id: `evt_audio_${Date.now()}`,
+        type: "input_audio_buffer.append",
+        audio,
+      }));
     } else {
       ws.send(JSON.stringify({
         realtimeInput: {

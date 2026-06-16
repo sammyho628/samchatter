@@ -19,9 +19,11 @@ export const Route = createFileRoute("/api/public/qwen-proxy")({
         }
 
         const url = new URL(request.url);
-        const model =
-          url.searchParams.get("model") || "qwen3-omni-flash-realtime";
-        const upstreamUrl = `wss://dashscope-intl.aliyuncs.com/api-ws/v1/realtime?model=${encodeURIComponent(model)}`;
+        const model = url.searchParams.get("model") || "qwen3-omni-flash-realtime";
+        // Workers initiate outbound WebSocket handshakes via fetch() to the
+        // HTTPS endpoint plus `Upgrade: websocket`; using a `wss:` URL here
+        // can fail before DashScope accepts the upgrade.
+        const upstreamUrl = `https://dashscope-intl.aliyuncs.com/api-ws/v1/realtime?model=${encodeURIComponent(model)}`;
 
         // Open upstream WS by issuing a fetch with Upgrade headers.
         // This is Cloudflare Workers' supported pattern.
@@ -34,16 +36,24 @@ export const Route = createFileRoute("/api/public/qwen-proxy")({
             },
           });
         } catch (e) {
-          return new Response(`Upstream connect failed: ${(e as Error).message}`, { status: 502 });
+          console.error("[qwen-proxy] upstream connect failed", (e as Error).message);
+          return new Response(`Upstream connect failed: ${(e as Error).message}`, {
+            status: 502,
+          });
         }
 
         // @ts-expect-error — Cloudflare Workers extension
         const upstream: WebSocket | null = upstreamResp.webSocket;
         if (!upstream) {
           const txt = await upstreamResp.text().catch(() => "");
+          console.error(
+            "[qwen-proxy] upstream did not upgrade",
+            upstreamResp.status,
+            txt.slice(0, 500),
+          );
           return new Response(
             `Upstream did not upgrade (status ${upstreamResp.status}): ${txt.slice(0, 500)}`,
-            { status: 502 }
+            { status: 502 },
           );
         }
 
@@ -55,12 +65,18 @@ export const Route = createFileRoute("/api/public/qwen-proxy")({
         (server as unknown as { accept: () => void }).accept();
         // @ts-expect-error — Cloudflare-only method
         upstream.accept();
-
-
         // Pipe both directions
         const closeBoth = (code = 1000, reason = "") => {
-          try { server.close(code, reason); } catch {}
-          try { upstream.close(code, reason); } catch {}
+          try {
+            server.close(code, reason);
+          } catch (e) {
+            console.debug("[qwen-proxy] ignored client close error", e);
+          }
+          try {
+            upstream.close(code, reason);
+          } catch (e) {
+            console.debug("[qwen-proxy] ignored upstream close error", e);
+          }
         };
 
         server.addEventListener("message", (ev: MessageEvent) => {
@@ -77,13 +93,19 @@ export const Route = createFileRoute("/api/public/qwen-proxy")({
             closeBoth(1011, `upstream->client send: ${(e as Error).message}`);
           }
         });
-
-
         server.addEventListener("close", (ev: CloseEvent) => {
-          try { upstream.close(ev.code, ev.reason); } catch {}
+          try {
+            upstream.close(ev.code, ev.reason);
+          } catch (e) {
+            console.debug("[qwen-proxy] ignored upstream close error", e);
+          }
         });
         upstream.addEventListener("close", (ev: CloseEvent) => {
-          try { server.close(ev.code, ev.reason); } catch {}
+          try {
+            server.close(ev.code, ev.reason);
+          } catch (e) {
+            console.debug("[qwen-proxy] ignored client close error", e);
+          }
         });
         server.addEventListener("error", () => closeBoth(1011, "client error"));
         upstream.addEventListener("error", () => closeBoth(1011, "upstream error"));
