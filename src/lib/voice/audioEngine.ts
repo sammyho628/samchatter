@@ -7,7 +7,10 @@ export type AudioEngineCallbacks = {
 
 const PLAYBACK_RATE = 24000;
 const CAPTURE_RATE = 16000;
-const BARGE_IN_RMS = 0.05;
+const BARGE_IN_RMS = 0.08;
+const BARGE_IN_FRAMES = 2;
+const INITIAL_PLAYBACK_BUFFER_SECONDS = 0.22;
+const OUTPUT_PLAYBACK_SPEED = 0.96;
 
 export class AudioEngine {
   captureCtx: AudioContext | null = null;
@@ -22,6 +25,7 @@ export class AudioEngine {
   private nextStartTime = 0;
   private playing = false;
   private playbackGain: GainNode | null = null;
+  private bargeInFrames = 0;
   private cbs: AudioEngineCallbacks;
 
   constructor(cbs: AudioEngineCallbacks) {
@@ -71,14 +75,16 @@ export class AudioEngine {
     this.workletNode.port.onmessage = (ev) => {
       const data = ev.data;
       if (data?.type === "chunk") {
-        this.cbs.onMicChunk(data.pcm as ArrayBuffer);
-        if (
-          this.playing &&
-          typeof data.rms === "number" &&
-          data.rms > BARGE_IN_RMS
-        ) {
-          this.stopPlayback();
-          this.cbs.onBargeIn?.();
+        if (this.playing && typeof data.rms === "number") {
+          this.bargeInFrames = data.rms > BARGE_IN_RMS ? this.bargeInFrames + 1 : 0;
+          if (this.bargeInFrames >= BARGE_IN_FRAMES) {
+            this.stopPlayback();
+            this.cbs.onBargeIn?.();
+            this.cbs.onMicChunk(data.pcm as ArrayBuffer);
+          }
+        } else {
+          this.bargeInFrames = 0;
+          this.cbs.onMicChunk(data.pcm as ArrayBuffer);
         }
       }
     };
@@ -105,11 +111,14 @@ export class AudioEngine {
     }
     const src = ctx.createBufferSource();
     src.buffer = buf;
+    src.playbackRate.value = OUTPUT_PLAYBACK_SPEED;
     src.connect(this.playbackGain);
     const now = ctx.currentTime;
-    const startAt = Math.max(now, this.nextStartTime);
+    const startAt = this.playQueue.length === 0 || this.nextStartTime <= now
+      ? now + INITIAL_PLAYBACK_BUFFER_SECONDS
+      : this.nextStartTime;
     src.start(startAt);
-    this.nextStartTime = startAt + buf.duration;
+    this.nextStartTime = startAt + buf.duration / OUTPUT_PLAYBACK_SPEED;
     this.playing = true;
     this.playQueue.push(src);
     src.onended = () => {
@@ -117,6 +126,7 @@ export class AudioEngine {
       if (idx >= 0) this.playQueue.splice(idx, 1);
       if (this.playQueue.length === 0) {
         this.playing = false;
+        this.nextStartTime = 0;
       }
     };
   }
@@ -132,6 +142,7 @@ export class AudioEngine {
     this.playQueue = [];
     this.nextStartTime = 0;
     this.playing = false;
+    this.bargeInFrames = 0;
   }
 
   isPlaying() {
