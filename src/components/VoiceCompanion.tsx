@@ -267,8 +267,76 @@ export function VoiceCompanion() {
             {errorMsg}
           </div>
         ) : null}
-        <div className="mt-3 text-xs text-white/30">v{APP_VERSION}</div>
+        <div className="mt-3 flex items-center justify-center gap-3 text-xs text-white/40">
+          <span>v{APP_VERSION}</span>
+          <button
+            type="button"
+            onClick={() => setDebugOpen((v) => !v)}
+            className="rounded-full border border-white/20 px-3 py-1 text-white/60 hover:bg-white/5"
+          >
+            {debugOpen ? "Hide debug" : "Show debug"} ({debugLog.length})
+          </button>
+        </div>
       </div>
+
+      {debugOpen ? (
+        <div className="fixed inset-x-0 bottom-0 z-50 max-h-[55vh] overflow-y-auto border-t border-white/10 bg-black/80 p-3 text-xs backdrop-blur">
+          <div className="mb-2 flex items-center justify-between">
+            <div className="font-mono text-white/70">Debug ({debugLog.length})</div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setDebugLog([])}
+                className="rounded border border-white/20 px-2 py-0.5 text-white/70 hover:bg-white/10"
+              >
+                Clear
+              </button>
+              <button
+                type="button"
+                onClick={() => setDebugOpen(false)}
+                className="rounded border border-white/20 px-2 py-0.5 text-white/70 hover:bg-white/10"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+          {debugLog.length === 0 ? (
+            <div className="text-white/40">No events yet. Press 開始傾偈 then speak.</div>
+          ) : (
+            <ul className="space-y-1 font-mono">
+              {debugLog.map((e, i) => {
+                const ts = new Date(e.t).toLocaleTimeString();
+                const color =
+                  e.kind === "user"
+                    ? "text-emerald-300"
+                    : e.kind === "ai"
+                      ? "text-sky-300"
+                      : e.kind === "tool"
+                        ? "text-amber-300"
+                        : e.kind === "err"
+                          ? "text-rose-300"
+                          : "text-white/50";
+                const tag =
+                  e.kind === "user"
+                    ? "YOU"
+                    : e.kind === "ai"
+                      ? "AI "
+                      : e.kind === "tool"
+                        ? "TOOL"
+                        : e.kind === "err"
+                          ? "ERR"
+                          : "evt";
+                return (
+                  <li key={i} className={`break-words ${color}`}>
+                    <span className="text-white/30">{ts}</span>{" "}
+                    <span className="text-white/40">{tag}</span> {e.text}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }
