@@ -176,7 +176,7 @@ function TestQwenPage() {
     // Connect through our server proxy so the Authorization: Bearer header
     // (which browsers cannot set on a WebSocket) can be added server-side.
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const url = `${proto}//${window.location.host}/api/public/qwen-proxy?model=qwen3-omni-flash-realtime`;
+    const url = `${proto}//${window.location.host}/api/public/qwen-proxy?model=qwen3.5-omni-flash-realtime`;
     const ws = new WebSocket(url);
     wsRef.current = ws;
     playbackRateRef.current = 24000;
@@ -210,7 +210,7 @@ function TestQwenPage() {
         type: "session.update",
         session: {
           modalities: ["text", "audio"],
-          voice: "Cherry",
+          voice: "Rocky",
           instructions: SYSTEM_PROMPT,
           input_audio_format: "pcm16",
           output_audio_format: "pcm16",

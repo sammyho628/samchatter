@@ -122,7 +122,7 @@ export class QwenLiveClient {
   }
 
   connect(opts: QwenOptions): Promise<void> {
-    const model = opts.model ?? "qwen3-omni-flash-realtime";
+    const model = opts.model ?? "qwen3.5-omni-flash-realtime";
     const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
     const url = `${proto}//${window.location.host}/api/public/qwen-proxy?model=${encodeURIComponent(model)}`;
 
