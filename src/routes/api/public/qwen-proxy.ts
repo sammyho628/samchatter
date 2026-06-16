@@ -65,7 +65,6 @@ export const Route = createFileRoute("/api/public/qwen-proxy")({
 
         server.addEventListener("message", (ev: MessageEvent) => {
           try {
-            // @ts-expect-error — send accepts string|ArrayBuffer
             upstream.send(ev.data);
           } catch (e) {
             closeBoth(1011, `proxy->upstream send: ${(e as Error).message}`);
@@ -73,12 +72,12 @@ export const Route = createFileRoute("/api/public/qwen-proxy")({
         });
         upstream.addEventListener("message", (ev: MessageEvent) => {
           try {
-            // @ts-expect-error — send accepts string|ArrayBuffer
             server.send(ev.data);
           } catch (e) {
             closeBoth(1011, `upstream->client send: ${(e as Error).message}`);
           }
         });
+
 
         server.addEventListener("close", (ev: CloseEvent) => {
           try { upstream.close(ev.code, ev.reason); } catch {}
