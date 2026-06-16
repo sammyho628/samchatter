@@ -363,7 +363,11 @@ export class QwenLiveClient {
       this.reconnectTimer = null;
     }
     try {
-      this.ws?.close();
+      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+        this.ws.close(1000, "User ended session");
+      } else {
+        this.ws?.close();
+      }
     } catch {
       /* ignore */
     }
