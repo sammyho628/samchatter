@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as TestqwenRouteImport } from './routes/testqwen'
 import { Route as TestGeminiRouteImport } from './routes/test-gemini'
+import { Route as InstructionRouteImport } from './routes/instruction'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiPublicQwenProxyRouteImport } from './routes/api/public/qwen-proxy'
 
@@ -22,6 +23,11 @@ const TestqwenRoute = TestqwenRouteImport.update({
 const TestGeminiRoute = TestGeminiRouteImport.update({
   id: '/test-gemini',
   path: '/test-gemini',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const InstructionRoute = InstructionRouteImport.update({
+  id: '/instruction',
+  path: '/instruction',
   getParentRoute: () => rootRouteImport,
 } as any)
 const IndexRoute = IndexRouteImport.update({
@@ -37,12 +43,14 @@ const ApiPublicQwenProxyRoute = ApiPublicQwenProxyRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/instruction': typeof InstructionRoute
   '/test-gemini': typeof TestGeminiRoute
   '/testqwen': typeof TestqwenRoute
   '/api/public/qwen-proxy': typeof ApiPublicQwenProxyRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/instruction': typeof InstructionRoute
   '/test-gemini': typeof TestGeminiRoute
   '/testqwen': typeof TestqwenRoute
   '/api/public/qwen-proxy': typeof ApiPublicQwenProxyRoute
@@ -50,20 +58,38 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/instruction': typeof InstructionRoute
   '/test-gemini': typeof TestGeminiRoute
   '/testqwen': typeof TestqwenRoute
   '/api/public/qwen-proxy': typeof ApiPublicQwenProxyRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/test-gemini' | '/testqwen' | '/api/public/qwen-proxy'
+  fullPaths:
+    | '/'
+    | '/instruction'
+    | '/test-gemini'
+    | '/testqwen'
+    | '/api/public/qwen-proxy'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/test-gemini' | '/testqwen' | '/api/public/qwen-proxy'
-  id: '__root__' | '/' | '/test-gemini' | '/testqwen' | '/api/public/qwen-proxy'
+  to:
+    | '/'
+    | '/instruction'
+    | '/test-gemini'
+    | '/testqwen'
+    | '/api/public/qwen-proxy'
+  id:
+    | '__root__'
+    | '/'
+    | '/instruction'
+    | '/test-gemini'
+    | '/testqwen'
+    | '/api/public/qwen-proxy'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  InstructionRoute: typeof InstructionRoute
   TestGeminiRoute: typeof TestGeminiRoute
   TestqwenRoute: typeof TestqwenRoute
   ApiPublicQwenProxyRoute: typeof ApiPublicQwenProxyRoute
@@ -85,6 +111,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TestGeminiRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/instruction': {
+      id: '/instruction'
+      path: '/instruction'
+      fullPath: '/instruction'
+      preLoaderRoute: typeof InstructionRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -104,6 +137,7 @@ declare module '@tanstack/react-router' {
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  InstructionRoute: InstructionRoute,
   TestGeminiRoute: TestGeminiRoute,
   TestqwenRoute: TestqwenRoute,
   ApiPublicQwenProxyRoute: ApiPublicQwenProxyRoute,
