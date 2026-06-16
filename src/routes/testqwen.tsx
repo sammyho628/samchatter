@@ -171,13 +171,15 @@ function TestQwenPage() {
     void stopAll();
   };
 
-  const startQwen = async (apiKey: string) => {
-    const url = `wss://dashscope.aliyuncs.com/api-ws/v1/realtime?model=qwen3.5-omni-flash-realtime`;
-    // Note: DashScope expects Bearer auth. Browser WebSocket can't set headers,
-    // so we pass it as the Sec-WebSocket-Protocol subprotocol (DashScope accepts this).
-    const ws = new WebSocket(url, ["realtime", `Bearer.${apiKey}`]);
+  const startQwen = async (_apiKey: string) => {
+    // Connect through our server proxy so the Authorization: Bearer header
+    // (which browsers cannot set on a WebSocket) can be added server-side.
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const url = `${proto}//${window.location.host}/api/public/qwen-proxy?model=qwen3-omni-flash-realtime`;
+    const ws = new WebSocket(url);
     wsRef.current = ws;
     playbackRateRef.current = 24000;
+
 
     ws.onopen = () => {
       ws.send(JSON.stringify({
