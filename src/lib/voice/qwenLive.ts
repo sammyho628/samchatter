@@ -71,6 +71,13 @@ export type QwenCallbacks = {
   onError?: (msg: string) => void;
   onReconnecting?: () => void;
   onClose?: () => void;
+  // Streaming text — assistant audio transcript (what the AI is saying).
+  onAssistantTranscriptDelta?: (text: string) => void;
+  onAssistantTranscriptDone?: (text: string) => void;
+  // Final user transcript from server-side ASR.
+  onUserTranscript?: (text: string) => void;
+  // Arbitrary debug event.
+  onDebug?: (msg: string) => void;
 };
 
 export type QwenOptions = {
