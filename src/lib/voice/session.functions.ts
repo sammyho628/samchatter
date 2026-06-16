@@ -2,10 +2,9 @@ import { createServerFn } from "@tanstack/react-start";
 
 export const getVoiceSession = createServerFn({ method: "GET" }).handler(
   async () => {
-    const geminiKey = process.env.GEMINI_API_KEY;
-    if (!geminiKey) {
-      throw new Error("GEMINI_API_KEY is not configured on the server.");
-    }
+    // GEMINI_API_KEY is no longer required — Qwen is used via the server proxy
+    // (DASHSCOPE_API_KEY is read inside the proxy route, not here).
+    const geminiKey = process.env.GEMINI_API_KEY ?? "";
 
     const { supabaseAdmin } = await import(
       "@/integrations/supabase/client.server"
