@@ -274,12 +274,15 @@ function TestQwenPage() {
   const start = async () => {
     setErrMsg(null);
     const { provider, dashscopeKey, geminiKey } = settings;
-    const key = provider === "Qwen" ? dashscopeKey : geminiKey;
-    if (!key.trim()) {
+    // Qwen uses the server-side proxy (no client key needed).
+    // Gemini still needs the user's API key in the browser.
+    const key = provider === "Qwen" ? (dashscopeKey || "proxy") : geminiKey;
+    if (provider === "Gemini" && !key.trim()) {
       setShowSettings(true);
-      setErrMsg(`Please add your ${provider} API key in Settings.`);
+      setErrMsg(`Please add your Gemini API key in Settings.`);
       return;
     }
+
     providerRef.current = provider;
     activeRef.current = true;
     setStatus("connecting");
