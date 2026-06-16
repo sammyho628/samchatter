@@ -327,6 +327,7 @@ export class QwenLiveClient {
       const name = String(msg.name ?? this.pendingCalls.get(callId)?.name ?? "");
       const argsStr = String(msg.arguments ?? this.pendingCalls.get(callId)?.args ?? "");
       this.pendingCalls.delete(callId);
+      this.beginToolSuppression();
       await this.runTool({ callId, name, argsStr });
       return;
     }
