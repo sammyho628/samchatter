@@ -10,8 +10,8 @@ const PLAYBACK_RATE = 24000;
 const CAPTURE_RATE = 16000;
 // Much higher threshold + more sustained frames so background chatter,
 // TV, or someone else talking in the room does NOT trigger barge-in.
-const BARGE_IN_RMS = 0.18;
-const BARGE_IN_FRAMES = 5;
+const BARGE_IN_RMS = 0.28;
+const BARGE_IN_FRAMES = 15;
 
 // Pre-buffer strategy:
 // Hold back the first chunks of every turn until we have at least this
@@ -185,6 +185,7 @@ export class AudioEngine {
         this.playing = false;
         this.nextStartTime = 0;
         this.inTurn = false;
+        this.micHoldUntil = performance.now() + INPUT_RESUME_AFTER_PLAYBACK_MS;
       }
     };
   }
