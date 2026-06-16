@@ -63,8 +63,9 @@ export function VoiceCompanion() {
 
     void (async () => {
       try {
-        const { contextText } = await fetchSession();
-        const prompt = buildSystemPrompt(contextText);
+        const { contextText, promptTemplate } = await fetchSession();
+        const prompt = buildSystemPrompt(promptTemplate, contextText);
+
 
         const client = new QwenLiveClient({
           onSetupComplete: async () => {
