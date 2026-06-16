@@ -182,14 +182,21 @@ function TestQwenPage() {
 
 
     ws.onopen = () => {
+      console.log("[Qwen] ws.open — sending session.update");
       ws.send(JSON.stringify({
+        event_id: `evt_${Date.now()}`,
         type: "session.update",
         session: {
-          modalities: ["audio", "text"],
+          modalities: ["text", "audio"],
+          voice: "Cherry",
           instructions: SYSTEM_PROMPT,
           input_audio_format: "pcm",
           output_audio_format: "pcm",
-          turn_detection: { type: "semantic_vad" },
+          turn_detection: {
+            type: "semantic_vad",
+            threshold: 0.5,
+            silence_duration_ms: 800,
+          },
         },
       }));
       setStatus("listening");
@@ -200,19 +207,33 @@ function TestQwenPage() {
           : ev.data instanceof Blob ? await ev.data.text()
           : new TextDecoder().decode(ev.data);
         const msg = JSON.parse(text);
+        // Log everything except audio bytes (too noisy)
+        if (msg.type !== "response.audio.delta") {
+          console.log("[Qwen] <-", msg.type, msg);
+        }
         if (msg.type === "response.audio.delta" && msg.delta) {
           enqueuePcm(b64decode(msg.delta));
+        } else if (msg.type === "input_audio_buffer.speech_started") {
+          stopPlayback();
+          setStatus((s) => (s === "error" ? s : "listening"));
         } else if (msg.type === "error") {
-          fail(msg.error?.message ?? "Qwen error");
+          fail(msg.error?.message ?? JSON.stringify(msg.error ?? msg));
         }
-      } catch {}
+      } catch (e) {
+        console.warn("[Qwen] parse error", e);
+      }
     };
-    ws.onerror = () => fail("Qwen WebSocket error");
+    ws.onerror = (e) => {
+      console.error("[Qwen] ws.error", e);
+      fail("Qwen WebSocket error (check console)");
+    };
     ws.onclose = (ev) => {
+      console.log("[Qwen] ws.close", ev.code, ev.reason);
       if (activeRef.current && ev.code !== 1000)
         fail(`Qwen closed (${ev.code}) ${ev.reason || ""}`);
     };
   };
+
 
   const startGemini = async (apiKey: string) => {
     const url = `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${encodeURIComponent(apiKey)}`;
