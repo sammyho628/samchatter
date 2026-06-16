@@ -84,6 +84,8 @@ export type QwenCallbacks = {
   onUserTranscript?: (text: string) => void;
   // Arbitrary debug event.
   onDebug?: (msg: string) => void;
+  // Ask the UI to flush any queued/playing audio immediately (e.g. tool call).
+  onFlushPlayback?: () => void;
 };
 
 export type QwenOptions = {
@@ -136,6 +138,10 @@ export class QwenLiveClient {
   private intentionallyClosed = false;
   private reconnectTimer: number | null = null;
   private reconnectAttempts = 0;
+  // True from the moment we see a function_call streaming until we've sent
+  // back the tool result. While true we drop any response.audio.delta so the
+  // model's pre-tool partial sentence never reaches the speaker.
+  private toolInProgress = false;
 
   constructor(cbs: QwenCallbacks) {
     this.cbs = cbs;
@@ -177,8 +183,8 @@ export class QwenLiveClient {
               tool_choice: "auto",
               turn_detection: {
                 type: "server_vad",
-                threshold: 0.75,
-                silence_duration_ms: 700,
+                threshold: 0.5,
+                silence_duration_ms: 800,
               },
               temperature: 0.6,
               repetition_penalty: 1.15,
@@ -252,6 +258,12 @@ export class QwenLiveClient {
     if (!type) return;
 
     if (type === "response.audio.delta" && typeof msg.delta === "string") {
+      if (this.toolInProgress) {
+        // Drop any audio the model produced before / during tool execution —
+        // it's a half-spoken sentence that will be repeated after the tool
+        // result comes back.
+        return;
+      }
       this.cbs.onAudio?.(base64ToBytes(msg.delta));
       return;
     }
@@ -302,6 +314,7 @@ export class QwenLiveClient {
       const name = String(msg.name ?? "");
       const delta = String(msg.delta ?? "");
       if (!callId) return;
+      this.beginToolSuppression();
       const cur = this.pendingCalls.get(callId) ?? { name, args: "" };
       cur.name = cur.name || name;
       cur.args += delta;
@@ -314,6 +327,7 @@ export class QwenLiveClient {
       const name = String(msg.name ?? this.pendingCalls.get(callId)?.name ?? "");
       const argsStr = String(msg.arguments ?? this.pendingCalls.get(callId)?.args ?? "");
       this.pendingCalls.delete(callId);
+      this.beginToolSuppression();
       await this.runTool({ callId, name, argsStr });
       return;
     }
@@ -323,6 +337,7 @@ export class QwenLiveClient {
         | { type?: string; name?: string; call_id?: string; arguments?: string }
         | undefined;
       if (item?.type === "function_call" && item.call_id && item.name) {
+        this.beginToolSuppression();
         await this.runTool({
           callId: item.call_id,
           name: item.name,
@@ -370,6 +385,17 @@ export class QwenLiveClient {
     this.sendToolResult(callId, summary);
   }
 
+  private beginToolSuppression() {
+    if (this.toolInProgress) return;
+    this.toolInProgress = true;
+    this.cbs.onDebug?.("🔧 tool call → flushing pre-tool audio");
+    try {
+      this.cbs.onFlushPlayback?.();
+    } catch (e) {
+      console.warn("[QwenLive] flush callback threw", e);
+    }
+  }
+
   private sendToolResult(callId: string, output: string) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     this.ws.send(
@@ -383,6 +409,8 @@ export class QwenLiveClient {
         },
       }),
     );
+    // Tool result has been fed back — allow the post-tool reply audio through.
+    this.toolInProgress = false;
     // Ask the model to continue with the tool result.
     this.ws.send(
       JSON.stringify({

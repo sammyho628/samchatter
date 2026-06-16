@@ -136,6 +136,9 @@ export function VoiceCompanion() {
             engine.stopPlayback();
             if (activeRef.current) setStatus("listening");
           },
+          onFlushPlayback: () => {
+            engine.stopPlayback();
+          },
           onToolResult: ({ name, summary }) => {
             console.log("[Qwen] tool_result <-", name, summary);
             pushLog(
