@@ -87,6 +87,7 @@ export function VoiceCompanion() {
     const engine = new AudioEngine({
       onMicChunk: (pcm) => clientRef.current?.sendAudioChunk(pcm),
       onBargeIn: () => setStatus("listening"),
+      onDebug: (m) => pushLog("evt", m),
     });
     engine.unlock();
     engine.setMuted(muted);
@@ -95,6 +96,8 @@ export function VoiceCompanion() {
     activeRef.current = true;
     setStatus("connecting");
     setErrorMsg("");
+    setDebugLog([]);
+    assistantBufRef.current = "";
 
     void (async () => {
       try {
