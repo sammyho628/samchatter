@@ -76,6 +76,7 @@ export function VoiceCompanion() {
     });
     engine.unlock();
     engine.setMuted(muted);
+    engine.setMicMuted(micMuted);
     engineRef.current = engine;
     activeRef.current = true;
     setStatus("connecting");
