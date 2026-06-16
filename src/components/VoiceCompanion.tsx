@@ -124,7 +124,7 @@ export function VoiceCompanion() {
             setStatus("speaking");
           },
           onSpeechStarted: () => {
-            engine.stopPlayback();
+            engine.stopPlayback({ holdMic: false });
             if (activeRef.current) setStatus("listening");
           },
           onTurnComplete: () => {

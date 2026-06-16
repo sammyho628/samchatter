@@ -21,42 +21,48 @@ function base64ToBytes(b64: string): Uint8Array {
 
 export type QwenToolDef = {
   type: "function";
-  name: string;
-  description: string;
-  parameters: Record<string, unknown>;
+  function: {
+    name: string;
+    description: string;
+    parameters: Record<string, unknown>;
+  };
 };
 
 export const DEFAULT_TOOLS: QwenToolDef[] = [
   {
     type: "function",
-    name: "search_places",
-    description:
-      "Search for real restaurants, businesses, or locations in Hong Kong. Returns name, address and rating of top results.",
-    parameters: {
-      type: "object",
-      properties: {
-        query: {
-          type: "string",
-          description: "Natural-language place search query, e.g. 'dim sum in Sham Shui Po'.",
+    function: {
+      name: "search_places",
+      description:
+        "Search for real restaurants, businesses, or locations in Hong Kong. Returns name, address and rating of top results.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "Natural-language place search query, e.g. 'dim sum in Sham Shui Po'.",
+          },
         },
+        required: ["query"],
       },
-      required: ["query"],
     },
   },
   {
     type: "function",
-    name: "web_search",
-    description:
-      "Search the internet for current events, news, or general factual knowledge.",
-    parameters: {
-      type: "object",
-      properties: {
-        query: {
-          type: "string",
-          description: "What to look up on the web.",
+    function: {
+      name: "web_search",
+      description:
+        "Search the internet for current events, finance, Yahoo Finance, stock market, current events, news, weather, prices, sports scores, or recently changing facts.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "What to look up on the web.",
+          },
         },
+        required: ["query"],
       },
-      required: ["query"],
     },
   },
 ];
@@ -165,15 +171,18 @@ export class QwenLiveClient {
               voice: opts.voice ?? "Rocky",
               instructions: opts.instructions,
               input_audio_format: "pcm16",
-              output_audio_format: "pcm16",
-              input_audio_transcription: { model: "gummy-realtime-v1" },
+              output_audio_format: "pcm",
+              input_audio_transcription: { model: "qwen3-asr-flash-realtime" },
               tools: opts.tools ?? DEFAULT_TOOLS,
               tool_choice: "auto",
               turn_detection: {
-                type: "semantic_vad",
-                threshold: 0.5,
-                silence_duration_ms: 800,
+                type: "server_vad",
+                threshold: 0.75,
+                silence_duration_ms: 700,
               },
+              temperature: 0.6,
+              repetition_penalty: 1.15,
+              presence_penalty: 0.3,
             },
           }),
         );

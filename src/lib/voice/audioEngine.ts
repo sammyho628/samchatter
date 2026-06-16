@@ -10,8 +10,8 @@ const PLAYBACK_RATE = 24000;
 const CAPTURE_RATE = 16000;
 // Much higher threshold + more sustained frames so background chatter,
 // TV, or someone else talking in the room does NOT trigger barge-in.
-const BARGE_IN_RMS = 0.18;
-const BARGE_IN_FRAMES = 5;
+const BARGE_IN_RMS = 0.28;
+const BARGE_IN_FRAMES = 15;
 
 // Pre-buffer strategy:
 // Hold back the first chunks of every turn until we have at least this
@@ -24,6 +24,10 @@ const PRELOAD_MAX_MS = 900;
 // If we drift behind mid-turn (network hiccup), pad by this much before
 // resuming so we don't immediately underrun again.
 const UNDERRUN_REPAIR_SECONDS = 0.25;
+// Keep the mic feed closed briefly after assistant playback. Phones often
+// re-capture the speaker tail and the server thinks the user spoke again,
+// causing repeated words / bogus turns right after a reply.
+const INPUT_RESUME_AFTER_PLAYBACK_MS = 650;
 
 export class AudioEngine {
   captureCtx: AudioContext | null = null;
@@ -47,6 +51,8 @@ export class AudioEngine {
   private prerollStartedAt = 0;
   private prerollTimer: number | null = null;
   private inTurn = false;
+  private micHoldUntil = 0;
+  private lastHoldDebugAt = 0;
 
   constructor(cbs: AudioEngineCallbacks) {
     this.cbs = cbs;
@@ -119,11 +125,20 @@ export class AudioEngine {
       if (this.playing && typeof data.rms === "number") {
         this.bargeInFrames = data.rms > BARGE_IN_RMS ? this.bargeInFrames + 1 : 0;
         if (this.bargeInFrames >= BARGE_IN_FRAMES) {
-          this.stopPlayback();
+          this.stopPlayback({ holdMic: false });
           this.cbs.onBargeIn?.();
           this.cbs.onMicChunk(data.pcm as ArrayBuffer);
         }
       } else {
+        const now = performance.now();
+        if (now < this.micHoldUntil) {
+          this.bargeInFrames = 0;
+          if (now - this.lastHoldDebugAt > 1000) {
+            this.lastHoldDebugAt = now;
+            this.cbs.onDebug?.("mic held briefly to avoid speaker echo");
+          }
+          return;
+        }
         this.bargeInFrames = 0;
         this.cbs.onMicChunk(data.pcm as ArrayBuffer);
       }
@@ -170,6 +185,7 @@ export class AudioEngine {
         this.playing = false;
         this.nextStartTime = 0;
         this.inTurn = false;
+        this.micHoldUntil = performance.now() + INPUT_RESUME_AFTER_PLAYBACK_MS;
       }
     };
   }
@@ -227,7 +243,7 @@ export class AudioEngine {
     this.scheduleBuffer(buf);
   }
 
-  stopPlayback() {
+  stopPlayback(opts: { holdMic?: boolean } = {}) {
     for (const src of this.playQueue) {
       try {
         src.onended = null;
@@ -245,6 +261,9 @@ export class AudioEngine {
     this.nextStartTime = 0;
     this.playing = false;
     this.inTurn = false;
+    if (opts.holdMic !== false) {
+      this.micHoldUntil = performance.now() + INPUT_RESUME_AFTER_PLAYBACK_MS;
+    }
     this.bargeInFrames = 0;
   }
 

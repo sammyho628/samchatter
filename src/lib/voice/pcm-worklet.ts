@@ -2,7 +2,7 @@
 // via a Blob URL so it works without a separate static asset.
 //
 // - Captures mono Float32 audio at the AudioContext sample rate (16kHz).
-// - Buffers ~100ms chunks (1600 samples).
+// - Buffers ~40ms chunks (640 samples) so server VAD receives speech promptly.
 // - Converts to 16-bit little-endian PCM.
 // - Posts { type: 'chunk', pcm: ArrayBuffer, rms: number } to the main thread.
 
@@ -10,7 +10,7 @@ export const PCM_WORKLET_SOURCE = `
 class PCMCaptureProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
-    this._buf = new Float32Array(1600);
+    this._buf = new Float32Array(640);
     this._w = 0;
   }
   process(inputs) {
