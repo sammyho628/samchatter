@@ -66,6 +66,7 @@ export function VoiceCompanion() {
       onBargeIn: () => setStatus("listening"),
     });
     engine.unlock();
+    engine.setMuted(muted);
     engineRef.current = engine;
     activeRef.current = true;
     setStatus("connecting");
