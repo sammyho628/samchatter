@@ -210,7 +210,7 @@ function TestQwenPage() {
         type: "session.update",
         session: {
           modalities: ["text", "audio"],
-          voice: "Cherry",
+          voice: "Rocky",
           instructions: SYSTEM_PROMPT,
           input_audio_format: "pcm16",
           output_audio_format: "pcm16",
