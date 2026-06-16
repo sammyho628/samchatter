@@ -118,6 +118,7 @@ export class QwenLiveClient {
   // Accumulate streamed function-call arguments by call_id.
   private pendingCalls = new Map<string, { name: string; args: string }>();
   private handledToolCalls = new Set<string>();
+  private recentToolSignatures = new Map<string, number>();
   private opts: QwenOptions | null = null;
   private intentionallyClosed = false;
   private reconnectTimer: number | null = null;
@@ -296,6 +297,13 @@ export class QwenLiveClient {
   }) {
     if (this.handledToolCalls.has(callId)) return;
     this.handledToolCalls.add(callId);
+    const signature = `${name}:${argsStr}`;
+    const now = Date.now();
+    for (const [key, at] of this.recentToolSignatures) {
+      if (now - at > 10_000) this.recentToolSignatures.delete(key);
+    }
+    if (this.recentToolSignatures.has(signature)) return;
+    this.recentToolSignatures.set(signature, now);
     let parsed: unknown = {};
     try {
       parsed = argsStr ? JSON.parse(argsStr) : {};
