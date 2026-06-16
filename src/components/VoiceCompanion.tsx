@@ -21,7 +21,7 @@ export function VoiceCompanion() {
   const [errorMsg, setErrorMsg] = useState<string>("");
 
   const engineRef = useRef<AudioEngine | null>(null);
-  const clientRef = useRef<GeminiLiveClient | null>(null);
+  const clientRef = useRef<QwenLiveClient | null>(null);
   const activeRef = useRef(false);
 
   const fetchSession = useServerFn(getVoiceSession);
@@ -61,10 +61,10 @@ export function VoiceCompanion() {
 
     void (async () => {
       try {
-        const { geminiKey, contextText } = await fetchSession();
+        const { contextText } = await fetchSession();
         const prompt = buildSystemPrompt(contextText);
 
-        const client = new GeminiLiveClient({
+        const client = new QwenLiveClient({
           onSetupComplete: async () => {
             try {
               await engine.startMic();
@@ -75,27 +75,31 @@ export function VoiceCompanion() {
               await stopAll();
             }
           },
-          onAudio: (pcm) => {
+          onAudio: (pcm: Uint8Array) => {
             engine.enqueuePcm(pcm);
             setStatus("speaking");
+          },
+          onSpeechStarted: () => {
+            engine.stopPlayback();
+            if (activeRef.current) setStatus("listening");
           },
           onTurnComplete: () => {
             if (activeRef.current) setStatus("listening");
           },
-          onError: (msg) => {
-            console.error("[GeminiLive] error:", msg);
+          onError: (msg: string) => {
+            console.error("[QwenLive] error:", msg);
             setErrorMsg(msg);
             setStatus("error");
             activeRef.current = false;
           },
           onClose: () => {
-            console.log("[GeminiLive] closed");
+            console.log("[QwenLive] closed");
             setStatus((s) => (s === "error" ? s : "idle"));
             activeRef.current = false;
           },
         });
         clientRef.current = client;
-        await client.connect(geminiKey, prompt);
+        await client.connect({ voice: "Rocky", instructions: prompt });
       } catch (err) {
         setErrorMsg((err as Error).message);
         setStatus("error");
