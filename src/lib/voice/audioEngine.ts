@@ -75,15 +75,16 @@ export class AudioEngine {
     this.workletNode.port.onmessage = (ev) => {
       const data = ev.data;
       if (data?.type === "chunk") {
-        this.cbs.onMicChunk(data.pcm as ArrayBuffer);
         if (this.playing && typeof data.rms === "number") {
           this.bargeInFrames = data.rms > BARGE_IN_RMS ? this.bargeInFrames + 1 : 0;
           if (this.bargeInFrames >= BARGE_IN_FRAMES) {
             this.stopPlayback();
             this.cbs.onBargeIn?.();
+            this.cbs.onMicChunk(data.pcm as ArrayBuffer);
           }
         } else {
           this.bargeInFrames = 0;
+          this.cbs.onMicChunk(data.pcm as ArrayBuffer);
         }
       }
     };
