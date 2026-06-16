@@ -8,8 +8,7 @@ export type AudioEngineCallbacks = {
 
 const PLAYBACK_RATE = 24000;
 const CAPTURE_RATE = 16000;
-// Shock-absorber lead time when the playback clock has fallen behind.
-const SCHEDULER_LEAD = 0.05;
+const PLAYER_BUFFER_SIZE = 2048;
 // Barge-in: only trigger on sustained loud speech so background chatter
 // does NOT interrupt the assistant.
 const BARGE_IN_RMS = 0.28;
@@ -27,9 +26,10 @@ export class AudioEngine {
   micAnalyser: AnalyserNode | null = null;
   playbackAnalyser: AnalyserNode | null = null;
 
-  // Active scheduled source nodes — used by the kill switch.
-  private activeNodes: AudioBufferSourceNode[] = [];
-  private nextPlayTime = 0;
+  // Raw Linear PCM queue player. Incoming DashScope PCM16 chunks are converted
+  // directly to Float32 samples and drained by one continuous audio callback.
+  private audioQueue: number[] = [];
+  private playerNode: ScriptProcessorNode | null = null;
   private playing = false;
   private playbackGain: GainNode | null = null;
   private bargeInFrames = 0;
@@ -58,6 +58,29 @@ export class AudioEngine {
     this.playbackAnalyser.fftSize = 1024;
     this.playbackGain.connect(this.playbackAnalyser);
     this.playbackAnalyser.connect(this.playbackCtx.destination);
+
+    this.playerNode = this.playbackCtx.createScriptProcessor(PLAYER_BUFFER_SIZE, 0, 1);
+    this.playerNode.onaudioprocess = (e) => {
+      const outputBuffer = e.outputBuffer.getChannelData(0);
+      let pulledSamples = false;
+
+      for (let i = 0; i < PLAYER_BUFFER_SIZE; i++) {
+        if (this.audioQueue.length > 0) {
+          outputBuffer[i] = this.audioQueue.shift() ?? 0;
+          pulledSamples = true;
+        } else {
+          outputBuffer[i] = 0;
+        }
+      }
+
+      if (pulledSamples) {
+        this.playing = true;
+      } else if (this.playing) {
+        this.playing = false;
+        this.micHoldUntil = performance.now() + INPUT_RESUME_AFTER_PLAYBACK_MS;
+      }
+    };
+    this.playerNode.connect(this.playbackGain);
   }
 
   setMuted(muted: boolean) {
@@ -132,61 +155,20 @@ export class AudioEngine {
     this.micSource.connect(this.workletNode);
   }
 
-  private decodePcm(pcmBytes: Uint8Array): AudioBuffer | null {
-    const ctx = this.playbackCtx;
-    if (!ctx) return null;
-    const view = new DataView(pcmBytes.buffer, pcmBytes.byteOffset, pcmBytes.byteLength);
-    const sampleCount = Math.floor(pcmBytes.byteLength / 2);
-    if (sampleCount === 0) return null;
-    const buf = ctx.createBuffer(1, sampleCount, PLAYBACK_RATE);
-    const channel = buf.getChannelData(0);
-    for (let i = 0; i < sampleCount; i++) {
-      const s = view.getInt16(i * 2, true);
-      channel[i] = s < 0 ? s / 0x8000 : s / 0x7fff;
-    }
-    return buf;
-  }
-
   enqueuePcm(pcmBytes: Uint8Array) {
-    const ctx = this.playbackCtx;
-    if (!ctx || !this.playbackGain) return;
-    const buf = this.decodePcm(pcmBytes);
-    if (!buf) return;
-
-    // nextPlayTime strategy with shock-absorber buffer.
-    if (this.nextPlayTime < ctx.currentTime) {
-      this.nextPlayTime = ctx.currentTime + SCHEDULER_LEAD;
+    if (!this.playbackCtx || !this.playbackGain || pcmBytes.byteLength < 2) return;
+    const alignedLength = pcmBytes.byteLength - (pcmBytes.byteLength % 2);
+    const view = new DataView(pcmBytes.buffer, pcmBytes.byteOffset, alignedLength);
+    const sampleCount = alignedLength / 2;
+    for (let i = 0; i < sampleCount; i++) {
+      this.audioQueue.push(view.getInt16(i * 2, true) / 32768.0);
     }
-    const src = ctx.createBufferSource();
-    src.buffer = buf;
-    src.connect(this.playbackGain);
-    src.start(this.nextPlayTime);
-    this.activeNodes.push(src);
-    this.nextPlayTime += buf.duration;
-    this.playing = true;
-    src.onended = () => {
-      const idx = this.activeNodes.indexOf(src);
-      if (idx >= 0) this.activeNodes.splice(idx, 1);
-      try { src.disconnect(); } catch {}
-      if (this.activeNodes.length === 0) {
-        this.playing = false;
-        this.nextPlayTime = 0;
-        this.micHoldUntil = performance.now() + INPUT_RESUME_AFTER_PLAYBACK_MS;
-      }
-    };
+    this.playing = this.audioQueue.length > 0;
   }
 
-  /** Kill switch — instantly stops every queued/playing chunk. */
+  /** Kill switch — instantly wipes queued raw samples. */
   stopPlayback(opts: { holdMic?: boolean } = {}) {
-    for (const node of this.activeNodes) {
-      try {
-        node.onended = null;
-        node.stop();
-        node.disconnect();
-      } catch {}
-    }
-    this.activeNodes = [];
-    this.nextPlayTime = 0;
+    this.audioQueue = [];
     this.playing = false;
     if (opts.holdMic !== false) {
       this.micHoldUntil = performance.now() + INPUT_RESUME_AFTER_PLAYBACK_MS;
@@ -206,6 +188,9 @@ export class AudioEngine {
     this.workletNode = null;
     this.micSource = null;
     this.micAnalyser = null;
+    try { this.playerNode?.disconnect(); } catch {}
+    this.playerNode = null;
+    this.audioQueue = [];
     if (this.micStream) {
       for (const t of this.micStream.getTracks()) t.stop();
       this.micStream = null;
