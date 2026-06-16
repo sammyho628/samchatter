@@ -258,6 +258,12 @@ export class QwenLiveClient {
     if (!type) return;
 
     if (type === "response.audio.delta" && typeof msg.delta === "string") {
+      if (this.toolInProgress) {
+        // Drop any audio the model produced before / during tool execution —
+        // it's a half-spoken sentence that will be repeated after the tool
+        // result comes back.
+        return;
+      }
       this.cbs.onAudio?.(base64ToBytes(msg.delta));
       return;
     }
