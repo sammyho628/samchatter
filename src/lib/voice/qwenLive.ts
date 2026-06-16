@@ -337,6 +337,7 @@ export class QwenLiveClient {
         | { type?: string; name?: string; call_id?: string; arguments?: string }
         | undefined;
       if (item?.type === "function_call" && item.call_id && item.name) {
+        this.beginToolSuppression();
         await this.runTool({
           callId: item.call_id,
           name: item.name,
