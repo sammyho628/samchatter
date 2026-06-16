@@ -132,23 +132,41 @@ export function VoiceCompanion() {
           },
           onToolCall: ({ name, args }) => {
             console.log("[Qwen] tool call:", name, args);
+            pushLog("tool", `→ ${name}(${JSON.stringify(args)})`);
             engine.stopPlayback();
             if (activeRef.current) setStatus("listening");
           },
           onToolResult: ({ name, summary }) => {
             console.log("[Qwen] tool_result <-", name, summary);
+            pushLog(
+              "tool",
+              `← ${name}: ${summary.length > 240 ? summary.slice(0, 240) + "…" : summary}`,
+            );
           },
+          onUserTranscript: (t) => pushLog("user", t),
+          onAssistantTranscriptDelta: (d) => {
+            assistantBufRef.current += d;
+          },
+          onAssistantTranscriptDone: (t) => {
+            const finalText = t || assistantBufRef.current;
+            assistantBufRef.current = "";
+            if (finalText) pushLog("ai", finalText);
+          },
+          onDebug: (m) => pushLog("evt", m),
           onError: (msg: string) => {
             console.error("[QwenLive] error:", msg);
+            pushLog("err", msg);
             setErrorMsg(msg);
             setStatus("error");
             activeRef.current = false;
           },
           onReconnecting: () => {
+            pushLog("evt", "reconnecting…");
             if (activeRef.current) setStatus("connecting");
           },
           onClose: () => {
             console.log("[QwenLive] closed");
+            pushLog("evt", "ws closed");
             setStatus((s) => (s === "error" ? s : "idle"));
             activeRef.current = false;
           },
