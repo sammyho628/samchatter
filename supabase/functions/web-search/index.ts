@@ -6,6 +6,23 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
+// Tavily's text-query parser ignores `site:` operators reliably; extract them
+// and pass as structured `include_domains` instead.
+function extractSiteDomains(raw: string): { cleaned: string; domains: string[] } {
+  const domains: string[] = [];
+  const cleaned = raw
+    .replace(/\bsite:([^\s]+)/gi, (_, d) => {
+      const dom = String(d).replace(/[,)]+$/g, "").trim();
+      if (dom) domains.push(dom);
+      return "";
+    })
+    // remove leftover "OR" connectors orphaned by site: removal
+    .replace(/\s+OR\s+/gi, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  return { cleaned, domains: Array.from(new Set(domains)) };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -27,17 +44,22 @@ Deno.serve(async (req) => {
       );
     }
 
+    const { cleaned, domains } = extractSiteDomains(query);
+    const tavilyBody: Record<string, unknown> = {
+      query: cleaned || query,
+      search_depth: "advanced",
+      include_answer: true,
+      max_results: 5,
+    };
+    if (domains.length > 0) tavilyBody.include_domains = domains;
+
     const resp = await fetch("https://api.tavily.com/search", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({
-        query,
-        search_depth: "basic",
-        max_results: 3,
-      }),
+      body: JSON.stringify(tavilyBody),
     });
 
     if (!resp.ok) {
