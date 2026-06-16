@@ -120,10 +120,13 @@ export class AudioEngine {
     src.playbackRate.value = OUTPUT_PLAYBACK_SPEED;
     src.connect(this.playbackGain);
     const now = ctx.currentTime;
-    // If we've fallen behind (underrun) or this is the first chunk of a turn,
-    // schedule ahead with a small jitter buffer.
-    if (this.nextStartTime < now) {
-      this.nextStartTime = now + INITIAL_PLAYBACK_BUFFER_SECONDS;
+    // First chunk of a turn — pad with the larger initial jitter buffer.
+    // Mid-turn underrun — pad with the smaller repair buffer so the gap
+    // is short but we don't immediately stutter again.
+    if (this.nextStartTime === 0) {
+      this.nextStartTime = now + INITIAL_JITTER_SECONDS;
+    } else if (this.nextStartTime < now) {
+      this.nextStartTime = now + UNDERRUN_REPAIR_SECONDS;
     }
     const startAt = this.nextStartTime;
     src.start(startAt);
