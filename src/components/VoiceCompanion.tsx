@@ -23,6 +23,7 @@ export function VoiceCompanion() {
   const [muted, setMuted] = useState(false);
   const [micMuted, setMicMuted] = useState(false);
   const [debugOpen, setDebugOpen] = useState(false);
+  const [searching, setSearching] = useState(false);
   const [debugLog, setDebugLog] = useState<
     Array<{ t: number; kind: "user" | "ai" | "tool" | "evt" | "err"; text: string }>
   >([]);
@@ -134,6 +135,7 @@ export function VoiceCompanion() {
             console.log("[Qwen] tool call:", name, args);
             pushLog("tool", `→ ${name}(${JSON.stringify(args)})`);
             engine.stopPlayback();
+            setSearching(true);
             if (activeRef.current) setStatus("listening");
           },
           onFlushPlayback: () => {
@@ -141,6 +143,7 @@ export function VoiceCompanion() {
           },
           onToolResult: ({ name, summary }) => {
             console.log("[Qwen] tool_result <-", name, summary);
+            setSearching(false);
             pushLog(
               "tool",
               `← ${name}: ${summary.length > 240 ? summary.slice(0, 240) + "…" : summary}`,
@@ -265,6 +268,12 @@ export function VoiceCompanion() {
 
       <div className="w-full text-center">
         <div className="text-2xl font-bold">{STATUS_LABEL[status]}</div>
+        {searching ? (
+          <div className="mt-2 inline-flex items-center gap-2 rounded-full border border-amber-300/40 bg-amber-400/15 px-3 py-1 text-sm text-amber-200">
+            <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-amber-300" />
+            🔍 搵緊資料… (Searching)
+          </div>
+        ) : null}
         {status === "error" && errorMsg ? (
           <div className="mt-2 text-base text-red-300/90 break-words">
             {errorMsg}

@@ -8,26 +8,15 @@ export type AudioEngineCallbacks = {
 
 const PLAYBACK_RATE = 24000;
 const CAPTURE_RATE = 16000;
-// Much higher threshold + more sustained frames so background chatter,
-// TV, or someone else talking in the room does NOT trigger barge-in.
+// Shock-absorber lead time when the playback clock has fallen behind.
+const SCHEDULER_LEAD = 0.05;
+// Barge-in: only trigger on sustained loud speech so background chatter
+// does NOT interrupt the assistant.
 const BARGE_IN_RMS = 0.28;
 const BARGE_IN_FRAMES = 15;
-
-// Pre-buffer strategy:
-// Hold back the first chunks of every turn until we have at least this
-// many seconds of audio queued, THEN start playing. This eliminates the
-// "stutter when the AI says my name" jitter at the start of a reply,
-// because the playback clock never starts on an empty queue.
-const PRELOAD_SECONDS = 0.7;
-// Hard ceiling so we don't wait forever if the model only sends one tiny chunk.
-const PRELOAD_MAX_MS = 900;
-// If we drift behind mid-turn (network hiccup), pad by this much before
-// resuming so we don't immediately underrun again.
-const UNDERRUN_REPAIR_SECONDS = 0.25;
-// Keep the mic feed closed briefly after assistant playback. Phones often
-// re-capture the speaker tail and the server thinks the user spoke again,
-// causing repeated words / bogus turns right after a reply.
-const INPUT_RESUME_AFTER_PLAYBACK_MS = 650;
+// Keep mic closed briefly after assistant playback to avoid speaker echo
+// being re-captured and treated as the user starting to talk.
+const INPUT_RESUME_AFTER_PLAYBACK_MS = 500;
 
 export class AudioEngine {
   captureCtx: AudioContext | null = null;
@@ -38,19 +27,16 @@ export class AudioEngine {
   micAnalyser: AnalyserNode | null = null;
   playbackAnalyser: AnalyserNode | null = null;
 
-  private playQueue: AudioBufferSourceNode[] = [];
-  private nextStartTime = 0;
+  // Active scheduled source nodes — used by the kill switch.
+  private activeNodes: AudioBufferSourceNode[] = [];
+  private nextPlayTime = 0;
   private playing = false;
   private playbackGain: GainNode | null = null;
   private bargeInFrames = 0;
   private cbs: AudioEngineCallbacks;
 
-  // Pre-roll buffer for the start of each turn.
-  private preroll: AudioBuffer[] = [];
-  private prerollSeconds = 0;
-  private prerollStartedAt = 0;
-  private prerollTimer: number | null = null;
-  private inTurn = false;
+  private muted = false;
+  private micMuted = false;
   private micHoldUntil = 0;
   private lastHoldDebugAt = 0;
 
@@ -73,9 +59,6 @@ export class AudioEngine {
     this.playbackGain.connect(this.playbackAnalyser);
     this.playbackAnalyser.connect(this.playbackCtx.destination);
   }
-
-  private muted = false;
-  private micMuted = false;
 
   setMuted(muted: boolean) {
     this.muted = muted;
@@ -103,6 +86,8 @@ export class AudioEngine {
         echoCancellation: true,
         noiseSuppression: true,
         autoGainControl: true,
+        sampleRate: 16000,
+        channelCount: 1,
       },
     });
     this.micStream = stream;
@@ -162,105 +147,47 @@ export class AudioEngine {
     return buf;
   }
 
-  private scheduleBuffer(buf: AudioBuffer) {
+  enqueuePcm(pcmBytes: Uint8Array) {
     const ctx = this.playbackCtx;
     if (!ctx || !this.playbackGain) return;
+    const buf = this.decodePcm(pcmBytes);
+    if (!buf) return;
+
+    // nextPlayTime strategy with shock-absorber buffer.
+    if (this.nextPlayTime < ctx.currentTime) {
+      this.nextPlayTime = ctx.currentTime + SCHEDULER_LEAD;
+    }
     const src = ctx.createBufferSource();
     src.buffer = buf;
     src.connect(this.playbackGain);
-    const now = ctx.currentTime;
-    if (this.nextStartTime < now) {
-      // Underrun mid-turn — pad slightly before resuming.
-      this.nextStartTime = now + UNDERRUN_REPAIR_SECONDS;
-      this.cbs.onDebug?.(`audio underrun, padded ${UNDERRUN_REPAIR_SECONDS}s`);
-    }
-    src.start(this.nextStartTime);
-    this.nextStartTime += buf.duration;
+    src.start(this.nextPlayTime);
+    this.activeNodes.push(src);
+    this.nextPlayTime += buf.duration;
     this.playing = true;
-    this.playQueue.push(src);
     src.onended = () => {
-      const idx = this.playQueue.indexOf(src);
-      if (idx >= 0) this.playQueue.splice(idx, 1);
-      if (this.playQueue.length === 0 && this.preroll.length === 0) {
+      const idx = this.activeNodes.indexOf(src);
+      if (idx >= 0) this.activeNodes.splice(idx, 1);
+      try { src.disconnect(); } catch {}
+      if (this.activeNodes.length === 0) {
         this.playing = false;
-        this.nextStartTime = 0;
-        this.inTurn = false;
+        this.nextPlayTime = 0;
         this.micHoldUntil = performance.now() + INPUT_RESUME_AFTER_PLAYBACK_MS;
       }
     };
   }
 
-  private flushPreroll() {
-    if (this.prerollTimer !== null) {
-      window.clearTimeout(this.prerollTimer);
-      this.prerollTimer = null;
-    }
-    const ctx = this.playbackCtx;
-    if (!ctx) return;
-    // Start playback clock with a tiny lead time.
-    this.nextStartTime = ctx.currentTime + 0.05;
-    const buffered = this.prerollSeconds;
-    const queued = this.preroll.length;
-    for (const buf of this.preroll) this.scheduleBuffer(buf);
-    this.preroll = [];
-    this.prerollSeconds = 0;
-    this.cbs.onDebug?.(`▶ playback start (${queued} chunks, ${buffered.toFixed(2)}s buffered)`);
-  }
-
-  enqueuePcm(pcmBytes: Uint8Array) {
-    const ctx = this.playbackCtx;
-    if (!ctx) return;
-    const buf = this.decodePcm(pcmBytes);
-    if (!buf) return;
-
-    if (!this.inTurn) {
-      // New turn — start collecting pre-roll.
-      this.inTurn = true;
-      this.preroll = [];
-      this.prerollSeconds = 0;
-      this.prerollStartedAt = performance.now();
-      this.cbs.onDebug?.("◌ buffering reply…");
-    }
-
-    if (this.preroll.length > 0 || this.nextStartTime === 0) {
-      // Still buffering this turn's preroll.
-      this.preroll.push(buf);
-      this.prerollSeconds += buf.duration;
-      const elapsed = performance.now() - this.prerollStartedAt;
-      if (this.prerollSeconds >= PRELOAD_SECONDS || elapsed >= PRELOAD_MAX_MS) {
-        this.flushPreroll();
-      } else if (this.prerollTimer === null) {
-        // Safety net — flush at max wait.
-        this.prerollTimer = window.setTimeout(
-          () => this.flushPreroll(),
-          PRELOAD_MAX_MS - elapsed,
-        );
-      }
-      return;
-    }
-
-    // Mid-turn, normal path.
-    this.scheduleBuffer(buf);
-  }
-
+  /** Kill switch — instantly stops every queued/playing chunk. */
   stopPlayback(opts: { holdMic?: boolean } = {}) {
-    for (const src of this.playQueue) {
+    for (const node of this.activeNodes) {
       try {
-        src.onended = null;
-        src.stop();
-        src.disconnect();
+        node.onended = null;
+        node.stop();
+        node.disconnect();
       } catch {}
     }
-    this.playQueue = [];
-    if (this.prerollTimer !== null) {
-      window.clearTimeout(this.prerollTimer);
-      this.prerollTimer = null;
-    }
-    this.preroll = [];
-    this.prerollSeconds = 0;
-    this.nextStartTime = 0;
+    this.activeNodes = [];
+    this.nextPlayTime = 0;
     this.playing = false;
-    this.inTurn = false;
     if (opts.holdMic !== false) {
       this.micHoldUntil = performance.now() + INPUT_RESUME_AFTER_PLAYBACK_MS;
     }
