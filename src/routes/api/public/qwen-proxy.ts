@@ -36,10 +36,7 @@ export const Route = createFileRoute("/api/public/qwen-proxy")({
             },
           });
         } catch (e) {
-          console.error(
-            "[qwen-proxy] upstream connect failed",
-            (e as Error).message,
-          );
+          console.error("[qwen-proxy] upstream connect failed", (e as Error).message);
           return new Response(`Upstream connect failed: ${(e as Error).message}`, {
             status: 502,
           });
@@ -72,13 +69,13 @@ export const Route = createFileRoute("/api/public/qwen-proxy")({
         const closeBoth = (code = 1000, reason = "") => {
           try {
             server.close(code, reason);
-          } catch {
-            undefined;
+          } catch (e) {
+            console.debug("[qwen-proxy] ignored client close error", e);
           }
           try {
             upstream.close(code, reason);
-          } catch {
-            undefined;
+          } catch (e) {
+            console.debug("[qwen-proxy] ignored upstream close error", e);
           }
         };
 
@@ -99,15 +96,15 @@ export const Route = createFileRoute("/api/public/qwen-proxy")({
         server.addEventListener("close", (ev: CloseEvent) => {
           try {
             upstream.close(ev.code, ev.reason);
-          } catch {
-            undefined;
+          } catch (e) {
+            console.debug("[qwen-proxy] ignored upstream close error", e);
           }
         });
         upstream.addEventListener("close", (ev: CloseEvent) => {
           try {
             server.close(ev.code, ev.reason);
-          } catch {
-            undefined;
+          } catch (e) {
+            console.debug("[qwen-proxy] ignored client close error", e);
           }
         });
         server.addEventListener("error", () => closeBoth(1011, "client error"));
