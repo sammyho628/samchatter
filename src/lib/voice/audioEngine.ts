@@ -7,15 +7,19 @@ export type AudioEngineCallbacks = {
 
 const PLAYBACK_RATE = 24000;
 const CAPTURE_RATE = 16000;
-const BARGE_IN_RMS = 0.08;
-const BARGE_IN_FRAMES = 2;
-// Larger initial jitter buffer to smooth out the first few chunks of a
-// turn over flaky mobile networks. Trade-off: ~0.35s of latency before the
+// Much higher threshold + more sustained frames so background chatter,
+// TV, or someone else talking in the room does NOT trigger barge-in.
+// Real "I want to interrupt" speech from the user (close to the mic)
+// easily clears 0.18 RMS for ~0.5s.
+const BARGE_IN_RMS = 0.18;
+const BARGE_IN_FRAMES = 5;
+// Generous initial jitter buffer to smooth out the first chunks of a
+// turn over flaky mobile networks. Trade-off: ~0.6s of latency before the
 // AI's voice starts, but no underrun stutter.
-const INITIAL_JITTER_SECONDS = 0.35;
-// If we detect we've drifted behind mid-turn, pad by this much before
+const INITIAL_JITTER_SECONDS = 0.6;
+// If we drift behind mid-turn (network hiccup), pad by this much before
 // resuming so we don't immediately underrun again.
-const UNDERRUN_REPAIR_SECONDS = 0.18;
+const UNDERRUN_REPAIR_SECONDS = 0.3;
 const OUTPUT_PLAYBACK_SPEED = 0.96;
 
 export class AudioEngine {
@@ -61,6 +65,7 @@ export class AudioEngine {
   }
 
   private muted = false;
+  private micMuted = false;
 
   setMuted(muted: boolean) {
     this.muted = muted;
@@ -73,6 +78,20 @@ export class AudioEngine {
 
   isMuted() {
     return this.muted;
+  }
+
+  setMicMuted(muted: boolean) {
+    this.micMuted = muted;
+    // Also mute the underlying mic tracks so the OS-level indicator reflects state.
+    if (this.micStream) {
+      for (const t of this.micStream.getTracks()) t.enabled = !muted;
+    }
+    // Reset barge-in counter so we don't immediately fire on un-mute.
+    this.bargeInFrames = 0;
+  }
+
+  isMicMuted() {
+    return this.micMuted;
   }
 
   async startMic() {
@@ -96,18 +115,21 @@ export class AudioEngine {
     this.workletNode = new AudioWorkletNode(this.captureCtx, "pcm-capture");
     this.workletNode.port.onmessage = (ev) => {
       const data = ev.data;
-      if (data?.type === "chunk") {
-        if (this.playing && typeof data.rms === "number") {
-          this.bargeInFrames = data.rms > BARGE_IN_RMS ? this.bargeInFrames + 1 : 0;
-          if (this.bargeInFrames >= BARGE_IN_FRAMES) {
-            this.stopPlayback();
-            this.cbs.onBargeIn?.();
-            this.cbs.onMicChunk(data.pcm as ArrayBuffer);
-          }
-        } else {
-          this.bargeInFrames = 0;
+      if (data?.type !== "chunk") return;
+      if (this.micMuted) {
+        this.bargeInFrames = 0;
+        return; // drop chunk entirely while mic is muted
+      }
+      if (this.playing && typeof data.rms === "number") {
+        this.bargeInFrames = data.rms > BARGE_IN_RMS ? this.bargeInFrames + 1 : 0;
+        if (this.bargeInFrames >= BARGE_IN_FRAMES) {
+          this.stopPlayback();
+          this.cbs.onBargeIn?.();
           this.cbs.onMicChunk(data.pcm as ArrayBuffer);
         }
+      } else {
+        this.bargeInFrames = 0;
+        this.cbs.onMicChunk(data.pcm as ArrayBuffer);
       }
     };
     this.micSource.connect(this.micAnalyser);
