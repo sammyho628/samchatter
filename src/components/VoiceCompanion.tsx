@@ -86,6 +86,11 @@ export function VoiceCompanion() {
           onTurnComplete: () => {
             if (activeRef.current) setStatus("listening");
           },
+          onToolCall: ({ name }) => {
+            console.log("[Qwen] tool call:", name);
+            engine.stopPlayback();
+            if (activeRef.current) setStatus("listening");
+          },
           onError: (msg: string) => {
             console.error("[QwenLive] error:", msg);
             setErrorMsg(msg);
