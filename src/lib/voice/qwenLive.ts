@@ -385,6 +385,17 @@ export class QwenLiveClient {
     this.sendToolResult(callId, summary);
   }
 
+  private beginToolSuppression() {
+    if (this.toolInProgress) return;
+    this.toolInProgress = true;
+    this.cbs.onDebug?.("🔧 tool call → flushing pre-tool audio");
+    try {
+      this.cbs.onFlushPlayback?.();
+    } catch (e) {
+      console.warn("[QwenLive] flush callback threw", e);
+    }
+  }
+
   private sendToolResult(callId: string, output: string) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
     this.ws.send(
@@ -398,6 +409,8 @@ export class QwenLiveClient {
         },
       }),
     );
+    // Tool result has been fed back — allow the post-tool reply audio through.
+    this.toolInProgress = false;
     // Ask the model to continue with the tool result.
     this.ws.send(
       JSON.stringify({
