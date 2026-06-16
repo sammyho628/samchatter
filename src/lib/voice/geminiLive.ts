@@ -33,7 +33,7 @@ export class GeminiLiveClient {
 
   connect(apiKey: string, systemInstruction: string): Promise<void> {
     const url =
-      "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=" +
+      "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=" +
       encodeURIComponent(apiKey);
     return new Promise((resolve, reject) => {
       const ws = new WebSocket(url);
@@ -43,7 +43,7 @@ export class GeminiLiveClient {
       ws.onopen = () => {
         const setup = {
           setup: {
-            model: "models/gemini-2.5-flash",
+            model: "models/gemini-2.0-flash-exp",
             generationConfig: { responseModalities: ["AUDIO"] },
             systemInstruction: { parts: [{ text: systemInstruction }] },
           },
@@ -72,11 +72,16 @@ export class GeminiLiveClient {
       };
 
       ws.onerror = () => {
-        this.cbs.onError?.("WebSocket error");
+        this.cbs.onError?.("WebSocket error (check Gemini key & network)");
         reject(new Error("WebSocket error"));
       };
 
-      ws.onclose = () => {
+      ws.onclose = (ev) => {
+        if (ev.code !== 1000 && ev.code !== 1005) {
+          this.cbs.onError?.(
+            `Closed (${ev.code})${ev.reason ? ": " + ev.reason : ""}`,
+          );
+        }
         this.cbs.onClose?.();
       };
     });
