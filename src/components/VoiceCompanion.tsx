@@ -22,6 +22,20 @@ export function VoiceCompanion() {
   const [errorMsg, setErrorMsg] = useState<string>("");
   const [muted, setMuted] = useState(false);
   const [micMuted, setMicMuted] = useState(false);
+  const [debugOpen, setDebugOpen] = useState(false);
+  const [debugLog, setDebugLog] = useState<
+    Array<{ t: number; kind: "user" | "ai" | "tool" | "evt" | "err"; text: string }>
+  >([]);
+  const assistantBufRef = useRef<string>("");
+  const pushLog = useCallback(
+    (kind: "user" | "ai" | "tool" | "evt" | "err", text: string) => {
+      setDebugLog((prev) => {
+        const next = [...prev, { t: Date.now(), kind, text }];
+        return next.length > 80 ? next.slice(next.length - 80) : next;
+      });
+    },
+    [],
+  );
 
   const engineRef = useRef<AudioEngine | null>(null);
   const clientRef = useRef<QwenLiveClient | null>(null);
