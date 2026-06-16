@@ -8,8 +8,7 @@ export type AudioEngineCallbacks = {
 
 const PLAYBACK_RATE = 24000;
 const CAPTURE_RATE = 16000;
-// Shock-absorber lead time when the playback clock has fallen behind.
-const SCHEDULER_LEAD = 0.05;
+const PLAYER_BUFFER_SIZE = 2048;
 // Barge-in: only trigger on sustained loud speech so background chatter
 // does NOT interrupt the assistant.
 const BARGE_IN_RMS = 0.28;
@@ -27,9 +26,10 @@ export class AudioEngine {
   micAnalyser: AnalyserNode | null = null;
   playbackAnalyser: AnalyserNode | null = null;
 
-  // Active scheduled source nodes — used by the kill switch.
-  private activeNodes: AudioBufferSourceNode[] = [];
-  private nextPlayTime = 0;
+  // Raw Linear PCM queue player. Incoming DashScope PCM16 chunks are converted
+  // directly to Float32 samples and drained by one continuous audio callback.
+  private audioQueue: number[] = [];
+  private playerNode: ScriptProcessorNode | null = null;
   private playing = false;
   private playbackGain: GainNode | null = null;
   private bargeInFrames = 0;
@@ -58,6 +58,29 @@ export class AudioEngine {
     this.playbackAnalyser.fftSize = 1024;
     this.playbackGain.connect(this.playbackAnalyser);
     this.playbackAnalyser.connect(this.playbackCtx.destination);
+
+    this.playerNode = this.playbackCtx.createScriptProcessor(PLAYER_BUFFER_SIZE, 0, 1);
+    this.playerNode.onaudioprocess = (e) => {
+      const outputBuffer = e.outputBuffer.getChannelData(0);
+      let pulledSamples = false;
+
+      for (let i = 0; i < PLAYER_BUFFER_SIZE; i++) {
+        if (this.audioQueue.length > 0) {
+          outputBuffer[i] = this.audioQueue.shift() ?? 0;
+          pulledSamples = true;
+        } else {
+          outputBuffer[i] = 0;
+        }
+      }
+
+      if (pulledSamples) {
+        this.playing = true;
+      } else if (this.playing) {
+        this.playing = false;
+        this.micHoldUntil = performance.now() + INPUT_RESUME_AFTER_PLAYBACK_MS;
+      }
+    };
+    this.playerNode.connect(this.playbackGain);
   }
 
   setMuted(muted: boolean) {
