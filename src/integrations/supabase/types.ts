@@ -32,6 +32,27 @@ export type Database = {
         }
         Relationships: []
       }
+      knowledge_base: {
+        Row: {
+          content_text: string | null
+          created_at: string
+          id: number
+          updated_at: string
+        }
+        Insert: {
+          content_text?: string | null
+          created_at?: string
+          id?: number
+          updated_at?: string
+        }
+        Update: {
+          content_text?: string | null
+          created_at?: string
+          id?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
       "Voice-Bot-1": {
         Row: {
           content_text: string | null
