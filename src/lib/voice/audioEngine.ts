@@ -76,10 +76,14 @@ export class AudioEngine {
       }
 
       if (pulledSamples) {
-        this.playing = true;
+        if (!this.playing) {
+          this.playing = true;
+          try { this.cbs.onPlaybackStart?.(); } catch {}
+        }
       } else if (this.playing) {
         this.playing = false;
         this.micHoldUntil = performance.now() + INPUT_RESUME_AFTER_PLAYBACK_MS;
+        try { this.cbs.onPlaybackEnd?.(); } catch {}
       }
     };
     this.playerNode.connect(this.playbackGain);
