@@ -3,11 +3,13 @@ import { useServerFn } from "@tanstack/react-start";
 import { WaveformOrb } from "./WaveformOrb";
 import { buildSystemPrompt } from "@/lib/voice/systemPrompt";
 import { QwenLiveClient } from "@/lib/voice/qwenLive";
+import { GeminiLiveClient } from "@/lib/voice/geminiLive";
 import { AudioEngine } from "@/lib/voice/audioEngine";
 import { getVoiceSession } from "@/lib/voice/session.functions";
 import { APP_VERSION } from "@/lib/version";
 
 type Status = "idle" | "connecting" | "listening" | "speaking" | "error";
+type Provider = "qwen" | "gemini";
 
 const STATUS_LABEL: Record<Status, string> = {
   idle: "撳一下開始傾偈",
@@ -17,6 +19,10 @@ const STATUS_LABEL: Record<Status, string> = {
   error: "出咗啲問題",
 };
 
+const PROVIDER_KEY = "voice.provider.v1";
+
+type ActiveClient = { sendAudioChunk: (b: ArrayBuffer) => void; close: () => void };
+
 export function VoiceCompanion() {
   const [status, setStatus] = useState<Status>("idle");
   const [errorMsg, setErrorMsg] = useState<string>("");
@@ -24,6 +30,12 @@ export function VoiceCompanion() {
   const [micMuted, setMicMuted] = useState(false);
   const [debugOpen, setDebugOpen] = useState(false);
   const [searching, setSearching] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [provider, setProvider] = useState<Provider>(() => {
+    if (typeof window === "undefined") return "qwen";
+    const v = window.localStorage.getItem(PROVIDER_KEY);
+    return v === "gemini" ? "gemini" : "qwen";
+  });
   const [debugLog, setDebugLog] = useState<
     Array<{ t: number; kind: "user" | "ai" | "tool" | "evt" | "err"; text: string }>
   >([]);
@@ -39,7 +51,7 @@ export function VoiceCompanion() {
   );
 
   const engineRef = useRef<AudioEngine | null>(null);
-  const clientRef = useRef<QwenLiveClient | null>(null);
+  const clientRef = useRef<ActiveClient | null>(null);
   const activeRef = useRef(false);
   const micStartedRef = useRef(false);
 
@@ -77,6 +89,16 @@ export function VoiceCompanion() {
     };
   }, [stopAll]);
 
+  const selectProvider = useCallback(
+    (p: Provider) => {
+      setProvider(p);
+      try { window.localStorage.setItem(PROVIDER_KEY, p); } catch {}
+      setSettingsOpen(false);
+      if (activeRef.current) void stopAll();
+    },
+    [stopAll],
+  );
+
   const handleStart = (e: React.MouseEvent<HTMLButtonElement>) => {
     e.preventDefault();
     if (activeRef.current) {
@@ -100,13 +122,17 @@ export function VoiceCompanion() {
     setDebugLog([]);
     assistantBufRef.current = "";
 
+    const usingProvider = provider;
+    pushLog("evt", `provider: ${usingProvider}`);
+
     void (async () => {
       try {
-        const { contextText, promptTemplate } = await fetchSession();
+        const session = await fetchSession();
+        const { contextText, promptTemplate } = session;
         const prompt = buildSystemPrompt(promptTemplate, contextText);
 
-
-        const client = new QwenLiveClient({
+        // Shared callbacks both clients fulfil.
+        const shared = {
           onSetupComplete: async () => {
             try {
               if (!micStartedRef.current) {
@@ -131,8 +157,7 @@ export function VoiceCompanion() {
           onTurnComplete: () => {
             if (activeRef.current) setStatus("listening");
           },
-          onToolCall: ({ name, args }) => {
-            console.log("[Qwen] tool call:", name, args);
+          onToolCall: ({ name, args }: { name: string; args: unknown }) => {
             pushLog("tool", `→ ${name}(${JSON.stringify(args)})`);
             engine.stopPlayback();
             setSearching(true);
@@ -141,44 +166,62 @@ export function VoiceCompanion() {
           onFlushPlayback: () => {
             engine.stopPlayback();
           },
-          onToolResult: ({ name, summary }) => {
-            console.log("[Qwen] tool_result <-", name, summary);
+          onToolResult: ({ name, summary }: { name: string; summary: string }) => {
             setSearching(false);
             pushLog(
               "tool",
               `← ${name}: ${summary.length > 240 ? summary.slice(0, 240) + "…" : summary}`,
             );
           },
-          onUserTranscript: (t) => pushLog("user", t),
-          onAssistantTranscriptDelta: (d) => {
+          onUserTranscript: (t: string) => pushLog("user", t),
+          onAssistantTranscriptDelta: (d: string) => {
             assistantBufRef.current += d;
           },
-          onAssistantTranscriptDone: (t) => {
+          onAssistantTranscriptDone: (t: string) => {
             const finalText = t || assistantBufRef.current;
             assistantBufRef.current = "";
             if (finalText) pushLog("ai", finalText);
           },
-          onDebug: (m) => pushLog("evt", m),
+          onDebug: (m: string) => pushLog("evt", m),
           onError: (msg: string) => {
-            console.error("[QwenLive] error:", msg);
             pushLog("err", msg);
             setErrorMsg(msg);
             setStatus("error");
             activeRef.current = false;
           },
-          onReconnecting: () => {
-            pushLog("evt", "reconnecting…");
-            if (activeRef.current) setStatus("connecting");
-          },
           onClose: () => {
-            console.log("[QwenLive] closed");
             pushLog("evt", "ws closed");
+            // Flush any buffered assistant transcript.
+            const tail = assistantBufRef.current;
+            assistantBufRef.current = "";
+            if (tail) pushLog("ai", tail);
             setStatus((s) => (s === "error" ? s : "idle"));
             activeRef.current = false;
           },
-        });
-        clientRef.current = client;
-        await client.connect({ voice: "Rocky", instructions: prompt });
+        };
+
+        if (usingProvider === "gemini") {
+          if (!session.geminiKey) {
+            throw new Error("Missing GEMINI_API_KEY on server");
+          }
+          const client = new GeminiLiveClient(shared);
+          clientRef.current = client;
+          await client.connect(session.geminiKey, {
+            voice: "Charon", // male
+            model: "models/gemini-2.5-flash-native-audio-latest",
+            instructions: prompt,
+          });
+        } else {
+          const client = new QwenLiveClient({
+            ...shared,
+            onReconnecting: () => {
+              pushLog("evt", "reconnecting…");
+              if (activeRef.current) setStatus("connecting");
+            },
+          });
+          clientRef.current = client;
+          await client.connect({ voice: "Rocky", instructions: prompt });
+        }
       } catch (err) {
         setErrorMsg((err as Error).message);
         setStatus("error");
@@ -204,9 +247,50 @@ export function VoiceCompanion() {
       <div className="flex w-full items-start justify-between">
         <div className="text-left">
           <div className="text-3xl font-black tracking-tight">傾偈</div>
-          <div className="mt-1 text-sm text-white/60">Voice Companion</div>
+          <div className="mt-1 text-sm text-white/60">
+            Voice Companion · <span className="text-white/80">{provider === "gemini" ? "Gemini" : "Qwen"}</span>
+          </div>
         </div>
         <div className="flex items-center gap-2">
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setSettingsOpen((v) => !v)}
+              aria-label="設定"
+              title="Model settings"
+              className="flex h-12 w-12 items-center justify-center rounded-full border border-white/20 bg-white/5 text-white/80 transition-colors hover:bg-white/10 active:scale-95"
+            >
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            </button>
+            {settingsOpen ? (
+              <div className="absolute right-0 top-14 z-40 w-56 rounded-2xl border border-white/15 bg-black/90 p-2 text-sm shadow-2xl backdrop-blur">
+                <div className="px-2 pb-1 pt-1 text-[11px] uppercase tracking-wider text-white/40">Model</div>
+                {(["qwen", "gemini"] as Provider[]).map((p) => (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => selectProvider(p)}
+                    className={[
+                      "flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition-colors",
+                      provider === p ? "bg-amber-400/20 text-amber-100" : "text-white/80 hover:bg-white/10",
+                    ].join(" ")}
+                  >
+                    <span className="font-semibold">
+                      {p === "gemini" ? "Gemini" : "Qwen"}
+                    </span>
+                    <span className="text-[11px] text-white/50">
+                      {p === "gemini" ? "2.5 native audio · male" : "qwen3.5-omni · Rocky"}
+                    </span>
+                  </button>
+                ))}
+                {activeRef.current ? (
+                  <div className="px-2 py-1 text-[11px] text-amber-200/80">
+                    切換模型會自動結束目前對話。
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
           <button
             type="button"
             onClick={toggleMicMute}
