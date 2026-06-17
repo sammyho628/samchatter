@@ -192,6 +192,13 @@ export class QwenLiveClient {
             },
           }),
         );
+        // Kick the opening turn so the assistant introduces what it knows.
+        ws.send(
+          JSON.stringify({
+            event_id: `evt_open_${Date.now()}`,
+            type: "response.create",
+          }),
+        );
         this.cbs.onSetupComplete?.();
         resolve();
       };
