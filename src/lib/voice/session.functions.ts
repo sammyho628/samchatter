@@ -12,7 +12,10 @@ export const getVoiceSession = createServerFn({ method: "GET" }).handler(
     );
 
     const [ctxRes, promptRes] = await Promise.all([
-      supabaseAdmin.from("Voice-Bot-1").select("content_text"),
+      supabaseAdmin
+        .from("knowledge_base")
+        .select("content_text")
+        .order("id", { ascending: true }),
       supabaseAdmin
         .from("app_settings")
         .select("value")
