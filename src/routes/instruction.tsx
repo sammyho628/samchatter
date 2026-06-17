@@ -145,6 +145,30 @@ function InstructionPage() {
           </span>
         </div>
 
+        <section className="rounded-md border border-border p-4">
+          <div className="flex items-baseline justify-between gap-2">
+            <h2 className="text-base font-semibold">
+              Knowledge base context <code className="text-xs text-muted-foreground">({`{{context}}`})</code>
+            </h2>
+            <span className="text-xs text-muted-foreground">
+              {contextErr
+                ? `error: ${contextErr}`
+                : contextText
+                  ? `${contextText.length} chars`
+                  : "EMPTY"}
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Loaded live from the <code>Voice-Bot-1</code> table and injected into the
+            prompt wherever <code>{`{{context}}`}</code> appears. If this is empty,
+            the LLM has no background notes about 明囡 — add rows to{" "}
+            <code>Voice-Bot-1.content_text</code> to fix it.
+          </p>
+          <pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap rounded bg-muted p-3 font-mono text-xs">
+            {contextText || "(no rows in Voice-Bot-1 — knowledge base is empty)"}
+          </pre>
+        </section>
+
         <details className="rounded-md border border-border p-4 text-sm">
           <summary className="cursor-pointer font-medium">
             View default prompt (reference)
