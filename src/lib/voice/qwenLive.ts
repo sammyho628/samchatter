@@ -289,7 +289,10 @@ export class QwenLiveClient {
         // result comes back.
         return;
       }
-      this.cbs.onAudio?.(base64ToBytes(msg.delta));
+      // Walkie-talkie: buffer; do NOT play yet.
+      const bytes = base64ToBytes(msg.delta);
+      this.audioBuffer.push(bytes);
+      this.audioBufferBytes += bytes.byteLength;
       return;
     }
     if (type === "input_audio_buffer.speech_started") {
