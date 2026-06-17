@@ -192,7 +192,20 @@ export class QwenLiveClient {
             },
           }),
         );
-        // Kick the opening turn so the assistant introduces what it knows.
+        // Seed a user message first — Qwen rejects response.create when the
+        // conversation has no user-role item yet ("input messages do not
+        // contain elements with the role of user").
+        ws.send(
+          JSON.stringify({
+            event_id: `evt_seed_${Date.now()}`,
+            type: "conversation.item.create",
+            item: {
+              type: "message",
+              role: "user",
+              content: [{ type: "input_text", text: "(session start)" }],
+            },
+          }),
+        );
         ws.send(
           JSON.stringify({
             event_id: `evt_open_${Date.now()}`,
