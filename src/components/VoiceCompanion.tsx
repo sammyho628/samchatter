@@ -111,6 +111,18 @@ export function VoiceCompanion() {
       onMicChunk: (pcm) => clientRef.current?.sendAudioChunk(pcm),
       onBargeIn: () => setStatus("listening"),
       onDebug: (m) => pushLog("evt", m),
+      // Walkie-talkie mic lockout — disable mic the moment playback starts,
+      // restore the user's mic preference once the full reply has played.
+      onPlaybackStart: () => {
+        engineRef.current?.setMicMuted(true);
+        pushLog("evt", "🔇 mic locked (playback)");
+        setStatus("speaking");
+      },
+      onPlaybackEnd: () => {
+        engineRef.current?.setMicMuted(micMuted);
+        pushLog("evt", "🎙️ mic unlocked");
+        if (activeRef.current) setStatus("listening");
+      },
     });
     engine.unlock();
     engine.setMuted(muted);
