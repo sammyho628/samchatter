@@ -169,7 +169,9 @@ export class AudioEngine {
     for (let i = 0; i < sampleCount; i++) {
       this.audioQueue.push(view.getInt16(i * 2, true) / 32768.0);
     }
-    this.playing = this.audioQueue.length > 0;
+    // Don't flip `playing` here — let the audio callback flip it so the
+    // onPlaybackStart/End callbacks fire from a single source of truth.
+
   }
 
   /** Kill switch — instantly wipes queued raw samples. */
