@@ -326,8 +326,9 @@ export class QwenLiveClient {
     }
     if (type === "response.created") {
       this.cbs.onDebug?.("🧠 response.created");
-      // Kill switch — flush any leftover audio from a previous turn so the
-      // new reply never overlaps the tail of the old one.
+      // New turn — drop any leftover walkie-talkie buffer from a prior turn.
+      this.audioBuffer = [];
+      this.audioBufferBytes = 0;
       try { this.cbs.onFlushPlayback?.(); } catch {}
       return;
     }
