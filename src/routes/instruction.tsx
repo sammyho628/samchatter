@@ -7,6 +7,7 @@ import {
   saveSystemPrompt,
   resetSystemPrompt,
 } from "@/lib/voice/prompt.functions";
+import { getVoiceSession } from "@/lib/voice/session.functions";
 
 export const Route = createFileRoute("/instruction")({
   head: () => ({
@@ -26,6 +27,7 @@ function InstructionPage() {
   const fetchPrompt = useServerFn(getSystemPrompt);
   const savePrompt = useServerFn(saveSystemPrompt);
   const resetPrompt = useServerFn(resetSystemPrompt);
+  const fetchSession = useServerFn(getVoiceSession);
 
   const [value, setValue] = useState<string>("");
   const [loading, setLoading] = useState(true);
@@ -33,15 +35,24 @@ function InstructionPage() {
   const [status, setStatus] = useState<string>("");
   const [isDefault, setIsDefault] = useState(true);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+  const [contextText, setContextText] = useState<string>("");
+  const [contextErr, setContextErr] = useState<string>("");
 
   useEffect(() => {
     void (async () => {
       try {
-        const { template, updatedAt } = await fetchPrompt();
+        const [{ template, updatedAt }, session] = await Promise.all([
+          fetchPrompt(),
+          fetchSession().catch((e) => {
+            setContextErr((e as Error).message);
+            return { contextText: "" } as { contextText: string };
+          }),
+        ]);
         const effective = template ?? DEFAULT_SYSTEM_PROMPT_TEMPLATE;
         setValue(effective);
         setIsDefault(template === null);
         setUpdatedAt(updatedAt);
+        setContextText(session.contextText ?? "");
       } catch (err) {
         setStatus(`Load failed: ${(err as Error).message}`);
         setValue(DEFAULT_SYSTEM_PROMPT_TEMPLATE);
@@ -49,7 +60,7 @@ function InstructionPage() {
         setLoading(false);
       }
     })();
-  }, [fetchPrompt]);
+  }, [fetchPrompt, fetchSession]);
 
   const onSave = async () => {
     setSaving(true);
