@@ -142,6 +142,11 @@ export class QwenLiveClient {
   // back the tool result. While true we drop any response.audio.delta so the
   // model's pre-tool partial sentence never reaches the speaker.
   private toolInProgress = false;
+  // Walkie-talkie buffer: accumulate audio.delta chunks during a turn and
+  // emit a single solid PCM buffer on response.done. Eliminates network jitter
+  // and lets the UI mute the mic cleanly for the entire playback window.
+  private audioBuffer: Uint8Array[] = [];
+  private audioBufferBytes = 0;
 
   constructor(cbs: QwenCallbacks) {
     this.cbs = cbs;
