@@ -4,6 +4,8 @@ export type AudioEngineCallbacks = {
   onMicChunk: (pcm: ArrayBuffer) => void;
   onBargeIn?: () => void;
   onDebug?: (msg: string) => void;
+  onPlaybackStart?: () => void;
+  onPlaybackEnd?: () => void;
 };
 
 const PLAYBACK_RATE = 24000;
@@ -74,10 +76,14 @@ export class AudioEngine {
       }
 
       if (pulledSamples) {
-        this.playing = true;
+        if (!this.playing) {
+          this.playing = true;
+          try { this.cbs.onPlaybackStart?.(); } catch {}
+        }
       } else if (this.playing) {
         this.playing = false;
         this.micHoldUntil = performance.now() + INPUT_RESUME_AFTER_PLAYBACK_MS;
+        try { this.cbs.onPlaybackEnd?.(); } catch {}
       }
     };
     this.playerNode.connect(this.playbackGain);
@@ -163,7 +169,9 @@ export class AudioEngine {
     for (let i = 0; i < sampleCount; i++) {
       this.audioQueue.push(view.getInt16(i * 2, true) / 32768.0);
     }
-    this.playing = this.audioQueue.length > 0;
+    // Don't flip `playing` here — let the audio callback flip it so the
+    // onPlaybackStart/End callbacks fire from a single source of truth.
+
   }
 
   /** Kill switch — instantly wipes queued raw samples. */

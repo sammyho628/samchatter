@@ -142,6 +142,11 @@ export class QwenLiveClient {
   // back the tool result. While true we drop any response.audio.delta so the
   // model's pre-tool partial sentence never reaches the speaker.
   private toolInProgress = false;
+  // Walkie-talkie buffer: accumulate audio.delta chunks during a turn and
+  // emit a single solid PCM buffer on response.done. Eliminates network jitter
+  // and lets the UI mute the mic cleanly for the entire playback window.
+  private audioBuffer: Uint8Array[] = [];
+  private audioBufferBytes = 0;
 
   constructor(cbs: QwenCallbacks) {
     this.cbs = cbs;
@@ -284,7 +289,10 @@ export class QwenLiveClient {
         // result comes back.
         return;
       }
-      this.cbs.onAudio?.(base64ToBytes(msg.delta));
+      // Walkie-talkie: buffer; do NOT play yet.
+      const bytes = base64ToBytes(msg.delta);
+      this.audioBuffer.push(bytes);
+      this.audioBufferBytes += bytes.byteLength;
       return;
     }
     if (type === "input_audio_buffer.speech_started") {
@@ -318,8 +326,9 @@ export class QwenLiveClient {
     }
     if (type === "response.created") {
       this.cbs.onDebug?.("🧠 response.created");
-      // Kill switch — flush any leftover audio from a previous turn so the
-      // new reply never overlaps the tail of the old one.
+      // New turn — drop any leftover walkie-talkie buffer from a prior turn.
+      this.audioBuffer = [];
+      this.audioBufferBytes = 0;
       try { this.cbs.onFlushPlayback?.(); } catch {}
       return;
     }
@@ -371,6 +380,19 @@ export class QwenLiveClient {
     }
 
     if (type === "response.done" || type === "response.audio.done") {
+      // Flush the walkie-talkie buffer as ONE solid block, then signal done.
+      if (this.audioBufferBytes > 0) {
+        const merged = new Uint8Array(this.audioBufferBytes);
+        let off = 0;
+        for (const part of this.audioBuffer) {
+          merged.set(part, off);
+          off += part.byteLength;
+        }
+        this.audioBuffer = [];
+        this.audioBufferBytes = 0;
+        this.cbs.onDebug?.(`🔊 flush ${merged.byteLength} bytes (walkie-talkie)`);
+        this.cbs.onAudio?.(merged);
+      }
       this.cbs.onTurnComplete?.();
       this.cbs.onDebug?.(`✓ ${type}`);
       return;
