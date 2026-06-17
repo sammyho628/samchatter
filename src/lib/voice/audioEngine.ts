@@ -4,6 +4,8 @@ export type AudioEngineCallbacks = {
   onMicChunk: (pcm: ArrayBuffer) => void;
   onBargeIn?: () => void;
   onDebug?: (msg: string) => void;
+  onPlaybackStart?: () => void;
+  onPlaybackEnd?: () => void;
 };
 
 const PLAYBACK_RATE = 24000;
