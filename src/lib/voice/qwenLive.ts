@@ -379,6 +379,19 @@ export class QwenLiveClient {
     }
 
     if (type === "response.done" || type === "response.audio.done") {
+      // Flush the walkie-talkie buffer as ONE solid block, then signal done.
+      if (this.audioBufferBytes > 0) {
+        const merged = new Uint8Array(this.audioBufferBytes);
+        let off = 0;
+        for (const part of this.audioBuffer) {
+          merged.set(part, off);
+          off += part.byteLength;
+        }
+        this.audioBuffer = [];
+        this.audioBufferBytes = 0;
+        this.cbs.onDebug?.(`🔊 flush ${merged.byteLength} bytes (walkie-talkie)`);
+        this.cbs.onAudio?.(merged);
+      }
       this.cbs.onTurnComplete?.();
       this.cbs.onDebug?.(`✓ ${type}`);
       return;
