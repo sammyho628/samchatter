@@ -129,7 +129,13 @@ export function VoiceCompanion() {
       try {
         const session = await fetchSession();
         const { contextText, promptTemplate } = session;
-        const prompt = buildSystemPrompt(promptTemplate, contextText);
+        const nowHK = new Date().toLocaleString("en-GB", { timeZone: "Asia/Hong_Kong", hour12: false });
+        const prompt = buildSystemPrompt(promptTemplate, contextText, nowHK);
+        pushLog("evt", `🕒 HK now: ${nowHK}`);
+        pushLog(
+          "evt",
+          `📚 context: ${contextText ? contextText.length + " chars loaded" : "EMPTY — knowledge base has no rows"}`,
+        );
 
         // Shared callbacks both clients fulfil.
         const shared = {

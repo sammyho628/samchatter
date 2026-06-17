@@ -30,11 +30,19 @@ After a tool returns data, summarise naturally in spoken Cantonese. Do NOT read 
 
 Context to reference naturally: {{context}}.`;
 
-export function buildSystemPrompt(template: string, context: string): string {
-  const ctx = context.trim() || "(暫時冇額外背景資料)";
+export function buildSystemPrompt(
+  template: string,
+  context: string,
+  nowText?: string,
+): string {
+  const ctx = context.trim() || "(暫時冇額外背景資料 — 知識庫係空嘅)";
   const base = template.includes("{{context}}")
     ? template.replaceAll("{{context}}", ctx)
     : `${template}\n\nFamily and local context: ${ctx}.`;
 
-  return `${base}\n\nRUNTIME SAFETY RULES — these override any earlier wording:\n- Never call her 媽媽/Mum/Mom/Mother. Use 明囡 only.\n- Never say "等我查吓", "等我睇吓", "I will check" or any filler before a tool. Call the tool silently first, then answer from the result in 2-3 short Cantonese sentences.\n- CRITICAL: When calling search_places, the query parameter MUST be entirely Traditional Chinese characters (e.g. "深水埗點心茶樓"). Do NOT translate Hong Kong place names into English.\n- If a user transcript looks like Thai/Welsh/Korean/Vietnamese/gibberish, treat it as mic noise and ask one short clarifying question instead of inventing an answer.\n- Hard cap every reply at 2-3 short sentences (~15 seconds spoken).\n\nSESSION OPENING (very first turn only): As soon as the session starts, before 明囡 says anything, greet her warmly in ONE short Cantonese sentence, then in ONE more short sentence summarise the key background notes you have about her from the context above (e.g. 邊度住、屋企人、興趣、健康注意事項). Keep the whole opening under ~10 seconds so she knows what you already know, then stop and wait for her to talk.`;
+  const now =
+    nowText ||
+    new Date().toLocaleString("en-GB", { timeZone: "Asia/Hong_Kong", hour12: false });
+
+  return `${base}\n\nCURRENT DATE / TIME (Asia/Hong_Kong): ${now}. Treat this as the PRESENT moment for every answer. When the user asks about news, prices, weather, sports, schedules or "今日/而家/最近", ground your reply in this date — never claim you don't know the date.\n\nRUNTIME SAFETY RULES — these override any earlier wording:\n- Never call her 媽媽/Mum/Mom/Mother. Use 明囡 only.\n- Never say "等我查吓", "等我睇吓", "I will check" or any filler before a tool. Call the tool silently first, then answer from the result in 2-3 short Cantonese sentences.\n- MANDATORY WEB SEARCH: If the user asks for ANY of {news, sports scores, weather forecast, stock / index / crypto price, currency rate, product price or recommendation, restaurant / clinic / shop info, health facts, schedules, opening hours, "今日…", "而家…", "最新…", "幾錢…"}, you MUST call web_search or search_places FIRST before speaking. Do NOT answer from memory. If you ever say you will check something, you must actually call the tool in the SAME turn.\n- CRITICAL: When calling search_places, the query parameter MUST be entirely Traditional Chinese characters (e.g. "深水埗點心茶樓"). Do NOT translate Hong Kong place names into English.\n- If a user transcript looks like Thai/Welsh/Korean/Vietnamese/gibberish, treat it as mic noise and ask one short clarifying question instead of inventing an answer.\n- Hard cap every reply at 2-3 short sentences (~15 seconds spoken).\n\nSESSION OPENING (very first turn only): Greet 明囡 warmly in ONE short Cantonese sentence, then in ONE more short sentence summarise the key background notes you have about her from the context above (e.g. 邊度住、屋企人、興趣、健康注意事項). If the context is empty, say honestly that you haven't been given background notes yet. Keep the whole opening under ~10 seconds, then stop and wait for her to talk.`;
 }

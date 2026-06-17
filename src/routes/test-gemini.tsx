@@ -73,15 +73,67 @@ function TestGeminiPage() {
       }, 8000);
 
       ws.onopen = () => {
-        log(`  ✓ ws.open — sending setup`);
-        ws.send(
-          JSON.stringify({
-            setup: {
-              model: c.model,
-              generationConfig: { responseModalities: ["AUDIO"] },
+        log(`  ✓ ws.open — sending setup (FunctionDeclarations format)`);
+        const setupMessage = {
+          setup: {
+            model: c.model,
+            generationConfig: {
+              responseModalities: ["AUDIO"],
+              speechConfig: {
+                voiceConfig: { prebuiltVoiceConfig: { voiceName: "Charon" } },
+              },
             },
-          }),
-        );
+            systemInstruction: {
+              parts: [
+                {
+                  text:
+                    "You are a HK Cantonese voice companion. If the user asks about news, prices, weather, stocks, or local places, you MUST call web_search or search_places FIRST before answering.",
+                },
+              ],
+            },
+            tools: [
+              {
+                functionDeclarations: [
+                  {
+                    name: "web_search",
+                    description:
+                      "Use this for current events, news, financial markets, product recommendations, and health facts.",
+                    parameters: {
+                      type: "OBJECT",
+                      properties: {
+                        query: {
+                          type: "STRING",
+                          description:
+                            "The search query. ALWAYS append specific site routing rules as instructed.",
+                        },
+                      },
+                      required: ["query"],
+                    },
+                  },
+                  {
+                    name: "search_places",
+                    description:
+                      "Use this EXCLUSIVELY to find physical addresses, restaurants, or local shops in Hong Kong.",
+                    parameters: {
+                      type: "OBJECT",
+                      properties: {
+                        query: {
+                          type: "STRING",
+                          description:
+                            "The location search query in Traditional Chinese.",
+                        },
+                      },
+                      required: ["query"],
+                    },
+                  },
+                ],
+              },
+            ],
+            inputAudioTranscription: {},
+            outputAudioTranscription: {},
+          },
+        };
+        ws.send(JSON.stringify(setupMessage));
       };
       ws.onmessage = async (ev) => {
         let text = "";
@@ -89,14 +141,22 @@ function TestGeminiPage() {
         else if (ev.data instanceof Blob) text = await ev.data.text();
         else if (ev.data instanceof ArrayBuffer)
           text = new TextDecoder().decode(ev.data);
-        const snippet = text.length > 240 ? text.slice(0, 240) + "…" : text;
+        const snippet = text.length > 280 ? text.slice(0, 280) + "…" : text;
         log(`  ← message: ${snippet}`);
         try {
           const parsed = JSON.parse(text);
           if (parsed.setupComplete) {
-            log(`  ✅ setupComplete — model accepted`);
+            log(`  ✅ setupComplete — model + tools accepted`);
             window.clearTimeout(timeout);
             done();
+          } else if (parsed.toolCall) {
+            log(`  🔧 toolCall: ${JSON.stringify(parsed.toolCall)}`);
+          } else if (
+            parsed.serverContent?.modelTurn?.parts?.[0]?.functionCall
+          ) {
+            log(
+              `  🔧 functionCall (modelTurn): ${JSON.stringify(parsed.serverContent.modelTurn.parts[0].functionCall)}`,
+            );
           } else if (parsed.error) {
             log(`  ❌ error: ${JSON.stringify(parsed.error)}`);
             window.clearTimeout(timeout);

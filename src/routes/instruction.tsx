@@ -7,6 +7,7 @@ import {
   saveSystemPrompt,
   resetSystemPrompt,
 } from "@/lib/voice/prompt.functions";
+import { getVoiceSession } from "@/lib/voice/session.functions";
 
 export const Route = createFileRoute("/instruction")({
   head: () => ({
@@ -26,6 +27,7 @@ function InstructionPage() {
   const fetchPrompt = useServerFn(getSystemPrompt);
   const savePrompt = useServerFn(saveSystemPrompt);
   const resetPrompt = useServerFn(resetSystemPrompt);
+  const fetchSession = useServerFn(getVoiceSession);
 
   const [value, setValue] = useState<string>("");
   const [loading, setLoading] = useState(true);
@@ -33,15 +35,24 @@ function InstructionPage() {
   const [status, setStatus] = useState<string>("");
   const [isDefault, setIsDefault] = useState(true);
   const [updatedAt, setUpdatedAt] = useState<string | null>(null);
+  const [contextText, setContextText] = useState<string>("");
+  const [contextErr, setContextErr] = useState<string>("");
 
   useEffect(() => {
     void (async () => {
       try {
-        const { template, updatedAt } = await fetchPrompt();
+        const [{ template, updatedAt }, session] = await Promise.all([
+          fetchPrompt(),
+          fetchSession().catch((e) => {
+            setContextErr((e as Error).message);
+            return { contextText: "" } as { contextText: string };
+          }),
+        ]);
         const effective = template ?? DEFAULT_SYSTEM_PROMPT_TEMPLATE;
         setValue(effective);
         setIsDefault(template === null);
         setUpdatedAt(updatedAt);
+        setContextText(session.contextText ?? "");
       } catch (err) {
         setStatus(`Load failed: ${(err as Error).message}`);
         setValue(DEFAULT_SYSTEM_PROMPT_TEMPLATE);
@@ -49,7 +60,7 @@ function InstructionPage() {
         setLoading(false);
       }
     })();
-  }, [fetchPrompt]);
+  }, [fetchPrompt, fetchSession]);
 
   const onSave = async () => {
     setSaving(true);
@@ -133,6 +144,30 @@ function InstructionPage() {
             {status && ` ${status}`}
           </span>
         </div>
+
+        <section className="rounded-md border border-border p-4">
+          <div className="flex items-baseline justify-between gap-2">
+            <h2 className="text-base font-semibold">
+              Knowledge base context <code className="text-xs text-muted-foreground">({`{{context}}`})</code>
+            </h2>
+            <span className="text-xs text-muted-foreground">
+              {contextErr
+                ? `error: ${contextErr}`
+                : contextText
+                  ? `${contextText.length} chars`
+                  : "EMPTY"}
+            </span>
+          </div>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Loaded live from the <code>Voice-Bot-1</code> table and injected into the
+            prompt wherever <code>{`{{context}}`}</code> appears. If this is empty,
+            the LLM has no background notes about 明囡 — add rows to{" "}
+            <code>Voice-Bot-1.content_text</code> to fix it.
+          </p>
+          <pre className="mt-3 max-h-72 overflow-auto whitespace-pre-wrap rounded bg-muted p-3 font-mono text-xs">
+            {contextText || "(no rows in Voice-Bot-1 — knowledge base is empty)"}
+          </pre>
+        </section>
 
         <details className="rounded-md border border-border p-4 text-sm">
           <summary className="cursor-pointer font-medium">
