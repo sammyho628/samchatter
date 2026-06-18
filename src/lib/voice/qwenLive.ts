@@ -158,6 +158,15 @@ export class QwenLiveClient {
   // must not append the same audio twice — that's what causes the "stuck
   // record" stutter where the first syllable repeats.
   private seenDeltaEventIds = new Set<string>();
+  // Tool batch: when the model emits multiple parallel function calls in one
+  // response, we MUST send all function_call_output items and a SINGLE
+  // response.create afterwards. Sending response.create per-tool causes
+  // "Conversation already has an active response" errors.
+  private pendingToolResults: Array<{
+    callId: string;
+    name: string;
+    promise: Promise<string>;
+  }> = [];
   // Heartbeat: Qwen / proxy closes the WS at ~30s of idle. Send a tiny
   // silent PCM frame every 15s so the connection survives long tool/LLM waits.
   private heartbeatTimer: number | null = null;
