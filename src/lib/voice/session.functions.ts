@@ -146,8 +146,9 @@ async function refreshTopicsBackground(topics: string[]) {
           const c = (r.content ?? "").replace(/\s+/g, " ").trim().slice(0, 300);
           if (t || c) parts.push(`${t}: ${c}`);
         });
-        const content = parts.join("\n").slice(0, 2000);
-        if (!content) return;
+        const rawContent = parts.join("\n").slice(0, 2000);
+        if (!rawContent) return;
+        const content = await translateToTraditionalChinese(rawContent, topic);
         await supabaseAdmin
           .from("daily_cache")
           .upsert(
