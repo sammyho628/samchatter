@@ -465,6 +465,16 @@ export function VoiceCompanion() {
           >
             {debugOpen ? "Hide debug" : "Show debug"} ({debugLog.length})
           </button>
+          {lastAudioBuffer ? (
+            <button
+              type="button"
+              onClick={handleReplayVoice}
+              className="rounded-full border border-sky-300/40 bg-sky-400/10 px-3 py-1 text-sky-200 hover:bg-sky-400/20"
+              title="Replay the last decoded AI buffer — helps diagnose hardware vs network stutters"
+            >
+              🔁 Replay Voice
+            </button>
+          ) : null}
         </div>
       </div>
 
