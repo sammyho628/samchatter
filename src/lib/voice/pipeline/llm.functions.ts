@@ -5,7 +5,7 @@ import { createServerFn } from "@tanstack/react-start";
 
 export type GeminiPart =
   | { text: string }
-  | { functionCall: { name: string; args: Record<string, unknown> } }
+  | { functionCall: { name: string; args: Record<string, string> } }
   | {
       functionResponse: {
         name: string;
@@ -20,7 +20,7 @@ export type GeminiTurn = {
 
 export type ToolCallTrace = {
   name: string;
-  args: Record<string, unknown>;
+  args: Record<string, string>;
   summary: string;
 };
 
@@ -67,7 +67,7 @@ const TOOLS = [
 
 async function runTool(
   name: string,
-  args: Record<string, unknown>,
+  args: Record<string, string>,
 ): Promise<string> {
   const query = String(args.query ?? "").trim();
   if (!query) return `Error: missing 'query' for ${name}.`;
@@ -83,7 +83,7 @@ async function runTool(
         ? "web-search"
         : null;
   if (!fn) return `Error: unknown tool '${name}'.`;
-  const body: Record<string, unknown> = { query };
+  const body: Record<string, string> = { query };
   if (name === "web_search" && typeof args.category === "string") {
     body.category = args.category;
   }
@@ -155,7 +155,7 @@ export const generateAIResponse = createServerFn({ method: "POST" })
     for (let step = 0; step < 6; step++) {
       const { parts } = await callGemini(key, data.systemInstruction, contents);
       const fnCalls = parts.filter(
-        (p): p is { functionCall: { name: string; args: Record<string, unknown> } } =>
+        (p): p is { functionCall: { name: string; args: Record<string, string> } } =>
           "functionCall" in p,
       );
       if (fnCalls.length === 0) {
