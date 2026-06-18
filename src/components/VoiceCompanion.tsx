@@ -80,6 +80,11 @@ export function VoiceCompanion() {
     setMicMuted((m) => {
       const next = !m;
       engineRef.current?.setMicMuted(next);
+      // When the user mutes mid-utterance, force the server to stop waiting
+      // for trailing silence — otherwise VAD hangs and no reply ever comes.
+      if (next) {
+        try { clientRef.current?.commitAndRespond?.(); } catch {}
+      }
       return next;
     });
   }, []);
