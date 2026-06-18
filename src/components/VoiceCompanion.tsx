@@ -55,6 +55,13 @@ export function VoiceCompanion() {
   const clientRef = useRef<ActiveClient | null>(null);
   const activeRef = useRef(false);
   const micStartedRef = useRef(false);
+  const providerRef = useRef<Provider>(provider);
+  useEffect(() => { providerRef.current = provider; }, [provider]);
+
+  // Session memory tracking
+  const sessionIdRef = useRef<string>("");
+  const transcriptLinesRef = useRef<string[]>([]);
+  const executedSearchesRef = useRef<string[]>([]);
 
   const toggleMute = useCallback(() => {
     setMuted((m) => {
@@ -73,6 +80,27 @@ export function VoiceCompanion() {
   }, []);
 
   const fetchSession = useServerFn(getVoiceSession);
+  const saveMemory = useServerFn(summarizeAndSaveSession);
+
+  const flushSessionSummary = useCallback(async () => {
+    const lines = transcriptLinesRef.current;
+    const sid = sessionIdRef.current;
+    transcriptLinesRef.current = [];
+    const searches = executedSearchesRef.current;
+    executedSearchesRef.current = [];
+    if (!sid || lines.length < 2) return;
+    try {
+      await saveMemory({
+        data: {
+          sessionId: sid,
+          transcript: lines.join("\n").slice(0, 60000),
+          executedSearches: searches,
+        },
+      });
+    } catch {
+      /* background — silent failure */
+    }
+  }, [saveMemory]);
 
   const stopAll = useCallback(async () => {
     activeRef.current = false;
@@ -82,7 +110,8 @@ export function VoiceCompanion() {
     engineRef.current = null;
     micStartedRef.current = false;
     setStatus("idle");
-  }, []);
+    void flushSessionSummary();
+  }, [flushSessionSummary]);
 
   useEffect(() => {
     return () => {
