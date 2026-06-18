@@ -84,9 +84,22 @@ export function VoiceCompanion() {
   const saveMemory = useServerFn(summarizeAndSaveSession);
 
   const handleReplayVoice = useCallback(() => {
+    if (!lastAudioBuffer) return;
     const eng = engineRef.current;
-    if (!eng || !lastAudioBuffer) return;
-    eng.replayBuffer(lastAudioBuffer);
+    if (eng) {
+      eng.replayBuffer(lastAudioBuffer);
+      return;
+    }
+    // Fallback when the session is closed: spin up a one-shot context.
+    const AC: typeof AudioContext =
+      (window as unknown as { AudioContext: typeof AudioContext; webkitAudioContext?: typeof AudioContext }).AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const ctx = new AC();
+    const src = ctx.createBufferSource();
+    src.buffer = lastAudioBuffer;
+    src.connect(ctx.destination);
+    src.onended = () => { void ctx.close(); };
+    src.start(ctx.currentTime + 0.1);
   }, [lastAudioBuffer]);
 
   const flushSessionSummary = useCallback(async () => {
