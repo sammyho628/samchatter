@@ -52,13 +52,18 @@ export const DEFAULT_TOOLS: QwenToolDef[] = [
     function: {
       name: "web_search",
       description:
-        "Search the internet for current events, finance, Yahoo Finance, stock market, current events, news, weather, prices, sports scores, or recently changing facts.",
+        "Search the internet for current events, finance, stocks, news, weather, prices, sports scores, health facts, jokes, or recently changing facts. Optionally specify a category to apply curated trusted-domain filters.",
       parameters: {
         type: "object",
         properties: {
           query: {
             type: "string",
-            description: "What to look up on the web.",
+            description: "What to look up on the web. Translate relative time (尋日/今朝) into absolute dates.",
+          },
+          category: {
+            type: "string",
+            enum: ["health", "finance", "news", "shopping"],
+            description: "Optional. Routes the search through curated trusted domains for that topic.",
           },
         },
         required: ["query"],
