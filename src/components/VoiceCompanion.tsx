@@ -32,6 +32,7 @@ export function VoiceCompanion() {
   const [debugOpen, setDebugOpen] = useState(false);
   const [searching, setSearching] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [lastAudioBuffer, setLastAudioBuffer] = useState<AudioBuffer | null>(null);
   const [provider, setProvider] = useState<Provider>(() => {
     if (typeof window === "undefined") return "qwen";
     const v = window.localStorage.getItem(PROVIDER_KEY);
