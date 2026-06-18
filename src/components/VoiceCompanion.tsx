@@ -22,7 +22,11 @@ const STATUS_LABEL: Record<Status, string> = {
 
 const PROVIDER_KEY = "voice.provider.v1";
 
-type ActiveClient = { sendAudioChunk: (b: ArrayBuffer) => void; close: () => void };
+type ActiveClient = {
+  sendAudioChunk: (b: ArrayBuffer) => void;
+  close: () => void;
+  commitAndRespond?: () => void;
+};
 
 export function VoiceCompanion() {
   const [status, setStatus] = useState<Status>("idle");
