@@ -49,7 +49,7 @@ export const getVoiceSession = createServerFn({ method: "GET" }).handler(
 
     // Build prefetch_context from daily_cache; trigger background refresh if stale
     const now = Date.now();
-    const cacheRows = (cacheRes.data ?? []) as Array<{
+    let cacheRows = (cacheRes.data ?? []) as Array<{
       topic: string;
       content: string;
       updated_at: string;
@@ -61,14 +61,26 @@ export const getVoiceSession = createServerFn({ method: "GET" }).handler(
         staleTopics.push(t);
       }
     }
+
+    // COLD START: if the cache is completely empty, AWAIT the refresh so the
+    // very first session of the day has prefetch_context populated. On warm
+    // cache (some rows present but stale), fire-and-forget so we don't delay
+    // the WebSocket handshake.
+    if (cacheRows.length === 0 && staleTopics.length > 0) {
+      await refreshTopicsBackground(staleTopics).catch(() => {});
+      const reread = await supabaseAdmin
+        .from("daily_cache")
+        .select("topic, content, updated_at")
+        .in("topic", CACHE_TOPICS);
+      cacheRows = (reread.data ?? []) as typeof cacheRows;
+    } else if (staleTopics.length > 0) {
+      void refreshTopicsBackground(staleTopics).catch(() => {});
+    }
+
     const prefetchContext = cacheRows
       .map((r) => `【${r.topic}】\n${r.content}`)
       .join("\n\n");
 
-    // Fire-and-forget background refresh for stale topics (do NOT await)
-    if (staleTopics.length > 0) {
-      void refreshTopicsBackground(staleTopics).catch(() => {});
-    }
 
     // Build memory_context
     const memRows = (memRes.data ?? []) as Array<{
