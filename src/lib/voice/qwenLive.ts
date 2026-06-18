@@ -226,6 +226,7 @@ export class QwenLiveClient {
             type: "response.create",
           }),
         );
+        this.startHeartbeat();
         this.cbs.onSetupComplete?.();
         resolve();
       };
