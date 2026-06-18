@@ -105,10 +105,9 @@ export async function executeQwenTool(
   name: string,
   args: unknown,
 ): Promise<string> {
-  const query =
-    typeof args === "object" && args && "query" in args
-      ? String((args as Record<string, unknown>).query ?? "")
-      : "";
+  const argObj = (typeof args === "object" && args ? args : {}) as Record<string, unknown>;
+  const query = String(argObj.query ?? "");
+  const category = argObj.category ? String(argObj.category) : undefined;
   if (!query) return `Error: missing 'query' for ${name}.`;
 
   const fn = name === "search_places"
@@ -120,7 +119,7 @@ export async function executeQwenTool(
 
   try {
     const { data, error } = await supabase.functions.invoke(fn, {
-      body: { query },
+      body: category ? { query, category } : { query },
     });
     if (error) return `Tool ${name} error: ${error.message}`;
     const summary = (data as { summary?: string; error?: string } | null)?.summary
