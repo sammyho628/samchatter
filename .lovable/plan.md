@@ -1,71 +1,108 @@
 
-# Voice Companion — Plan
+## Goal
 
-A mobile-first (iPhone) web app that streams speech-to-speech Cantonese conversation with Google Gemini Live, using context fetched from a user-supplied Supabase table.
+Replace the WebSocket realtime voice loop (Qwen / Gemini Live + raw PCM streaming) with a clean, decoupled REST pipeline driven by a push-to-talk button. Three swappable modules, one orchestrator, no manual PCM alignment.
 
-## Scope & assumptions
-- **Credentials**: Gemini API key, Supabase URL, and Supabase anon key are entered by the user in an in-app Settings panel and stored in `localStorage`. No Lovable Cloud / backend is enabled — the user explicitly wants their own Supabase + direct browser → Gemini WebSocket. (Note: putting the Gemini key in the browser exposes it to anyone using the deployed site; acceptable for a personal tool, flagging it here.)
-- **Supabase table**: `Voice-Bot-1`, column `content_text`. Fetched once per session start via `supabase-js` with the anon key (RLS must allow anon select).
-- **Model**: `gemini-2.5-flash` over `BidiGenerateContent` WebSocket. Native audio in (16kHz PCM) and audio out (24kHz PCM).
-- Single page, no auth, no routing changes beyond the existing `/` route.
+```text
+[ Mic + PTT button ]
+        │ webm/opus blob
+        ▼
+ Layer 1: transcribeAudio()  ── Deepgram (nova-2, zh-HK)
+        │ text
+        ▼
+ Layer 2: generateAIResponse() ── Gemini 2.5 Flash (+ tools loop)
+        │ text
+        ▼
+ Layer 3: synthesizeSpeech()   ── Google Cloud TTS (yue-HK Wavenet)
+        │ mp3 ArrayBuffer
+        ▼
+ AudioContext.decodeAudioData() → play
+```
 
-## UX (locked mobile viewport)
-- Update `__root.tsx` head meta to `width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0`.
-- One screen:
-  - Top-right: small gear icon → opens Settings sheet (3 inputs + Save).
-  - Center: massive circular **Start Conversation** button (≥70vw). States: `idle` (pulsing), `connecting`, `listening` (cool glow + waveform), `speaking` (warm glow + waveform), `error`.
-  - Reactive waveform/glow ring driven by an `AnalyserNode` on whichever stream is active (mic when listening, AI when speaking).
-  - Large Cantonese labels: 開始傾偈 / 停止.
-- High contrast, oversized text, generous spacing. Tailwind tokens added to `styles.css`.
+Each layer is a single async function with one input and one output, called from server functions so API keys stay server-side. Swapping a provider = rewrite one function.
 
-## Audio pipeline
-1. **User gesture unlock (inside button onClick, before anything async)**:
-   - `new AudioContext({ sampleRate: 24000 })` for playback, plus a separate `AudioContext({ sampleRate: 16000 })` for capture (Safari requires the resume call synchronously in the gesture).
-   - `await ctx.resume()` on both.
-2. **Mic capture**: `getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } })`.
-3. **PCM encoding**: `AudioWorkletNode` (with inline worklet module) downsamples to 16kHz mono, converts Float32 → Int16 little-endian, batches ~100ms chunks, base64-encodes, and posts back to main thread.
-4. **Send to Gemini**: each chunk wrapped as `{"realtimeInput":{"mediaChunks":[{"mimeType":"audio/pcm;rate=16000","data":"<base64>"}]}}`.
-5. **Playback**: incoming `serverContent.modelTurn.parts[].inlineData` (audio/pcm;rate=24000) decoded from base64 → Int16 → Float32 → scheduled into an `AudioBufferSourceNode` queue with a running `nextStartTime` cursor for gapless playback. Each queued source is tracked so it can be stopped.
-6. **Barge-in**: a lightweight RMS check in the worklet flags voice activity. When RMS crosses threshold AND playback queue is non-empty, main thread stops all queued sources, clears the queue, and resets `nextStartTime`.
+## Secrets needed (request via add_secret)
 
-## Gemini WebSocket
-- URL: `wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=<API_KEY>`
-- First message — `BidiGenerateContentSetup`:
-  ```json
-  {
-    "setup": {
-      "model": "models/gemini-2.5-flash",
-      "generationConfig": { "responseModalities": ["AUDIO"] },
-      "systemInstruction": { "parts": [{ "text": "<filled template>" }] }
-    }
-  }
-  ```
-- System instruction = the provided Cantonese template with `[INSERT ...]` replaced by concatenated `content_text` rows.
-- Handle inbound: `setupComplete` → start mic streaming; `serverContent` audio parts → enqueue playback; `turnComplete` → mark AI idle; errors → surface in UI.
-
-## Supabase context fetch
-- On Start: create `createClient(url, anonKey)`, `select('content_text').from('Voice-Bot-1')`, join non-empty rows with `\n\n`, inject into system prompt. Cache for the session.
+- `DEEPGRAM_API_KEY`
+- `GEMINI_API_KEY`
+- `GOOGLE_TTS_API_KEY` (Google Cloud API key with Text-to-Speech API enabled — can be the same key as Gemini if the project has both APIs enabled, but kept separate for clarity)
 
 ## File plan
-- `src/routes/__root.tsx` — update viewport meta + title.
-- `src/routes/index.tsx` — render `<VoiceCompanion />`.
-- `src/components/VoiceCompanion.tsx` — main UI, state machine (idle/connecting/listening/speaking/error), gear button.
-- `src/components/SettingsSheet.tsx` — shadcn `Sheet` with three inputs + save to localStorage.
-- `src/components/WaveformOrb.tsx` — canvas/SVG visualizer driven by an AnalyserNode ref.
-- `src/lib/voice/settings.ts` — load/save localStorage (`vc.geminiKey`, `vc.supabaseUrl`, `vc.supabaseAnonKey`).
-- `src/lib/voice/supabaseContext.ts` — fetch + concat `content_text`.
-- `src/lib/voice/geminiLive.ts` — WebSocket client (connect, sendSetup, sendAudioChunk, onAudio, close).
-- `src/lib/voice/audioEngine.ts` — AudioContext init, mic capture, worklet wiring, playback queue, barge-in stop.
-- `src/lib/voice/pcm-worklet.ts` — string export of the AudioWorklet source (registered via `Blob` URL so it works without a separate public file).
-- `src/lib/voice/systemPrompt.ts` — template + interpolation.
-- `src/styles.css` — add glow/pulse keyframes and large-touch tokens.
-- `package.json` — add `@supabase/supabase-js`.
 
-## Technical notes / risks
-- iOS Safari: AudioContext + `resume()` must run synchronously inside the click handler — implemented before any `await`.
-- AudioWorklet over `ScriptProcessorNode` for stable 16kHz resampling on iOS.
-- Gemini key in browser is inherently exposed; documented in Settings UI with a warning.
-- If `Voice-Bot-1` RLS blocks anon, fetch will fail — surfaced as a clear error in the UI before connecting.
-- No persistence of transcripts; this is purely live voice.
+### New — Layer modules (server functions, `createServerFn`)
 
-Approve and I'll build it.
+- `src/lib/voice/pipeline/stt.functions.ts` — `transcribeAudio(blob)` server fn. Accepts base64-encoded audio + mime type, POSTs to Deepgram `/v1/listen?model=nova-2&language=zh-HK&punctuate=true&smart_format=true`, returns `{ transcript: string }`.
+- `src/lib/voice/pipeline/llm.functions.ts` — `generateAIResponse({ history, userText })` server fn. Calls Gemini 2.5 Flash `generateContent` with the existing hard-wired system prompt (reused from `systemPrompt.ts`) + tool declarations (`web_search`, `search_places`). Runs the tool loop server-side: when Gemini returns a `functionCall`, invoke the existing `web-search` / `search-places` edge functions, append `functionResponse`, re-call Gemini, repeat until a plain text response or a max-step cap (6). Returns `{ text, updatedHistory, toolCalls[] }`.
+- `src/lib/voice/pipeline/tts.functions.ts` — `synthesizeSpeech(text)` server fn. POSTs to `https://texttospeech.googleapis.com/v1/text:synthesize?key=…` with `{ input:{text}, voice:{ languageCode:"yue-HK", name:"yue-HK-Standard-A" }, audioConfig:{ audioEncoding:"MP3", sampleRateHertz:24000 } }`. Returns `{ audioBase64, mimeType:"audio/mpeg" }`.
+
+All three are pure REST, no streaming, no SSE — keeps the contract trivial and swappable.
+
+### New — Client orchestrator
+
+- `src/lib/voice/pipeline/orchestrator.ts` — `runTurn(blob, history, callbacks)` runs STT → LLM → TTS sequentially, firing UI callbacks: `onListening`, `onTranscript(text)`, `onThinking`, `onToolCall(name,args)`, `onSpeaking`, `onAssistantText(text)`, `onDone`. No retry/reconnect logic — failures bubble up as toasts.
+- `src/lib/voice/pipeline/recorder.ts` — thin `MediaRecorder` wrapper for push-to-talk: `start()` / `stop()` returns a Blob. Picks the best supported mime type (`audio/webm;codecs=opus` → `audio/mp4` fallback for Safari).
+- `src/lib/voice/pipeline/player.ts` — `playAudioBlob(arrayBuffer)`: a single shared `AudioContext`, `decodeAudioData`, `AudioBufferSourceNode.start(currentTime + 0.05)`. Stops any prior source first (kills overlap). No PCM math, no chunk scheduling.
+
+### Updated
+
+- `src/components/VoiceCompanion.tsx` — rip out `QwenLiveClient` / `AudioEngine` walkie-talkie wiring. Replace mic toggle with a **press-and-hold "Hold to Talk"** button (pointerdown/pointerup, plus pointercancel + space-bar). UI states: Idle → Listening → Transcribing → Thinking → Speaking → Idle. Keep existing prompt-debug panel, replay-last-buffer button (now replays last MP3 ArrayBuffer), memory/cache prefetch, version banner.
+- `src/lib/version.ts` — bump to `1.5.0` (architecture change).
+- `src/lib/voice/systemPrompt.ts` — reused as-is for Gemini. The tool-call "verbal trap" rules are no longer needed (Gemini's `functionCall` is structured, not text) but left in place — they don't hurt.
+
+### Kept but unused (per user choice)
+
+- `src/lib/voice/qwenLive.ts`
+- `src/lib/voice/geminiLive.ts`
+- `src/lib/voice/audioEngine.ts`
+- `src/lib/voice/pcm-worklet.ts`
+- `src/routes/api/public/qwen-proxy.ts`
+- `src/routes/testqwen.tsx`, `src/routes/test-gemini.tsx`
+
+No imports from `VoiceCompanion.tsx` will reference these after the refactor; tree-shaking handles the rest. A comment at the top of each notes "Deprecated — replaced by src/lib/voice/pipeline/* in v1.5.0".
+
+## Tool-calling loop (Layer 2 detail)
+
+```text
+loop (max 6 iterations):
+  call Gemini with contents=history
+  if response has functionCall:
+      run tool (web-search / search-places edge fn)
+      append { role: "model", parts: [{ functionCall }] }
+      append { role: "function", parts: [{ functionResponse:{ name, response:{ result } } }] }
+      continue
+  else:
+      return text + final history
+```
+
+Tool declarations re-use the same schemas already in `geminiLive.ts` (`web_search`, `search_places`) so behaviour and trusted-domain routing in the `web-search` edge function are unchanged.
+
+## Push-to-talk UX
+
+- Big circular "按住講嘢" button center-screen.
+- `pointerdown` → start recorder, label → "🎤 聽緊…"
+- `pointerup` / `pointercancel` → stop recorder, kick orchestrator.
+- Keyboard: hold Spacebar to talk (when not focused in an input).
+- During Thinking/Speaking the button is disabled (greyed). Tapping during Speaking stops playback and returns to Idle (barge-in lite).
+
+## What this fixes
+
+- **Audio jitter / stutter / overlapping voices** — gone. Single decoded MP3, played once via `AudioBufferSourceNode`.
+- **30s WebSocket idle timeout, heartbeat hacks, reconnect storms** — gone. Stateless HTTP.
+- **"Verbal trap" tool-call hesitation** — Gemini emits structured `functionCall`, not text.
+- **Race conditions between parallel tool calls and `response.create`** — orchestrator is strictly sequential.
+- **VAD hang on mute** — replaced by explicit push-to-talk.
+
+## Out of scope
+
+- Streaming TTS (Google REST returns a complete file; fine for short replies).
+- Barge-in mid-AI-speech beyond "tap to stop".
+- Migrating existing chat memory / daily cache schemas — they remain and feed the system prompt unchanged.
+
+## Verification
+
+1. `bun run build` clean.
+2. Push-to-talk: hold → speak Cantonese → release → transcript bubble appears → assistant text → audio plays once, no stutter.
+3. Ask "今日香港天氣？" → confirm `web_search` tool fires (console log) and answer cites it.
+4. Ask "邊度有好食嘅茶餐廳？" → confirm `search_places` fires.
+5. Hold-and-release with no speech → graceful "聽唔清楚" toast, no crash.
+6. Network throttle → STT/LLM/TTS errors surface as toasts, UI returns to Idle.
