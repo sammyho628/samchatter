@@ -7,7 +7,8 @@ const CACHE_TOPICS = ["hk_weather", "hk_news"];
 
 export const getVoiceSession = createServerFn({ method: "GET" }).handler(
   async () => {
-    const geminiKey = process.env.GEMINI_API_KEY ?? "";
+    // NOTE: do not return GEMINI_API_KEY — Layer 2 (llm.functions.ts) calls
+    // Gemini server-side; the key must never reach the browser.
     const { supabaseAdmin } = await import(
       "@/integrations/supabase/client.server"
     );
@@ -95,7 +96,6 @@ export const getVoiceSession = createServerFn({ method: "GET" }).handler(
       .join("\n");
 
     return {
-      geminiKey,
       contextText,
       promptTemplate,
       prefetchContext,
