@@ -22,7 +22,11 @@ const STATUS_LABEL: Record<Status, string> = {
 
 const PROVIDER_KEY = "voice.provider.v1";
 
-type ActiveClient = { sendAudioChunk: (b: ArrayBuffer) => void; close: () => void };
+type ActiveClient = {
+  sendAudioChunk: (b: ArrayBuffer) => void;
+  close: () => void;
+  commitAndRespond?: () => void;
+};
 
 export function VoiceCompanion() {
   const [status, setStatus] = useState<Status>("idle");
@@ -76,6 +80,11 @@ export function VoiceCompanion() {
     setMicMuted((m) => {
       const next = !m;
       engineRef.current?.setMicMuted(next);
+      // When the user mutes mid-utterance, force the server to stop waiting
+      // for trailing silence — otherwise VAD hangs and no reply ever comes.
+      if (next) {
+        try { clientRef.current?.commitAndRespond?.(); } catch {}
+      }
       return next;
     });
   }, []);

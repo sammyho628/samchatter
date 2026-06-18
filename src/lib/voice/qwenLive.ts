@@ -158,6 +158,15 @@ export class QwenLiveClient {
   // must not append the same audio twice — that's what causes the "stuck
   // record" stutter where the first syllable repeats.
   private seenDeltaEventIds = new Set<string>();
+  // Tool batch: when the model emits multiple parallel function calls in one
+  // response, we MUST send all function_call_output items and a SINGLE
+  // response.create afterwards. Sending response.create per-tool causes
+  // "Conversation already has an active response" errors.
+  private pendingToolResults: Array<{
+    callId: string;
+    name: string;
+    promise: Promise<string>;
+  }> = [];
   // Heartbeat: Qwen / proxy closes the WS at ~30s of idle. Send a tiny
   // silent PCM frame every 15s so the connection survives long tool/LLM waits.
   private heartbeatTimer: number | null = null;
@@ -451,6 +460,47 @@ export class QwenLiveClient {
         this.cbs.onDebug?.(`🔊 flush ${merged.byteLength} bytes (walkie-talkie)`);
         this.cbs.onAudio?.(merged);
       }
+      // If this response was a tool-call response, await ALL pending tool
+      // promises in parallel, then emit every function_call_output followed
+      // by EXACTLY ONE response.create. Avoids "Conversation already has an
+      // active response" on parallel tool calls.
+      if (this.pendingToolResults.length > 0 && type === "response.done") {
+        const batch = this.pendingToolResults.splice(0);
+        void (async () => {
+          const results = await Promise.all(
+            batch.map(async (b) => ({
+              callId: b.callId,
+              name: b.name,
+              output: await b.promise,
+            })),
+          );
+          const sock = this.ws;
+          if (!sock || sock.readyState !== WebSocket.OPEN) return;
+          for (const r of results) {
+            this.cbs.onToolResult?.({ name: r.name, summary: r.output, callId: r.callId });
+            sock.send(
+              JSON.stringify({
+                event_id: `evt_tool_${Date.now()}_${r.callId}`,
+                type: "conversation.item.create",
+                item: {
+                  type: "function_call_output",
+                  call_id: r.callId,
+                  output: r.output,
+                },
+              }),
+            );
+          }
+          this.toolInProgress = false;
+          sock.send(
+            JSON.stringify({
+              event_id: `evt_resp_${Date.now()}`,
+              type: "response.create",
+            }),
+          );
+        })();
+        this.cbs.onDebug?.(`🔧 batched ${batch.length} tool call(s)`);
+        return;
+      }
       this.cbs.onTurnComplete?.();
       this.cbs.onDebug?.(`✓ ${type}`);
       return;
@@ -482,10 +532,10 @@ export class QwenLiveClient {
       parsed = {};
     }
     this.cbs.onToolCall?.({ name, args: parsed, callId });
-
-    const summary = await executeQwenTool(name, parsed);
-    this.cbs.onToolResult?.({ name, summary, callId });
-    this.sendToolResult(callId, summary);
+    // Kick off the tool now but DO NOT send the result yet — the response.done
+    // handler will await all sibling promises and emit them as one batch.
+    const promise = executeQwenTool(name, parsed);
+    this.pendingToolResults.push({ callId, name, promise });
   }
 
   private beginToolSuppression() {
@@ -499,28 +549,31 @@ export class QwenLiveClient {
     }
   }
 
-  private sendToolResult(callId: string, output: string) {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-    this.ws.send(
-      JSON.stringify({
-        event_id: `evt_tool_${Date.now()}`,
-        type: "conversation.item.create",
-        item: {
-          type: "function_call_output",
-          call_id: callId,
-          output,
-        },
-      }),
-    );
-    // Tool result has been fed back — allow the post-tool reply audio through.
-    this.toolInProgress = false;
-    // Ask the model to continue with the tool result.
-    this.ws.send(
-      JSON.stringify({
-        event_id: `evt_resp_${Date.now()}`,
-        type: "response.create",
-      }),
-    );
+  /**
+   * Force the model to stop waiting for silence and answer immediately.
+   * Called when the user hits the mic-mute button mid-utterance so the
+   * server VAD doesn't hang waiting for trailing silence that will never
+   * arrive.
+   */
+  commitAndRespond() {
+    const sock = this.ws;
+    if (!sock || sock.readyState !== WebSocket.OPEN) return;
+    try {
+      sock.send(
+        JSON.stringify({
+          event_id: `evt_commit_${Date.now()}`,
+          type: "input_audio_buffer.commit",
+        }),
+      );
+      sock.send(
+        JSON.stringify({
+          event_id: `evt_resp_${Date.now()}`,
+          type: "response.create",
+        }),
+      );
+    } catch {
+      /* ignore */
+    }
   }
 
   sendAudioChunk(pcm: ArrayBuffer) {

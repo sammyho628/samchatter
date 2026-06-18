@@ -46,6 +46,10 @@ export class AudioEngine {
   private micMuted = false;
   private micHoldUntil = 0;
   private lastHoldDebugAt = 0;
+  // Global reference to the currently-playing walkie-talkie source. We MUST
+  // stop+disconnect this before starting a new one — otherwise overlapping
+  // turns play simultaneously ("two voices at once" bug).
+  private currentAudioSource: AudioBufferSourceNode | null = null;
 
   constructor(cbs: AudioEngineCallbacks) {
     this.cbs = cbs;
@@ -186,12 +190,26 @@ export class AudioEngine {
    */
   playWalkieTalkieBuffer(pcmBytes: Uint8Array, sampleRate = 24000) {
     if (!this.playbackCtx || !this.playbackGain || pcmBytes.byteLength < 2) return;
+
+    // 1. Stop any currently-playing AI voice immediately — prevents the
+    //    overlapping/double-voice playback when a new turn starts.
+    if (this.currentAudioSource) {
+      try {
+        this.currentAudioSource.onended = null;
+        this.currentAudioSource.stop();
+        this.currentAudioSource.disconnect();
+      } catch { /* ignore */ }
+      this.currentAudioSource = null;
+    }
+
     const alignedLength = pcmBytes.byteLength - (pcmBytes.byteLength % 2);
     // Copy into a fresh ArrayBuffer so DataView alignment is guaranteed
     // and any subsequent mutation of the source bytes can't desync playback.
     const copy = new Uint8Array(alignedLength);
     copy.set(pcmBytes.subarray(0, alignedLength));
     const totalSamples = alignedLength / 2;
+    // Qwen output is 24000Hz. Playing it at 16000Hz causes the chipmunk/
+    // jitter effect — always lock to 24000 for the walkie-talkie path.
     const audioBuffer = this.playbackCtx.createBuffer(1, totalSamples, sampleRate);
     const channel = audioBuffer.getChannelData(0);
     // CRITICAL: read as explicit little-endian to avoid platform-specific
@@ -205,14 +223,15 @@ export class AudioEngine {
     const src = this.playbackCtx.createBufferSource();
     src.buffer = audioBuffer;
     src.connect(this.playbackGain);
-    // CRITICAL: schedule playback ~300ms in the future so the soundcard
-    // hardware has time to wake from idle. Without this look-ahead the
-    // first ~50-100ms of every turn stutters.
-    const LOOK_AHEAD_DELAY = 0.3;
+    // CRITICAL: schedule playback ~100ms in the future so the soundcard
+    // hardware has time to wake from idle.
+    const LOOK_AHEAD_DELAY = 0.1;
     // Manually drive the playback lifecycle callbacks for the single-buffer path.
     this.playing = true;
+    this.currentAudioSource = src;
     try { this.cbs.onPlaybackStart?.(); } catch {}
     src.onended = () => {
+      if (this.currentAudioSource === src) this.currentAudioSource = null;
       this.playing = false;
       this.micHoldUntil = performance.now() + INPUT_RESUME_AFTER_PLAYBACK_MS;
       try { this.cbs.onPlaybackEnd?.(); } catch {}
@@ -237,6 +256,14 @@ export class AudioEngine {
   stopPlayback(opts: { holdMic?: boolean } = {}) {
     this.audioQueue = [];
     this.playing = false;
+    if (this.currentAudioSource) {
+      try {
+        this.currentAudioSource.onended = null;
+        this.currentAudioSource.stop();
+        this.currentAudioSource.disconnect();
+      } catch { /* ignore */ }
+      this.currentAudioSource = null;
+    }
     if (opts.holdMic !== false) {
       this.micHoldUntil = performance.now() + INPUT_RESUME_AFTER_PLAYBACK_MS;
     }
