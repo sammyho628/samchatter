@@ -161,3 +161,42 @@ async function refreshTopicsBackground(topics: string[]) {
     }),
   );
 }
+
+async function translateToTraditionalChinese(
+  raw: string,
+  topic: string,
+): Promise<string> {
+  const key = process.env.LOVABLE_API_KEY;
+  if (!key) return raw;
+  try {
+    const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${key}`,
+      },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-flash",
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are a Hong Kong news/weather editor. You MUST return the summary EXCLUSIVELY in Traditional Chinese (zh-HK / 繁體中文 香港用語). Do NOT use English, Simplified Chinese, or any other language. Keep it concise (under 400 字). No preamble, no markdown — plain prose only.",
+          },
+          {
+            role: "user",
+            content: `主題：${topic}\n\n原始資料：\n${raw}\n\n請用繁體中文（香港）總結成簡短播報稿。`,
+          },
+        ],
+      }),
+    });
+    if (!r.ok) return raw;
+    const j = (await r.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    const out = j.choices?.[0]?.message?.content?.trim();
+    return out && out.length > 0 ? out : raw;
+  } catch {
+    return raw;
+  }
+}
