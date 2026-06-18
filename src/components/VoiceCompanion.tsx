@@ -6,6 +6,7 @@ import { QwenLiveClient } from "@/lib/voice/qwenLive";
 import { GeminiLiveClient } from "@/lib/voice/geminiLive";
 import { AudioEngine } from "@/lib/voice/audioEngine";
 import { getVoiceSession } from "@/lib/voice/session.functions";
+import { summarizeAndSaveSession } from "@/lib/voice/memory.functions";
 import { APP_VERSION } from "@/lib/version";
 
 type Status = "idle" | "connecting" | "listening" | "speaking" | "error";
