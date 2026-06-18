@@ -2,16 +2,17 @@ import { createServerFn } from "@tanstack/react-start";
 import { DEFAULT_SYSTEM_PROMPT_TEMPLATE } from "./systemPrompt";
 
 const PROMPT_KEY = "voice.systemPromptTemplate.v1";
+const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
+const CACHE_TOPICS = ["hk_weather", "hk_news"];
 
 export const getVoiceSession = createServerFn({ method: "GET" }).handler(
   async () => {
     const geminiKey = process.env.GEMINI_API_KEY ?? "";
-
     const { supabaseAdmin } = await import(
       "@/integrations/supabase/client.server"
     );
 
-    const [ctxRes, promptRes] = await Promise.all([
+    const [ctxRes, promptRes, cacheRes, memRes] = await Promise.all([
       supabaseAdmin
         .from("knowledge_base")
         .select("content_text")
@@ -21,6 +22,15 @@ export const getVoiceSession = createServerFn({ method: "GET" }).handler(
         .select("value")
         .eq("key", PROMPT_KEY)
         .maybeSingle(),
+      supabaseAdmin
+        .from("daily_cache")
+        .select("topic, content, updated_at")
+        .in("topic", CACHE_TOPICS),
+      supabaseAdmin
+        .from("chat_memory")
+        .select("summary_date, conversation_summary")
+        .order("created_at", { ascending: false })
+        .limit(3),
     ]);
 
     if (ctxRes.error) {
@@ -37,6 +47,102 @@ export const getVoiceSession = createServerFn({ method: "GET" }).handler(
       (promptRes.data?.value as string | undefined) ??
       DEFAULT_SYSTEM_PROMPT_TEMPLATE;
 
-    return { geminiKey, contextText, promptTemplate };
+    // Build prefetch_context from daily_cache; trigger background refresh if stale
+    const now = Date.now();
+    const cacheRows = (cacheRes.data ?? []) as Array<{
+      topic: string;
+      content: string;
+      updated_at: string;
+    }>;
+    const staleTopics: string[] = [];
+    for (const t of CACHE_TOPICS) {
+      const row = cacheRows.find((r) => r.topic === t);
+      if (!row || now - new Date(row.updated_at).getTime() > CACHE_TTL_MS) {
+        staleTopics.push(t);
+      }
+    }
+    const prefetchContext = cacheRows
+      .map((r) => `【${r.topic}】\n${r.content}`)
+      .join("\n\n");
+
+    // Fire-and-forget background refresh for stale topics (do NOT await)
+    if (staleTopics.length > 0) {
+      void refreshTopicsBackground(staleTopics).catch(() => {});
+    }
+
+    // Build memory_context
+    const memRows = (memRes.data ?? []) as Array<{
+      summary_date: string;
+      conversation_summary: string;
+    }>;
+    const memoryContext = memRows
+      .map(
+        (m) =>
+          `【Past Memory】 On ${m.summary_date}: ${m.conversation_summary}`,
+      )
+      .join("\n");
+
+    return {
+      geminiKey,
+      contextText,
+      promptTemplate,
+      prefetchContext,
+      memoryContext,
+    };
   },
 );
+
+async function refreshTopicsBackground(topics: string[]) {
+  const tavilyKey = process.env.TAVILY_API_KEY;
+  if (!tavilyKey) return;
+  const { supabaseAdmin } = await import(
+    "@/integrations/supabase/client.server"
+  );
+  const queries: Record<string, string> = {
+    hk_weather: "Hong Kong weather forecast today 香港天氣",
+    hk_news: "Hong Kong news headlines today 香港新聞 site:rthk.hk OR site:hk01.com",
+  };
+  await Promise.all(
+    topics.map(async (topic) => {
+      const q = queries[topic];
+      if (!q) return;
+      try {
+        const resp = await fetch("https://api.tavily.com/search", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${tavilyKey}`,
+          },
+          body: JSON.stringify({
+            query: q,
+            search_depth: "basic",
+            include_answer: true,
+            max_results: 3,
+          }),
+        });
+        if (!resp.ok) return;
+        const data = (await resp.json()) as {
+          answer?: string;
+          results?: Array<{ title?: string; content?: string }>;
+        };
+        const parts: string[] = [];
+        if (data.answer) parts.push(data.answer);
+        (data.results ?? []).slice(0, 3).forEach((r) => {
+          const t = r.title ?? "";
+          const c = (r.content ?? "").replace(/\s+/g, " ").trim().slice(0, 300);
+          if (t || c) parts.push(`${t}: ${c}`);
+        });
+        const content = parts.join("\n").slice(0, 2000);
+        if (!content) return;
+        await supabaseAdmin
+          .from("daily_cache")
+          .upsert(
+            { topic, content, updated_at: new Date().toISOString() },
+            { onConflict: "topic" },
+          );
+      } catch {
+        /* ignore */
+      }
+    }),
+  );
+}
