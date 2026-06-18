@@ -46,6 +46,10 @@ export class AudioEngine {
   private micMuted = false;
   private micHoldUntil = 0;
   private lastHoldDebugAt = 0;
+  // Global reference to the currently-playing walkie-talkie source. We MUST
+  // stop+disconnect this before starting a new one — otherwise overlapping
+  // turns play simultaneously ("two voices at once" bug).
+  private currentAudioSource: AudioBufferSourceNode | null = null;
 
   constructor(cbs: AudioEngineCallbacks) {
     this.cbs = cbs;
