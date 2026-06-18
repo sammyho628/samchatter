@@ -153,6 +153,11 @@ export class QwenLiveClient {
   // and lets the UI mute the mic cleanly for the entire playback window.
   private audioBuffer: Uint8Array[] = [];
   private audioBufferBytes = 0;
+  // Dedupe defence: if the proxy ever re-delivers the same delta event_id
+  // (network retry, double subscriber, React Strict Mode double-mount) we
+  // must not append the same audio twice — that's what causes the "stuck
+  // record" stutter where the first syllable repeats.
+  private seenDeltaEventIds = new Set<string>();
   // Heartbeat: Qwen / proxy closes the WS at ~30s of idle. Send a tiny
   // silent PCM frame every 15s so the connection survives long tool/LLM waits.
   private heartbeatTimer: number | null = null;
