@@ -32,6 +32,54 @@ export type Database = {
         }
         Relationships: []
       }
+      chat_memory: {
+        Row: {
+          conversation_summary: string
+          created_at: string
+          executed_searches: string[]
+          id: string
+          session_id: string
+          summary_date: string
+        }
+        Insert: {
+          conversation_summary: string
+          created_at?: string
+          executed_searches?: string[]
+          id?: string
+          session_id: string
+          summary_date?: string
+        }
+        Update: {
+          conversation_summary?: string
+          created_at?: string
+          executed_searches?: string[]
+          id?: string
+          session_id?: string
+          summary_date?: string
+        }
+        Relationships: []
+      }
+      daily_cache: {
+        Row: {
+          content: string
+          id: number
+          topic: string
+          updated_at: string
+        }
+        Insert: {
+          content: string
+          id?: number
+          topic: string
+          updated_at?: string
+        }
+        Update: {
+          content?: string
+          id?: number
+          topic?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       knowledge_base: {
         Row: {
           content_text: string | null
@@ -50,6 +98,30 @@ export type Database = {
           created_at?: string
           id?: number
           updated_at?: string
+        }
+        Relationships: []
+      }
+      trusted_domains: {
+        Row: {
+          category: string
+          created_at: string
+          description: string | null
+          domain_query_string: string
+          id: number
+        }
+        Insert: {
+          category: string
+          created_at?: string
+          description?: string | null
+          domain_query_string: string
+          id?: number
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          description?: string | null
+          domain_query_string?: string
+          id?: number
         }
         Relationships: []
       }
