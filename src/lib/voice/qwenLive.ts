@@ -269,7 +269,7 @@ export class QwenLiveClient {
         }
         this.cbs.onClose?.();
       };
-
+    });
   }
 
   // Send a 20ms silent PCM16 frame (16kHz mono) every 15s while the WS is
