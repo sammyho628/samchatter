@@ -208,6 +208,17 @@ export function VoiceCompanion() {
           "evt",
           `📚 context: ${contextText ? contextText.length + " chars" : "EMPTY"} · prefetch: ${prefetchContext.length} · memory: ${memoryContext.length}`,
         );
+        // Dump the EXACT combined system prompt being sent to the LLM so we
+        // can verify {{context}} / {{prefetch_context}} / {{memory_context}}
+        // interpolation, current time injection, and tool-rule wording.
+        pushLog("evt", `📝 FULL PROMPT (${prompt.length} chars) ↓↓↓`);
+        // Chunk into ~1.5KB pieces so the debug panel renders each line.
+        const CHUNK = 1500;
+        for (let i = 0; i < prompt.length; i += CHUNK) {
+          pushLog("evt", prompt.slice(i, i + CHUNK));
+        }
+        pushLog("evt", `📝 END PROMPT`);
+        try { console.log("[VoiceCompanion] FULL SYSTEM PROMPT →\n" + prompt); } catch {}
 
         // Shared callbacks both clients fulfil.
         const shared = {
