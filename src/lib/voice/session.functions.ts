@@ -96,7 +96,6 @@ export const getVoiceSession = createServerFn({ method: "GET" }).handler(
       .join("\n");
 
     return {
-      geminiKey,
       contextText,
       promptTemplate,
       prefetchContext,
