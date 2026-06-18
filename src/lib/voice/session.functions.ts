@@ -111,8 +111,10 @@ async function refreshTopicsBackground(topics: string[]) {
     "@/integrations/supabase/client.server"
   );
   const queries: Record<string, string> = {
-    hk_weather: "Hong Kong weather forecast today 香港天氣",
-    hk_news: "Hong Kong news headlines today 香港新聞 site:rthk.hk OR site:hk01.com",
+    hk_weather:
+      "香港今日天氣預報 氣溫 降雨 (請以繁體中文 zh-HK 回答，不要使用英文)",
+    hk_news:
+      "香港今日頭條新聞 (請以繁體中文 zh-HK 回答，不要使用英文) site:rthk.hk OR site:hk01.com OR site:mingpao.com",
   };
   await Promise.all(
     topics.map(async (topic) => {
