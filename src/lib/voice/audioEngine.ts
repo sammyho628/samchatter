@@ -171,7 +171,36 @@ export class AudioEngine {
     }
     // Don't flip `playing` here — let the audio callback flip it so the
     // onPlaybackStart/End callbacks fire from a single source of truth.
+  }
 
+  /**
+   * Walkie-talkie playback: take an already-merged PCM16 LE buffer and play it
+   * as a single AudioBufferSource. Eliminates ScriptProcessor scheduling jitter
+   * that plagued the per-sample queue path. Use this for Qwen's merged
+   * end-of-turn flush. `sampleRate` defaults to 24000 (Qwen omni output).
+   */
+  playWalkieTalkieBuffer(pcmBytes: Uint8Array, sampleRate = 24000) {
+    if (!this.playbackCtx || !this.playbackGain || pcmBytes.byteLength < 2) return;
+    const alignedLength = pcmBytes.byteLength - (pcmBytes.byteLength % 2);
+    // Copy into a fresh ArrayBuffer so Int16Array alignment is guaranteed.
+    const copy = new Uint8Array(alignedLength);
+    copy.set(pcmBytes.subarray(0, alignedLength));
+    const int16 = new Int16Array(copy.buffer, 0, alignedLength / 2);
+    const audioBuffer = this.playbackCtx.createBuffer(1, int16.length, sampleRate);
+    const channel = audioBuffer.getChannelData(0);
+    for (let i = 0; i < int16.length; i++) channel[i] = int16[i] / 32768;
+    const src = this.playbackCtx.createBufferSource();
+    src.buffer = audioBuffer;
+    src.connect(this.playbackGain);
+    // Manually drive the playback lifecycle callbacks for the single-buffer path.
+    this.playing = true;
+    try { this.cbs.onPlaybackStart?.(); } catch {}
+    src.onended = () => {
+      this.playing = false;
+      this.micHoldUntil = performance.now() + INPUT_RESUME_AFTER_PLAYBACK_MS;
+      try { this.cbs.onPlaybackEnd?.(); } catch {}
+    };
+    src.start(0);
   }
 
   /** Kill switch — instantly wipes queued raw samples. */
