@@ -6,6 +6,7 @@ import { QwenLiveClient } from "@/lib/voice/qwenLive";
 import { GeminiLiveClient } from "@/lib/voice/geminiLive";
 import { AudioEngine } from "@/lib/voice/audioEngine";
 import { getVoiceSession } from "@/lib/voice/session.functions";
+import { summarizeAndSaveSession } from "@/lib/voice/memory.functions";
 import { APP_VERSION } from "@/lib/version";
 
 type Status = "idle" | "connecting" | "listening" | "speaking" | "error";
@@ -54,6 +55,13 @@ export function VoiceCompanion() {
   const clientRef = useRef<ActiveClient | null>(null);
   const activeRef = useRef(false);
   const micStartedRef = useRef(false);
+  const providerRef = useRef<Provider>(provider);
+  useEffect(() => { providerRef.current = provider; }, [provider]);
+
+  // Session memory tracking
+  const sessionIdRef = useRef<string>("");
+  const transcriptLinesRef = useRef<string[]>([]);
+  const executedSearchesRef = useRef<string[]>([]);
 
   const toggleMute = useCallback(() => {
     setMuted((m) => {
@@ -72,6 +80,27 @@ export function VoiceCompanion() {
   }, []);
 
   const fetchSession = useServerFn(getVoiceSession);
+  const saveMemory = useServerFn(summarizeAndSaveSession);
+
+  const flushSessionSummary = useCallback(async () => {
+    const lines = transcriptLinesRef.current;
+    const sid = sessionIdRef.current;
+    transcriptLinesRef.current = [];
+    const searches = executedSearchesRef.current;
+    executedSearchesRef.current = [];
+    if (!sid || lines.length < 2) return;
+    try {
+      await saveMemory({
+        data: {
+          sessionId: sid,
+          transcript: lines.join("\n").slice(0, 60000),
+          executedSearches: searches,
+        },
+      });
+    } catch {
+      /* background — silent failure */
+    }
+  }, [saveMemory]);
 
   const stopAll = useCallback(async () => {
     activeRef.current = false;
@@ -81,7 +110,8 @@ export function VoiceCompanion() {
     engineRef.current = null;
     micStartedRef.current = false;
     setStatus("idle");
-  }, []);
+    void flushSessionSummary();
+  }, [flushSessionSummary]);
 
   useEffect(() => {
     return () => {
@@ -133,6 +163,9 @@ export function VoiceCompanion() {
     setErrorMsg("");
     setDebugLog([]);
     assistantBufRef.current = "";
+    sessionIdRef.current = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    transcriptLinesRef.current = [];
+    executedSearchesRef.current = [];
 
     const usingProvider = provider;
     pushLog("evt", `provider: ${usingProvider}`);
@@ -140,13 +173,19 @@ export function VoiceCompanion() {
     void (async () => {
       try {
         const session = await fetchSession();
-        const { contextText, promptTemplate } = session;
+        const { contextText, promptTemplate, prefetchContext, memoryContext } = session;
         const nowHK = new Date().toLocaleString("en-GB", { timeZone: "Asia/Hong_Kong", hour12: false });
-        const prompt = buildSystemPrompt(promptTemplate, contextText, nowHK);
+        const prompt = buildSystemPrompt(
+          promptTemplate,
+          contextText,
+          nowHK,
+          prefetchContext,
+          memoryContext,
+        );
         pushLog("evt", `🕒 HK now: ${nowHK}`);
         pushLog(
           "evt",
-          `📚 context: ${contextText ? contextText.length + " chars loaded" : "EMPTY — knowledge base has no rows"}`,
+          `📚 context: ${contextText ? contextText.length + " chars" : "EMPTY"} · prefetch: ${prefetchContext.length} · memory: ${memoryContext.length}`,
         );
 
         // Shared callbacks both clients fulfil.
@@ -165,7 +204,14 @@ export function VoiceCompanion() {
             }
           },
           onAudio: (pcm: Uint8Array) => {
-            engine.enqueuePcm(pcm);
+            // Qwen ships the entire turn as one merged buffer → use the
+            // single AudioBufferSource path (eliminates ScriptProcessor jitter).
+            // Gemini streams 24kHz chunks → continue with the queued player.
+            if (providerRef.current === "qwen") {
+              engine.playWalkieTalkieBuffer(pcm, 24000);
+            } else {
+              engine.enqueuePcm(pcm);
+            }
             setStatus("speaking");
           },
           onSpeechStarted: () => {
@@ -177,6 +223,8 @@ export function VoiceCompanion() {
           },
           onToolCall: ({ name, args }: { name: string; args: unknown }) => {
             pushLog("tool", `→ ${name}(${JSON.stringify(args)})`);
+            const q = (args as { query?: string })?.query;
+            if (q) executedSearchesRef.current.push(`${name}: ${q}`);
             engine.stopPlayback();
             setSearching(true);
             if (activeRef.current) setStatus("listening");
@@ -191,14 +239,20 @@ export function VoiceCompanion() {
               `← ${name}: ${summary.length > 240 ? summary.slice(0, 240) + "…" : summary}`,
             );
           },
-          onUserTranscript: (t: string) => pushLog("user", t),
+          onUserTranscript: (t: string) => {
+            pushLog("user", t);
+            transcriptLinesRef.current.push(`USER: ${t}`);
+          },
           onAssistantTranscriptDelta: (d: string) => {
             assistantBufRef.current += d;
           },
           onAssistantTranscriptDone: (t: string) => {
             const finalText = t || assistantBufRef.current;
             assistantBufRef.current = "";
-            if (finalText) pushLog("ai", finalText);
+            if (finalText) {
+              pushLog("ai", finalText);
+              transcriptLinesRef.current.push(`AI: ${finalText}`);
+            }
           },
           onDebug: (m: string) => pushLog("evt", m),
           onError: (msg: string) => {
