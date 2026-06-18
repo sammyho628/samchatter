@@ -6,6 +6,11 @@ export type AudioEngineCallbacks = {
   onDebug?: (msg: string) => void;
   onPlaybackStart?: () => void;
   onPlaybackEnd?: () => void;
+  // Fired whenever a fully decoded AudioBuffer is about to play. Used by the
+  // UI to enable a "🔁 Replay Voice" debug button so we can tell whether a
+  // future stutter was network/decoding (replay sounds clean) or hardware
+  // (replay still stutters).
+  onBufferReady?: (buffer: AudioBuffer) => void;
 };
 
 const PLAYBACK_RATE = 24000;
