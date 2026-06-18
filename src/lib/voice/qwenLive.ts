@@ -386,6 +386,7 @@ export class QwenLiveClient {
       // New turn — drop any leftover walkie-talkie buffer from a prior turn.
       this.audioBuffer = [];
       this.audioBufferBytes = 0;
+      this.seenDeltaEventIds.clear();
       try { this.cbs.onFlushPlayback?.(); } catch {}
       return;
     }
