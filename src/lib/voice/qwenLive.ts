@@ -338,6 +338,14 @@ export class QwenLiveClient {
         // result comes back.
         return;
       }
+      const eid = typeof msg.event_id === "string" ? msg.event_id : "";
+      if (eid) {
+        if (this.seenDeltaEventIds.has(eid)) {
+          this.cbs.onDebug?.(`⚠️ duplicate audio delta dropped (${eid})`);
+          return;
+        }
+        this.seenDeltaEventIds.add(eid);
+      }
       // Walkie-talkie: buffer; do NOT play yet.
       const bytes = base64ToBytes(msg.delta);
       this.audioBuffer.push(bytes);
