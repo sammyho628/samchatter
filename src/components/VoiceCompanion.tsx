@@ -83,6 +83,12 @@ export function VoiceCompanion() {
   const fetchSession = useServerFn(getVoiceSession);
   const saveMemory = useServerFn(summarizeAndSaveSession);
 
+  const handleReplayVoice = useCallback(() => {
+    const eng = engineRef.current;
+    if (!eng || !lastAudioBuffer) return;
+    eng.replayBuffer(lastAudioBuffer);
+  }, [lastAudioBuffer]);
+
   const flushSessionSummary = useCallback(async () => {
     const lines = transcriptLinesRef.current;
     const sid = sessionIdRef.current;
