@@ -154,6 +154,7 @@ export function VoiceCompanion() {
         pushLog("evt", "🎙️ mic unlocked");
         if (activeRef.current) setStatus("listening");
       },
+      onBufferReady: (buf) => setLastAudioBuffer(buf),
     });
     engine.unlock();
     engine.setMuted(muted);
