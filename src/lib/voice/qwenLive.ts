@@ -301,7 +301,6 @@ export class QwenLiveClient {
       window.clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
     }
-    });
   }
 
   private scheduleReconnect() {
