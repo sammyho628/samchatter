@@ -153,6 +153,11 @@ export class QwenLiveClient {
   // and lets the UI mute the mic cleanly for the entire playback window.
   private audioBuffer: Uint8Array[] = [];
   private audioBufferBytes = 0;
+  // Dedupe defence: if the proxy ever re-delivers the same delta event_id
+  // (network retry, double subscriber, React Strict Mode double-mount) we
+  // must not append the same audio twice — that's what causes the "stuck
+  // record" stutter where the first syllable repeats.
+  private seenDeltaEventIds = new Set<string>();
   // Heartbeat: Qwen / proxy closes the WS at ~30s of idle. Send a tiny
   // silent PCM frame every 15s so the connection survives long tool/LLM waits.
   private heartbeatTimer: number | null = null;
@@ -333,6 +338,14 @@ export class QwenLiveClient {
         // result comes back.
         return;
       }
+      const eid = typeof msg.event_id === "string" ? msg.event_id : "";
+      if (eid) {
+        if (this.seenDeltaEventIds.has(eid)) {
+          this.cbs.onDebug?.(`⚠️ duplicate audio delta dropped (${eid})`);
+          return;
+        }
+        this.seenDeltaEventIds.add(eid);
+      }
       // Walkie-talkie: buffer; do NOT play yet.
       const bytes = base64ToBytes(msg.delta);
       this.audioBuffer.push(bytes);
@@ -373,6 +386,7 @@ export class QwenLiveClient {
       // New turn — drop any leftover walkie-talkie buffer from a prior turn.
       this.audioBuffer = [];
       this.audioBufferBytes = 0;
+      this.seenDeltaEventIds.clear();
       try { this.cbs.onFlushPlayback?.(); } catch {}
       return;
     }

@@ -111,8 +111,10 @@ async function refreshTopicsBackground(topics: string[]) {
     "@/integrations/supabase/client.server"
   );
   const queries: Record<string, string> = {
-    hk_weather: "Hong Kong weather forecast today 香港天氣",
-    hk_news: "Hong Kong news headlines today 香港新聞 site:rthk.hk OR site:hk01.com",
+    hk_weather:
+      "香港今日天氣預報 氣溫 降雨 (請以繁體中文 zh-HK 回答，不要使用英文)",
+    hk_news:
+      "香港今日頭條新聞 (請以繁體中文 zh-HK 回答，不要使用英文) site:rthk.hk OR site:hk01.com OR site:mingpao.com",
   };
   await Promise.all(
     topics.map(async (topic) => {
@@ -144,8 +146,9 @@ async function refreshTopicsBackground(topics: string[]) {
           const c = (r.content ?? "").replace(/\s+/g, " ").trim().slice(0, 300);
           if (t || c) parts.push(`${t}: ${c}`);
         });
-        const content = parts.join("\n").slice(0, 2000);
-        if (!content) return;
+        const rawContent = parts.join("\n").slice(0, 2000);
+        if (!rawContent) return;
+        const content = await translateToTraditionalChinese(rawContent, topic);
         await supabaseAdmin
           .from("daily_cache")
           .upsert(
@@ -157,4 +160,43 @@ async function refreshTopicsBackground(topics: string[]) {
       }
     }),
   );
+}
+
+async function translateToTraditionalChinese(
+  raw: string,
+  topic: string,
+): Promise<string> {
+  const key = process.env.LOVABLE_API_KEY;
+  if (!key) return raw;
+  try {
+    const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${key}`,
+      },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-flash",
+        messages: [
+          {
+            role: "system",
+            content:
+              "You are a Hong Kong news/weather editor. You MUST return the summary EXCLUSIVELY in Traditional Chinese (zh-HK / 繁體中文 香港用語). Do NOT use English, Simplified Chinese, or any other language. Keep it concise (under 400 字). No preamble, no markdown — plain prose only.",
+          },
+          {
+            role: "user",
+            content: `主題：${topic}\n\n原始資料：\n${raw}\n\n請用繁體中文（香港）總結成簡短播報稿。`,
+          },
+        ],
+      }),
+    });
+    if (!r.ok) return raw;
+    const j = (await r.json()) as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    const out = j.choices?.[0]?.message?.content?.trim();
+    return out && out.length > 0 ? out : raw;
+  } catch {
+    return raw;
+  }
 }
