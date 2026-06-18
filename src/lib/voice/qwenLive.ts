@@ -19,55 +19,57 @@ function base64ToBytes(b64: string): Uint8Array {
   return out;
 }
 
+// Qwen Realtime is OpenAI-Realtime-compatible: tool definitions are FLAT
+// (name/description/parameters live at the top level of each entry), NOT
+// nested under a `function:` key. The Chat-Completions nested shape silently
+// caused tools to be ignored, so the model just verbally agreed to search
+// without ever emitting a function_call event.
 export type QwenToolDef = {
   type: "function";
-  function: {
-    name: string;
-    description: string;
-    parameters: Record<string, unknown>;
-  };
+  name: string;
+  description: string;
+  parameters: Record<string, unknown>;
 };
 
 export const DEFAULT_TOOLS: QwenToolDef[] = [
   {
     type: "function",
-    function: {
-      name: "search_places",
-      description:
-        "Search for real restaurants, businesses, or locations in Hong Kong. Returns name, address and rating of top results.",
-      parameters: {
-        type: "object",
-        properties: {
-          query: {
-            type: "string",
-            description: "Natural-language place search query, e.g. 'dim sum in Sham Shui Po'.",
-          },
+    name: "search_places",
+    description:
+      "Search for real restaurants, businesses, or locations in Hong Kong. Returns name, address and rating of top results.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description:
+            "Natural-language place search query in Traditional Chinese, e.g. '深水埗點心茶樓'.",
         },
-        required: ["query"],
       },
+      required: ["query"],
     },
   },
   {
     type: "function",
-    function: {
-      name: "web_search",
-      description:
-        "Search the internet for current events, finance, stocks, news, weather, prices, sports scores, health facts, jokes, or recently changing facts. Optionally specify a category to apply curated trusted-domain filters.",
-      parameters: {
-        type: "object",
-        properties: {
-          query: {
-            type: "string",
-            description: "What to look up on the web. Translate relative time (尋日/今朝) into absolute dates.",
-          },
-          category: {
-            type: "string",
-            enum: ["health", "finance", "news", "shopping"],
-            description: "Optional. Routes the search through curated trusted domains for that topic.",
-          },
+    name: "web_search",
+    description:
+      "MANDATORY: You must call this tool immediately if the user asks about weather (天氣), stocks (股市), news (新聞), prices, sports scores, schedules, opening hours, health facts, jokes, or any current event. Do NOT answer from memory. Use this tool to get live data.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description:
+            "Highly specific search query. Translate relative time (尋日/今朝/聽日) into the absolute calendar date, e.g. '2026年6月18日 香港 天氣'.",
         },
-        required: ["query"],
+        category: {
+          type: "string",
+          enum: ["health", "news", "shopping", "finance", "weather", "general"],
+          description:
+            "Classify the user's intent so the system routes the search to the correct trusted-domain filter.",
+        },
       },
+      required: ["query", "category"],
     },
   },
 ];
