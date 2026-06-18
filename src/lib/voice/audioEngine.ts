@@ -256,6 +256,14 @@ export class AudioEngine {
   stopPlayback(opts: { holdMic?: boolean } = {}) {
     this.audioQueue = [];
     this.playing = false;
+    if (this.currentAudioSource) {
+      try {
+        this.currentAudioSource.onended = null;
+        this.currentAudioSource.stop();
+        this.currentAudioSource.disconnect();
+      } catch { /* ignore */ }
+      this.currentAudioSource = null;
+    }
     if (opts.holdMic !== false) {
       this.micHoldUntil = performance.now() + INPUT_RESUME_AFTER_PLAYBACK_MS;
     }
