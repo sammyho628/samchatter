@@ -6,6 +6,11 @@ export type AudioEngineCallbacks = {
   onDebug?: (msg: string) => void;
   onPlaybackStart?: () => void;
   onPlaybackEnd?: () => void;
+  // Fired whenever a fully decoded AudioBuffer is about to play. Used by the
+  // UI to enable a "🔁 Replay Voice" debug button so we can tell whether a
+  // future stutter was network/decoding (replay sounds clean) or hardware
+  // (replay still stutters).
+  onBufferReady?: (buffer: AudioBuffer) => void;
 };
 
 const PLAYBACK_RATE = 24000;
@@ -189,9 +194,14 @@ export class AudioEngine {
     const audioBuffer = this.playbackCtx.createBuffer(1, int16.length, sampleRate);
     const channel = audioBuffer.getChannelData(0);
     for (let i = 0; i < int16.length; i++) channel[i] = int16[i] / 32768;
+    try { this.cbs.onBufferReady?.(audioBuffer); } catch {}
     const src = this.playbackCtx.createBufferSource();
     src.buffer = audioBuffer;
     src.connect(this.playbackGain);
+    // CRITICAL: schedule playback ~300ms in the future so the soundcard
+    // hardware has time to wake from idle. Without this look-ahead the
+    // first ~50-100ms of every turn stutters.
+    const LOOK_AHEAD_DELAY = 0.3;
     // Manually drive the playback lifecycle callbacks for the single-buffer path.
     this.playing = true;
     try { this.cbs.onPlaybackStart?.(); } catch {}
@@ -200,7 +210,20 @@ export class AudioEngine {
       this.micHoldUntil = performance.now() + INPUT_RESUME_AFTER_PLAYBACK_MS;
       try { this.cbs.onPlaybackEnd?.(); } catch {}
     };
-    src.start(0);
+    src.start(this.playbackCtx.currentTime + LOOK_AHEAD_DELAY);
+  }
+
+  /**
+   * Replay an already-decoded AudioBuffer (debug helper). Uses a small
+   * 100ms look-ahead so the soundcard has time to wake; mirrors the main
+   * walkie-talkie path so we can diagnose hardware vs network stutters.
+   */
+  replayBuffer(buffer: AudioBuffer) {
+    if (!this.playbackCtx || !this.playbackGain) return;
+    const src = this.playbackCtx.createBufferSource();
+    src.buffer = buffer;
+    src.connect(this.playbackGain);
+    src.start(this.playbackCtx.currentTime + 0.1);
   }
 
   /** Kill switch — instantly wipes queued raw samples. */

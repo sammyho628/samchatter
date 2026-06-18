@@ -32,6 +32,7 @@ export function VoiceCompanion() {
   const [debugOpen, setDebugOpen] = useState(false);
   const [searching, setSearching] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [lastAudioBuffer, setLastAudioBuffer] = useState<AudioBuffer | null>(null);
   const [provider, setProvider] = useState<Provider>(() => {
     if (typeof window === "undefined") return "qwen";
     const v = window.localStorage.getItem(PROVIDER_KEY);
@@ -81,6 +82,25 @@ export function VoiceCompanion() {
 
   const fetchSession = useServerFn(getVoiceSession);
   const saveMemory = useServerFn(summarizeAndSaveSession);
+
+  const handleReplayVoice = useCallback(() => {
+    if (!lastAudioBuffer) return;
+    const eng = engineRef.current;
+    if (eng) {
+      eng.replayBuffer(lastAudioBuffer);
+      return;
+    }
+    // Fallback when the session is closed: spin up a one-shot context.
+    const AC: typeof AudioContext =
+      (window as unknown as { AudioContext: typeof AudioContext; webkitAudioContext?: typeof AudioContext }).AudioContext ||
+      (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const ctx = new AC();
+    const src = ctx.createBufferSource();
+    src.buffer = lastAudioBuffer;
+    src.connect(ctx.destination);
+    src.onended = () => { void ctx.close(); };
+    src.start(ctx.currentTime + 0.1);
+  }, [lastAudioBuffer]);
 
   const flushSessionSummary = useCallback(async () => {
     const lines = transcriptLinesRef.current;
@@ -153,6 +173,7 @@ export function VoiceCompanion() {
         pushLog("evt", "🎙️ mic unlocked");
         if (activeRef.current) setStatus("listening");
       },
+      onBufferReady: (buf) => setLastAudioBuffer(buf),
     });
     engine.unlock();
     engine.setMuted(muted);
@@ -444,6 +465,16 @@ export function VoiceCompanion() {
           >
             {debugOpen ? "Hide debug" : "Show debug"} ({debugLog.length})
           </button>
+          {lastAudioBuffer ? (
+            <button
+              type="button"
+              onClick={handleReplayVoice}
+              className="rounded-full border border-sky-300/40 bg-sky-400/10 px-3 py-1 text-sky-200 hover:bg-sky-400/20"
+              title="Replay the last decoded AI buffer — helps diagnose hardware vs network stutters"
+            >
+              🔁 Replay Voice
+            </button>
+          ) : null}
         </div>
       </div>
 
