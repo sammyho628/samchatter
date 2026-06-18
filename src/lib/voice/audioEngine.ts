@@ -187,13 +187,20 @@ export class AudioEngine {
   playWalkieTalkieBuffer(pcmBytes: Uint8Array, sampleRate = 24000) {
     if (!this.playbackCtx || !this.playbackGain || pcmBytes.byteLength < 2) return;
     const alignedLength = pcmBytes.byteLength - (pcmBytes.byteLength % 2);
-    // Copy into a fresh ArrayBuffer so Int16Array alignment is guaranteed.
+    // Copy into a fresh ArrayBuffer so DataView alignment is guaranteed
+    // and any subsequent mutation of the source bytes can't desync playback.
     const copy = new Uint8Array(alignedLength);
     copy.set(pcmBytes.subarray(0, alignedLength));
-    const int16 = new Int16Array(copy.buffer, 0, alignedLength / 2);
-    const audioBuffer = this.playbackCtx.createBuffer(1, int16.length, sampleRate);
+    const totalSamples = alignedLength / 2;
+    const audioBuffer = this.playbackCtx.createBuffer(1, totalSamples, sampleRate);
     const channel = audioBuffer.getChannelData(0);
-    for (let i = 0; i < int16.length; i++) channel[i] = int16[i] / 32768;
+    // CRITICAL: read as explicit little-endian to avoid platform-specific
+    // jitter from native-endian Int16Array on big-endian or ARM quirks.
+    const dataView = new DataView(copy.buffer);
+    for (let i = 0; i < totalSamples; i++) {
+      const int16 = dataView.getInt16(i * 2, true);
+      channel[i] = int16 / 32768;
+    }
     try { this.cbs.onBufferReady?.(audioBuffer); } catch {}
     const src = this.playbackCtx.createBufferSource();
     src.buffer = audioBuffer;

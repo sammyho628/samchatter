@@ -68,7 +68,8 @@ export function buildSystemPrompt(
 
 LIVE TIME: The exact current date and time is ${currentHKTime} (${dayOfWeek}). ISO: ${iso} (Asia/Hong_Kong). ALL temporal words (today, tomorrow, last night, 今日, 尋日, 尋晚, 聽日, 而家) MUST be calculated against this exact date. The weekday above is authoritative — do NOT recompute.
 
-NO GUESSING FACTS: If the user asks for live data (weather, stocks, news, prices, sports scores, schedules, opening hours, product info, health facts, jokes), you are physically forbidden from answering from memory. You MUST execute a tool call (web_search or search_places) immediately, BEFORE speaking any words. Never say "等我查吓" / "等我睇吓" / "I will check" — call the tool silently then answer from the result.
+CRITICAL TOOL RULE: If the user asks for news, weather, prices, stocks, sports, schedules, opening hours, health facts, or any current fact, you MUST NOT say "等我查吓" / "等我睇吓" / "等陣" / "I will check" / "Please wait" / "稍等" or any other filler. You are FORBIDDEN from generating ANY spoken text before the search. You must IMMEDIATELY and SILENTLY emit the web_search tool call as your very first action. Speak ONLY after the tool returns the results. Violating this rule will break the user experience.
+
 
 TOOL INTENT PARSING: When calling tools, silently translate relative time (e.g., '尋晚', '今朝', '聽日') into the absolute calendar date based on LIVE TIME above (e.g., '2026年6月17日') inside the search query. For web_search, also infer a category when relevant: 'health', 'finance', 'news', or 'shopping' — pass it as the second argument so the system applies the right trusted-domain filter automatically.
 

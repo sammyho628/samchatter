@@ -153,6 +153,9 @@ export class QwenLiveClient {
   // and lets the UI mute the mic cleanly for the entire playback window.
   private audioBuffer: Uint8Array[] = [];
   private audioBufferBytes = 0;
+  // Heartbeat: Qwen / proxy closes the WS at ~30s of idle. Send a tiny
+  // silent PCM frame every 15s so the connection survives long tool/LLM waits.
+  private heartbeatTimer: number | null = null;
 
   constructor(cbs: QwenCallbacks) {
     this.cbs = cbs;
@@ -223,6 +226,7 @@ export class QwenLiveClient {
             type: "response.create",
           }),
         );
+        this.startHeartbeat();
         this.cbs.onSetupComplete?.();
         resolve();
       };
@@ -247,12 +251,15 @@ export class QwenLiveClient {
       };
 
       ws.onclose = (ev) => {
+        this.stopHeartbeat();
         if (this.intentionallyClosed) {
           // User-initiated stop — silent regardless of code (including 1006).
           this.cbs.onClose?.();
           return;
         }
-        if (ev.code === 1006 && this.scheduleReconnect()) {
+        // Any unexpected close (1006 idle-timeout, 1001 going-away, server
+        // 4xx etc.) → try to reconnect transparently before surfacing error.
+        if (this.scheduleReconnect()) {
           return;
         }
         if (ev.code !== 1000 && ev.code !== 1005) {
@@ -263,6 +270,37 @@ export class QwenLiveClient {
         this.cbs.onClose?.();
       };
     });
+  }
+
+  // Send a 20ms silent PCM16 frame (16kHz mono) every 15s while the WS is
+  // open. Keeps the proxy / Qwen socket from hitting its ~30s idle close.
+  private startHeartbeat() {
+    this.stopHeartbeat();
+    // 320 samples * 2 bytes = 640 bytes of zero — encoded once, sent often.
+    const silence = new Uint8Array(640);
+    const silentB64 = bytesToBase64(silence);
+    this.heartbeatTimer = window.setInterval(() => {
+      const sock = this.ws;
+      if (!sock || sock.readyState !== WebSocket.OPEN) return;
+      try {
+        sock.send(
+          JSON.stringify({
+            event_id: `evt_hb_${Date.now()}`,
+            type: "input_audio_buffer.append",
+            audio: silentB64,
+          }),
+        );
+      } catch {
+        /* ignore */
+      }
+    }, 15000);
+  }
+
+  private stopHeartbeat() {
+    if (this.heartbeatTimer !== null) {
+      window.clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
   }
 
   private scheduleReconnect() {
@@ -485,6 +523,7 @@ export class QwenLiveClient {
 
   close() {
     this.intentionallyClosed = true;
+    this.stopHeartbeat();
     if (this.reconnectTimer !== null) {
       window.clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
