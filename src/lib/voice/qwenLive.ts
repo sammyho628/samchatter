@@ -153,6 +153,9 @@ export class QwenLiveClient {
   // and lets the UI mute the mic cleanly for the entire playback window.
   private audioBuffer: Uint8Array[] = [];
   private audioBufferBytes = 0;
+  // Heartbeat: Qwen / proxy closes the WS at ~30s of idle. Send a tiny
+  // silent PCM frame every 15s so the connection survives long tool/LLM waits.
+  private heartbeatTimer: number | null = null;
 
   constructor(cbs: QwenCallbacks) {
     this.cbs = cbs;
