@@ -523,6 +523,7 @@ export class QwenLiveClient {
 
   close() {
     this.intentionallyClosed = true;
+    this.stopHeartbeat();
     if (this.reconnectTimer !== null) {
       window.clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
