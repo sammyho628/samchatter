@@ -77,9 +77,46 @@ export function VoiceCompanion() {
 
   const fetchSession = useServerFn(getVoiceSession);
   const saveMemory = useServerFn(summarizeAndSaveSession);
+  const loadTurns = useServerFn(getTodayChatTurns);
+  const saveTurn = useServerFn(appendChatTurn);
   const sttFn = useServerFn(transcribeAudio);
   const llmFn = useServerFn(generateAIResponse);
   const ttsFn = useServerFn(synthesizeSpeech);
+
+  // Fire-and-forget background save. Never blocks UI / LLM / TTS.
+  const persistTurn = useCallback(
+    (role: "user" | "model", text: string) => {
+      if (!text.trim()) return;
+      void saveTurn({ data: { role, text } }).catch((err) => {
+        pushLog("err", `persist ${role}: ${(err as Error).message}`);
+      });
+    },
+    [saveTurn, pushLog],
+  );
+
+  // Hydrate local chatContext from today's persisted turns (read once).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { date, turns } = await loadTurns();
+        if (cancelled) return;
+        historyRef.current = turns.map<GeminiTurn>((t) => ({
+          role: t.role,
+          parts: [{ text: t.text }],
+        }));
+        pushLog(
+          "evt",
+          `💾 hydrated ${turns.length} turn(s) from ${date}`,
+        );
+      } catch (err) {
+        pushLog("err", `hydrate turns: ${(err as Error).message}`);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [loadTurns, pushLog]);
 
   const loadPromptIfNeeded = useCallback(async () => {
     if (promptLoadedRef.current || promptLoadingRef.current) return;
