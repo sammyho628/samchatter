@@ -219,7 +219,8 @@ async function runTool(
   if (!fn) return `Error: unknown tool '${name}'.`;
 
   if (name === "search_places") {
-    return callEdgeSearch(fn, { query });
+    const cleaned = sanitizeQuery(query) || query;
+    return callEdgeSearch(fn, { query: cleaned });
   }
 
   // web_search
