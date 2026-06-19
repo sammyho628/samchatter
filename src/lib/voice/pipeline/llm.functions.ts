@@ -442,6 +442,23 @@ async function runGrok(data: GenerateInput) {
 
 // ---------- entrypoint ----------
 
+// FAST-PATH: detect hot intents in the user transcript and pre-execute the
+// web_search in parallel with the LLM round-trip. The pre-fetched summary
+// is injected as a synthetic tool-call/response so the model can answer in
+// a SINGLE round instead of two — saves ~1-2s on common queries.
+const FAST_PATH_RE =
+  /(世界盃|世界杯|歐國盃|英超|港超|nba|奧運|決賽|比分|賽果|天氣|氣溫|溫度|落雨|打風|颱風|新聞|頭條|恆指|恆生|港股|股價|匯率|油價)/i;
+
+function detectFastPathQuery(userText: string): { query: string; category: string } | null {
+  if (!FAST_PATH_RE.test(userText)) return null;
+  const t = userText.trim();
+  let category = "news";
+  if (/天氣|氣溫|溫度|落雨|打風|颱風/.test(t)) category = "news";
+  else if (/恆指|恆生|港股|股價|匯率|油價/.test(t)) category = "finance";
+  else if (/世界盃|世界杯|歐國盃|英超|港超|nba|奧運|決賽|比分|賽果/i.test(t)) category = "news";
+  return { query: t, category };
+}
+
 export const generateAIResponse = createServerFn({ method: "POST" })
   .inputValidator((d: GenerateInput) => d)
   .handler(async ({ data }) => {
@@ -449,14 +466,47 @@ export const generateAIResponse = createServerFn({ method: "POST" })
     const runner =
       llm === "qwen" ? runQwen : llm === "grok" ? runGrok : runGemini;
 
-    const result = await runner(data);
+    // Kick off prefetch in parallel with LLM (fire-and-store, await later).
+    const fp = detectFastPathQuery(data.userText);
+    const prefetch = fp
+      ? runTool("web_search", { query: fp.query, category: fp.category }).catch(
+          (e: Error) => `prefetch failed: ${e.message}`,
+        )
+      : null;
+
+    let workData = data;
+    if (prefetch) {
+      const summary = await prefetch;
+      // Inject as preamble so the model uses it directly without a tool round-trip.
+      workData = {
+        ...data,
+        userText: `[預載搜尋結果 — 已自動代你查咗，唔使再 call tool，直接答]\n${summary}\n\n[原問題] ${data.userText}`,
+      };
+    }
+
+    const result = await runner(workData);
     const text = result.text.trim();
+
+    // Restore the clean userText in the history we return to the client so the
+    // chat log doesn't get polluted with the injected preamble.
+    if (prefetch) {
+      const lastUserIdx = [...result.history].reverse().findIndex((t) => t.role === "user");
+      if (lastUserIdx >= 0) {
+        const idx = result.history.length - 1 - lastUserIdx;
+        result.history[idx] = { role: "user", parts: [{ text: data.userText }] };
+      }
+      result.toolCalls.unshift({
+        name: "web_search",
+        args: { query: fp!.query, category: fp!.category },
+        summary: "[fast-path prefetch]",
+      });
+    }
+
     return {
-      // HONESTY: if the brain returned nothing, admit a backend hiccup —
-      // do NOT blame the user's microphone (that's Layer 1's job).
       text: text || "（系統處理緊有啲慢，請稍後再試吓啦）",
       history: result.history,
       toolCalls: result.toolCalls,
       provider: llm,
     };
   });
+
