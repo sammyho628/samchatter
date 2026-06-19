@@ -1,5 +1,7 @@
-// Master orchestrator. Pure sequential STT → LLM → TTS pipeline.
-// Each layer is a separate server function and can be swapped independently.
+// Master orchestrator. STT → LLM → (sentence-chunked TTS pipelined with playback).
+// Sentence chunking lets the first sentence's audio start playing while later
+// sentences are still being synthesized — eliminates "silent wait" before
+// long replies.
 import type { GeminiTurn, ToolCallTrace } from "./llm.functions";
 
 export type TurnCallbacks = {
@@ -9,9 +11,11 @@ export type TurnCallbacks = {
   onThinking?: () => void;
   onToolCall?: (t: ToolCallTrace) => void;
   onAssistantText?: (text: string) => void;
+  onHistory?: (history: GeminiTurn[]) => void;
   onSpeaking?: () => void;
   onDone?: () => void;
   onError?: (msg: string) => void;
+  onLog?: (msg: string) => void;
 };
 
 export type TurnDeps = {
@@ -32,7 +36,7 @@ export type TurnDeps = {
   synthesize: (input: {
     data: { text: string };
   }) => Promise<{ audioBase64: string; mimeType: string }>;
-  playAudio: (b64: string, onEnded?: () => void) => Promise<void>;
+  playAudio: (b64: string) => Promise<void>;
 };
 
 export type TurnInput = {
@@ -48,6 +52,41 @@ export type TurnOutput = {
   history: GeminiTurn[];
   toolCalls: ToolCallTrace[];
 };
+
+/** Split text into speakable chunks. First chunk = up to first sentence
+ *  terminator (CJK or ASCII). Subsequent chunks keep accumulating sentences
+ *  but cap each chunk to ~80 chars so TTS round-trips stay short. */
+function splitIntoSentences(text: string): string[] {
+  const t = text.trim();
+  if (!t) return [];
+  const TERMINATORS = /([。！？!?\.…]+["”』）)]*\s*)/g;
+  const pieces: string[] = [];
+  let buf = "";
+  let last = 0;
+  let m: RegExpExecArray | null;
+  while ((m = TERMINATORS.exec(t)) !== null) {
+    const end = m.index + m[0].length;
+    buf += t.slice(last, end);
+    last = end;
+    if (buf.trim().length >= 1) {
+      pieces.push(buf.trim());
+      buf = "";
+    }
+  }
+  if (last < t.length) buf += t.slice(last);
+  if (buf.trim()) pieces.push(buf.trim());
+
+  // Merge tiny pieces forward to avoid 1-char TTS calls.
+  const out: string[] = [];
+  for (const p of pieces) {
+    if (out.length && out[out.length - 1].length < 8) {
+      out[out.length - 1] += p;
+    } else {
+      out.push(p);
+    }
+  }
+  return out;
+}
 
 export async function runTurn(
   input: TurnInput,
@@ -76,10 +115,27 @@ export async function runTurn(
     });
     for (const tc of result.toolCalls) cbs.onToolCall?.(tc);
     cbs.onAssistantText?.(result.text);
+    cbs.onHistory?.(result.history);
 
-    const tts = await deps.synthesize({ data: { text: result.text } });
+    // Sentence-chunked TTS: dispatch all in parallel, play in order.
+    const sentences = splitIntoSentences(result.text);
+    if (sentences.length === 0) {
+      cbs.onDone?.();
+      return {
+        transcript,
+        assistantText: result.text,
+        history: result.history,
+        toolCalls: result.toolCalls,
+      };
+    }
+    cbs.onLog?.(`🔊 TTS chunks: ${sentences.length}`);
+    const ttsPromises = sentences.map((s) => deps.synthesize({ data: { text: s } }));
     cbs.onSpeaking?.();
-    await deps.playAudio(tts.audioBase64, () => cbs.onDone?.());
+    for (let i = 0; i < ttsPromises.length; i++) {
+      const tts = await ttsPromises[i];
+      await deps.playAudio(tts.audioBase64);
+    }
+    cbs.onDone?.();
 
     return {
       transcript,
