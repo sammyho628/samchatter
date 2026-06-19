@@ -115,7 +115,12 @@ export const getVoiceSession = createServerFn({ method: "GET" }).handler(
 
 async function refreshTopicsBackground(topics: string[]) {
   const tavilyKey = process.env.TAVILY_API_KEY;
-  if (!tavilyKey) return;
+  if (!tavilyKey) {
+    console.warn(
+      "[VoiceSession] TAVILY_API_KEY missing — cannot refresh daily_cache. Skipping.",
+    );
+    return;
+  }
   const { supabaseAdmin } = await import(
     "@/integrations/supabase/client.server"
   );
@@ -143,7 +148,14 @@ async function refreshTopicsBackground(topics: string[]) {
             max_results: 3,
           }),
         });
-        if (!resp.ok) return;
+        if (!resp.ok) {
+          const body = await resp.text().catch(() => "");
+          console.error(
+            `[VoiceSession] Tavily ${topic} failed ${resp.status}:`,
+            body.slice(0, 300),
+          );
+          return;
+        }
         const data = (await resp.json()) as {
           answer?: string;
           results?: Array<{ title?: string; content?: string }>;
@@ -156,16 +168,29 @@ async function refreshTopicsBackground(topics: string[]) {
           if (t || c) parts.push(`${t}: ${c}`);
         });
         const rawContent = parts.join("\n").slice(0, 2000);
-        if (!rawContent) return;
+        if (!rawContent) {
+          console.warn(`[VoiceSession] Tavily ${topic} returned empty content`);
+          return;
+        }
         const content = await translateToTraditionalChinese(rawContent, topic);
-        await supabaseAdmin
+        const { error } = await supabaseAdmin
           .from("daily_cache")
           .upsert(
             { topic, content, updated_at: new Date().toISOString() },
             { onConflict: "topic" },
           );
-      } catch {
-        /* ignore */
+        if (error) {
+          console.error(
+            `[VoiceSession] daily_cache upsert ${topic} failed:`,
+            error.message,
+          );
+        } else {
+          console.log(
+            `[VoiceSession] daily_cache refreshed ${topic} (${content.length} chars)`,
+          );
+        }
+      } catch (e) {
+        console.error("Cache refresh failed:", e);
       }
     }),
   );
