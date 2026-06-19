@@ -38,8 +38,8 @@ type Status =
   | "error";
 
 const STATUS_LABEL: Record<Status, string> = {
-  idle: "按住嚟講嘢",
-  listening: "🎤 聽緊…放手就送出",
+  idle: "撳掣開始",
+  listening: "🎤 聽緊…撳掣停止",
   transcribing: "辨認緊…",
   thinking: "諗緊…",
   speaking: "我講緊…",
