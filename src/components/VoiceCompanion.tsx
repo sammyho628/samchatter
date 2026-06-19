@@ -69,6 +69,10 @@ export function VoiceCompanion() {
   const [debugOpen, setDebugOpen] = useState(false);
   const [searching, setSearching] = useState(false);
   const [hasReplay, setHasReplay] = useState<boolean>(() => hasLastBuffer());
+  const [providers, setProviders] = useState<{ llm: string; tts: string }>({
+    llm: "gemini",
+    tts: "google",
+  });
   const [debugLog, setDebugLog] = useState<
     Array<{ t: number; kind: "user" | "ai" | "tool" | "evt" | "err" | "db"; text: string }>
   >([]);
