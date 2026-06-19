@@ -442,22 +442,13 @@ async function runGrok(data: GenerateInput) {
 
 // ---------- entrypoint ----------
 
-// FAST-PATH: detect hot intents in the user transcript and pre-execute the
-// web_search in parallel with the LLM round-trip. The pre-fetched summary
-// is injected as a synthetic tool-call/response so the model can answer in
-// a SINGLE round instead of two — saves ~1-2s on common queries.
-const FAST_PATH_RE =
-  /(世界盃|世界杯|歐國盃|英超|港超|nba|奧運|決賽|比分|賽果|天氣|氣溫|溫度|落雨|打風|颱風|新聞|頭條|恆指|恆生|港股|股價|匯率|油價)/i;
-
-function detectFastPathQuery(userText: string): { query: string; category: string } | null {
-  if (!FAST_PATH_RE.test(userText)) return null;
-  const t = userText.trim();
-  let category = "news";
-  if (/天氣|氣溫|溫度|落雨|打風|颱風/.test(t)) category = "news";
-  else if (/恆指|恆生|港股|股價|匯率|油價/.test(t)) category = "finance";
-  else if (/世界盃|世界杯|歐國盃|英超|港超|nba|奧運|決賽|比分|賽果/i.test(t)) category = "news";
-  return { query: t, category };
-}
+// FAST-PATH PREFETCH DISABLED (v1.12.0):
+// Previously we pre-executed web_search in parallel with the LLM call to save
+// 1-2s on common queries. This was injecting STALE conversational user text
+// as the search query (e.g. "我想睇下世界盃最新情況") and causing the model to
+// hallucinate match results from generic news pages. Factual queries (news /
+// weather / scores) MUST go through the LLM's refined query path so the model
+// extracts keywords first. See `refineQuery()` + system prompt 硬規則.
 
 export const generateAIResponse = createServerFn({ method: "POST" })
   .inputValidator((d: GenerateInput) => d)
