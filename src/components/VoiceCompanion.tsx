@@ -106,6 +106,15 @@ export function VoiceCompanion() {
   const sttFn = useServerFn(transcribeAudio);
   const llmFn = useServerFn(generateAIResponse);
   const ttsFn = useServerFn(synthesizeSpeech);
+  const fetchProviders = useServerFn(getProviderSettings);
+
+  // Load active provider settings so the header (and debug log) reflects
+  // what the brain is actually using on the next turn.
+  useEffect(() => {
+    void fetchProviders()
+      .then((p) => setProviders(p))
+      .catch(() => {});
+  }, [fetchProviders]);
 
   const persistTurn = useCallback(
     (role: "user" | "model", text: string) => {
