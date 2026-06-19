@@ -18,8 +18,8 @@ export const transcribeAudio = createServerFn({ method: "POST" })
     // nova-2 supports many languages incl. zh; zh-HK is the closest tag.
     // smart_format + punctuate keep transcripts readable.
     const params = new URLSearchParams({
-      model: "nova-2",
-      language: "zh",
+      model: "nova-3",
+      language: "zh-HK",
       punctuate: "true",
       smart_format: "true",
     });
