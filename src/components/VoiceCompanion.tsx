@@ -163,6 +163,23 @@ export function VoiceCompanion() {
         "db",
         `✓ session loaded · ctx:${session.contextText.length} prefetch:${session.prefetchContext.length} memory:${session.memoryContext.length}`,
       );
+      // Daily cache metadata — surface what the LLM is reading from prefetch.
+      const meta = (session as unknown as {
+        cacheMeta?: Array<{ topic: string; updated_at: string; chars: number }>;
+      }).cacheMeta;
+      if (meta && meta.length > 0) {
+        for (const m of meta) {
+          const ageMin = Math.round(
+            (Date.now() - new Date(m.updated_at).getTime()) / 60000,
+          );
+          pushLog(
+            "db",
+            `📦 daily_cache[${m.topic}] · ${m.chars} chars · updated ${m.updated_at} (${ageMin} min ago)`,
+          );
+        }
+      } else {
+        pushLog("db", "📦 daily_cache is EMPTY (no prefetch data available)");
+      }
       pushLog("evt", `📝 FULL PROMPT (${prompt.length} chars) ↓↓↓`);
       const CHUNK = 1500;
       for (let i = 0; i < prompt.length; i += CHUNK) {
