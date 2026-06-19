@@ -301,7 +301,7 @@ export function VoiceCompanion() {
     });
   }, [status, sttFn, llmFn, ttsFn, pushLog, persistTurn]);
 
-  // Keyboard: hold Spacebar to talk (when no input is focused).
+  // Keyboard: tap Spacebar to toggle (when no input is focused).
   useEffect(() => {
     const isTyping = () => {
       const el = document.activeElement as HTMLElement | null;
@@ -310,20 +310,14 @@ export function VoiceCompanion() {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.code !== "Space" || e.repeat || isTyping()) return;
       e.preventDefault();
-      void startTalking();
-    };
-    const onKeyUp = (e: KeyboardEvent) => {
-      if (e.code !== "Space" || isTyping()) return;
-      e.preventDefault();
-      void stopTalkingAndSend();
+      if (status === "listening") void stopTalkingAndSend();
+      else void startTalking();
     };
     window.addEventListener("keydown", onKeyDown);
-    window.addEventListener("keyup", onKeyUp);
     return () => {
       window.removeEventListener("keydown", onKeyDown);
-      window.removeEventListener("keyup", onKeyUp);
     };
-  }, [startTalking, stopTalkingAndSend]);
+  }, [startTalking, stopTalkingAndSend, status]);
 
   const tint: "idle" | "listening" | "speaking" =
     status === "speaking"
