@@ -59,6 +59,30 @@ export type Database = {
         }
         Relationships: []
       }
+      chat_turns: {
+        Row: {
+          created_at: string
+          id: string
+          role: string
+          session_date: string
+          text_content: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          role: string
+          session_date?: string
+          text_content: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          role?: string
+          session_date?: string
+          text_content?: string
+        }
+        Relationships: []
+      }
       daily_cache: {
         Row: {
           content: string
