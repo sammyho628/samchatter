@@ -112,13 +112,20 @@ const NON_HK_HINTS = [
 ];
 const LOCAL_CATEGORIES = new Set(["news", "health", "finance", "shopping"]);
 
+// Sports-intent hint: forces "live score" suffix + enables retry verification.
+const SPORTS_RE =
+  /(世界盃|世界杯|歐國盃|歐冠|英超|西甲|意甲|德甲|法甲|港超|nba|epl|mlb|nfl|ufc|世錦|奧運|溫網|美網|法網|澳網|f1|grand prix|決賽|準決賽|分組賽|vs |對|球賽|比分|賽果|score|match)/i;
+
 function refineQuery(rawQuery: string, category: string): string {
-  const q = rawQuery.trim();
+  let q = rawQuery.trim();
   if (!q) return q;
+  // Sports → force precision keywords.
+  if (SPORTS_RE.test(q) && !/live score|比分|賽果|score/i.test(q)) {
+    q = `${q} live score 比分`;
+  }
   const lower = q.toLowerCase();
   if (HK_HINTS.some((h) => lower.includes(h.toLowerCase()))) return q;
   if (NON_HK_HINTS.some((h) => lower.includes(h.toLowerCase()))) return q;
-  // Local-intent if category is local OR query has weather/temperature/news hints.
   const localHint =
     LOCAL_CATEGORIES.has(category.toLowerCase()) ||
     /(天氣|氣溫|溫度|落雨|打風|新聞|頭條|交通|塞車|股市|股價|匯率|油價|樓價|地震|颱風|空氣|aqi|weather|temperature|news|traffic|stock)/i.test(
@@ -126,6 +133,13 @@ function refineQuery(rawQuery: string, category: string): string {
     );
   if (!localHint) return q;
   return `${q} 香港`;
+}
+
+// Verification: does snippet actually contain a numeric score? Required
+// for sports queries — generic news pages without digits trigger retry.
+function snippetHasScore(summary: string): boolean {
+  // Look for patterns like "2:1", "2-1", "2 - 1", "贏 3 比 0", "3比2"
+  return /\b\d{1,3}\s*[:\-–vs比]\s*\d{1,3}\b/i.test(summary);
 }
 
 async function fetchWithTimeout(
@@ -142,31 +156,15 @@ async function fetchWithTimeout(
   }
 }
 
-async function runTool(
-  name: string,
-  args: Record<string, string>,
+async function callEdgeSearch(
+  fn: string,
+  body: Record<string, string>,
 ): Promise<string> {
-  let query = String(args.query ?? "").trim();
-  if (!query) return `Error: missing 'query' for ${name}.`;
-  if (name === "web_search") {
-    query = refineQuery(query, String(args.category ?? ""));
-  }
   const supabaseUrl = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
   const anon =
     process.env.SUPABASE_PUBLISHABLE_KEY ??
     process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
   if (!supabaseUrl || !anon) return "Error: tool backend not configured.";
-  const fn =
-    name === "search_places"
-      ? "search-places"
-      : name === "web_search"
-        ? "web-search"
-        : null;
-  if (!fn) return `Error: unknown tool '${name}'.`;
-  const body: Record<string, string> = { query };
-  if (name === "web_search" && typeof args.category === "string") {
-    body.category = args.category;
-  }
   try {
     const r = await fetchWithTimeout(
       `${supabaseUrl}/functions/v1/${fn}`,
@@ -185,11 +183,50 @@ async function runTool(
       summary?: string;
       error?: string;
     };
-    if (!r.ok) return `Tool ${name} HTTP ${r.status}: ${j.error ?? ""}`;
+    if (!r.ok) return `HTTP ${r.status}: ${j.error ?? ""}`;
     return j.summary ?? j.error ?? "No results.";
   } catch (e) {
-    return `Tool ${name} threw: ${(e as Error).message}`;
+    return `threw: ${(e as Error).message}`;
   }
+}
+
+async function runTool(
+  name: string,
+  args: Record<string, string>,
+): Promise<string> {
+  let query = String(args.query ?? "").trim();
+  if (!query) return `Error: missing 'query' for ${name}.`;
+  const fn =
+    name === "search_places"
+      ? "search-places"
+      : name === "web_search"
+        ? "web-search"
+        : null;
+  if (!fn) return `Error: unknown tool '${name}'.`;
+
+  if (name === "search_places") {
+    return callEdgeSearch(fn, { query });
+  }
+
+  // web_search
+  const category = String(args.category ?? "");
+  query = refineQuery(query, category);
+  const body: Record<string, string> = { query };
+  if (category) body.category = category;
+  let summary = await callEdgeSearch(fn, body);
+
+  // RESULT VERIFICATION LOOP — sports queries must contain a numeric score.
+  // If first pass returned a generic page, retry once with an aggressive
+  // "official score" / "match result" refinement before giving up.
+  const isSports = SPORTS_RE.test(query);
+  if (isSports && !snippetHasScore(summary)) {
+    const retryQuery = `${query.replace(/\s*(live score|比分|賽果)\s*/gi, " ").trim()} match result official score`;
+    const retry = await callEdgeSearch(fn, { query: retryQuery, category: category || "news" });
+    if (snippetHasScore(retry) || retry.length > summary.length) {
+      summary = `${retry}\n\n[fallback from first pass]\n${summary}`;
+    }
+  }
+  return summary;
 }
 
 // ---------- Gemini path ----------
@@ -405,6 +442,23 @@ async function runGrok(data: GenerateInput) {
 
 // ---------- entrypoint ----------
 
+// FAST-PATH: detect hot intents in the user transcript and pre-execute the
+// web_search in parallel with the LLM round-trip. The pre-fetched summary
+// is injected as a synthetic tool-call/response so the model can answer in
+// a SINGLE round instead of two — saves ~1-2s on common queries.
+const FAST_PATH_RE =
+  /(世界盃|世界杯|歐國盃|英超|港超|nba|奧運|決賽|比分|賽果|天氣|氣溫|溫度|落雨|打風|颱風|新聞|頭條|恆指|恆生|港股|股價|匯率|油價)/i;
+
+function detectFastPathQuery(userText: string): { query: string; category: string } | null {
+  if (!FAST_PATH_RE.test(userText)) return null;
+  const t = userText.trim();
+  let category = "news";
+  if (/天氣|氣溫|溫度|落雨|打風|颱風/.test(t)) category = "news";
+  else if (/恆指|恆生|港股|股價|匯率|油價/.test(t)) category = "finance";
+  else if (/世界盃|世界杯|歐國盃|英超|港超|nba|奧運|決賽|比分|賽果/i.test(t)) category = "news";
+  return { query: t, category };
+}
+
 export const generateAIResponse = createServerFn({ method: "POST" })
   .inputValidator((d: GenerateInput) => d)
   .handler(async ({ data }) => {
@@ -412,14 +466,47 @@ export const generateAIResponse = createServerFn({ method: "POST" })
     const runner =
       llm === "qwen" ? runQwen : llm === "grok" ? runGrok : runGemini;
 
-    const result = await runner(data);
+    // Kick off prefetch in parallel with LLM (fire-and-store, await later).
+    const fp = detectFastPathQuery(data.userText);
+    const prefetch = fp
+      ? runTool("web_search", { query: fp.query, category: fp.category }).catch(
+          (e: Error) => `prefetch failed: ${e.message}`,
+        )
+      : null;
+
+    let workData = data;
+    if (prefetch) {
+      const summary = await prefetch;
+      // Inject as preamble so the model uses it directly without a tool round-trip.
+      workData = {
+        ...data,
+        userText: `[預載搜尋結果 — 已自動代你查咗，唔使再 call tool，直接答]\n${summary}\n\n[原問題] ${data.userText}`,
+      };
+    }
+
+    const result = await runner(workData);
     const text = result.text.trim();
+
+    // Restore the clean userText in the history we return to the client so the
+    // chat log doesn't get polluted with the injected preamble.
+    if (prefetch) {
+      const lastUserIdx = [...result.history].reverse().findIndex((t) => t.role === "user");
+      if (lastUserIdx >= 0) {
+        const idx = result.history.length - 1 - lastUserIdx;
+        result.history[idx] = { role: "user", parts: [{ text: data.userText }] };
+      }
+      result.toolCalls.unshift({
+        name: "web_search",
+        args: { query: fp!.query, category: fp!.category },
+        summary: "[fast-path prefetch]",
+      });
+    }
+
     return {
-      // HONESTY: if the brain returned nothing, admit a backend hiccup —
-      // do NOT blame the user's microphone (that's Layer 1's job).
       text: text || "（系統處理緊有啲慢，請稍後再試吓啦）",
       history: result.history,
       toolCalls: result.toolCalls,
       provider: llm,
     };
   });
+
