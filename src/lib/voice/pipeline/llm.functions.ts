@@ -95,6 +95,39 @@ const OPENAI_TOOLS = TOOL_DECLS.map((t) => ({
   },
 }));
 
+// Geo-anchoring: if the query is local-intent (news/weather/finance/places/
+// shopping or a generic factual ask) and contains no explicit geography,
+// append "香港" so Tavily returns Hong Kong–relevant results.
+const HK_HINTS = [
+  "香港", "hong kong", "hk", "九龍", "新界", "港島",
+  "中環", "尖沙咀", "旺角", "銅鑼灣", "深水埗", "觀塘", "荃灣",
+  "沙田", "將軍澳", "元朗", "屯門", "大埔", "東涌", "粉嶺", "上水",
+  "恆指", "恆生", "港股", "港元", "港幣",
+];
+const NON_HK_HINTS = [
+  "美國", "中國", "內地", "大陸", "台灣", "日本", "韓國", "東京", "北京", "上海", "新加坡",
+  "英國", "倫敦", "紐約", "美股", "a股", "日經",
+  "usa", "china", "taiwan", "japan", "korea", "tokyo", "beijing", "shanghai",
+  "singapore", "uk", "london", "new york", "nasdaq", "s&p", "dow",
+];
+const LOCAL_CATEGORIES = new Set(["news", "health", "finance", "shopping"]);
+
+function refineQuery(rawQuery: string, category: string): string {
+  const q = rawQuery.trim();
+  if (!q) return q;
+  const lower = q.toLowerCase();
+  if (HK_HINTS.some((h) => lower.includes(h.toLowerCase()))) return q;
+  if (NON_HK_HINTS.some((h) => lower.includes(h.toLowerCase()))) return q;
+  // Local-intent if category is local OR query has weather/temperature/news hints.
+  const localHint =
+    LOCAL_CATEGORIES.has(category.toLowerCase()) ||
+    /(天氣|氣溫|溫度|落雨|打風|新聞|頭條|交通|塞車|股市|股價|匯率|油價|樓價|地震|颱風|空氣|aqi|weather|temperature|news|traffic|stock)/i.test(
+      q,
+    );
+  if (!localHint) return q;
+  return `${q} 香港`;
+}
+
 async function fetchWithTimeout(
   url: string,
   init: RequestInit,
