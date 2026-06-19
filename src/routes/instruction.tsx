@@ -201,6 +201,54 @@ function InstructionPage() {
           </p>
         </header>
 
+        <section className="rounded-md border border-border p-4 space-y-4">
+          <div className="flex items-baseline justify-between gap-2">
+            <h2 className="text-base font-semibold">Voice providers</h2>
+            <span className="text-xs text-muted-foreground">{providerStatus}</span>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <label className="space-y-1.5 block">
+              <span className="text-sm font-medium">Brain (LLM)</span>
+              <select
+                value={llmProvider}
+                onChange={(e) => void onChangeLlm(e.target.value as LlmProvider)}
+                disabled={loading}
+                className="w-full rounded-md border border-border bg-card text-card-foreground p-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+              >
+                {LLM_PROVIDERS.map((p) => (
+                  <option key={p.value} value={p.value}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+              <span className="block text-xs text-muted-foreground">
+                {LLM_PROVIDERS.find((p) => p.value === llmProvider)?.note}
+              </span>
+            </label>
+
+            <label className="space-y-1.5 block">
+              <span className="text-sm font-medium">Mouth (TTS)</span>
+              <select
+                value={ttsProvider}
+                onChange={(e) => void onChangeTts(e.target.value as TtsProvider)}
+                disabled={loading}
+                className="w-full rounded-md border border-border bg-card text-card-foreground p-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+              >
+                {TTS_PROVIDERS.map((p) => (
+                  <option key={p.value} value={p.value} disabled={!p.available}>
+                    {p.label}{p.available ? "" : " — coming soon"}
+                  </option>
+                ))}
+              </select>
+              <span className="block text-xs text-muted-foreground">
+                {TTS_PROVIDERS.find((p) => p.value === ttsProvider)?.note}
+              </span>
+            </label>
+          </div>
+        </section>
+
+
         <textarea
           value={value}
           onChange={(e) => setValue(e.target.value)}
