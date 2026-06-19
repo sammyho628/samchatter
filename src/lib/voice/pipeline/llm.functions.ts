@@ -116,6 +116,19 @@ const LOCAL_CATEGORIES = new Set(["news", "health", "finance", "shopping"]);
 const SPORTS_RE =
   /(世界盃|世界杯|歐國盃|歐冠|英超|西甲|意甲|德甲|法甲|港超|nba|epl|mlb|nfl|ufc|世錦|奧運|溫網|美網|法網|澳網|f1|grand prix|決賽|準決賽|分組賽|vs |對|球賽|比分|賽果|score|match)/i;
 
+// Finance-intent hint: ticker symbols (e.g. 1357.HK, 0700.HK, ^HSI, AAPL) or
+// keywords. Triggers Yahoo Finance source-locking + sanity check + dual-source.
+const TICKER_RE = /\b\d{3,5}\.HK\b|\^[A-Z]{2,5}\b|\b[A-Z]{1,5}(?:\.[A-Z]{1,3})?\b\s*(?:stock|股價|股票|報價|quote)/i;
+const FINANCE_RE =
+  /(股價|股票|報價|收市|開市|恆指|恆生|港股|美股|a股|日經|納指|道指|nasdaq|s&p|dow|stock|ticker|quote|exchange rate|匯率|加密幣|btc|eth|bitcoin|ethereum)/i;
+function isFinanceQuery(q: string): boolean {
+  return FINANCE_RE.test(q) || TICKER_RE.test(q);
+}
+function extractTicker(q: string): string | null {
+  const m = q.match(/\b\d{3,5}\.HK\b|\^[A-Z]{2,5}\b/i);
+  return m ? m[0].toUpperCase() : null;
+}
+
 // Strip conversational filler so the search engine sees keywords only.
 // Examples removed: 你好/唔該/我想/睇下/同我/幫我/可唔可以/最新情況/啦/呀/喎/嘅/?/？
 const CONVERSATIONAL_RE =
@@ -136,6 +149,11 @@ function refineQuery(rawQuery: string, category: string): string {
   // Sports → force precision keywords.
   if (SPORTS_RE.test(q) && !/live score|比分|賽果|score/i.test(q)) {
     q = `${q} live score 比分`;
+  }
+  // Finance → force Yahoo Finance source + preserve ticker symbol verbatim.
+  if (isFinanceQuery(q) && !/yahoo finance|google finance/i.test(q)) {
+    const ticker = extractTicker(q);
+    q = ticker ? `${ticker} ${q} Yahoo Finance quote` : `${q} Yahoo Finance quote`;
   }
   const lower = q.toLowerCase();
   if (HK_HINTS.some((h) => lower.includes(h.toLowerCase()))) return q;
@@ -240,6 +258,25 @@ async function runTool(
     if (snippetHasScore(retry) || retry.length > summary.length) {
       summary = `${retry}\n\n[fallback from first pass]\n${summary}`;
     }
+  }
+
+  // FINANCE VERIFICATION — for stock/index queries, also fetch Google Finance
+  // as a cross-source. Append a [FINANCE GUARD] block instructing the LLM to
+  // DATA-LOCK on numbers adjacent to the ticker, run sanity check, and trigger
+  // the safety phrase if Yahoo/Google numbers disagree or price/change conflict.
+  if (isFinanceQuery(query)) {
+    const ticker = extractTicker(query);
+    const tickerLabel = ticker ?? "(no ticker)";
+    const googleQ = ticker
+      ? `${ticker} Google Finance price change`
+      : `${query.replace(/yahoo finance/gi, "").trim()} Google Finance price change`;
+    const google = await callEdgeSearch(fn, { query: googleQ, category: "finance" });
+    summary =
+      `[FINANCE GUARD — ticker=${tickerLabel}]\n` +
+      `規則: 只可引用緊貼「${tickerLabel}」或公司全名後面嘅數字。其他 ticker 旁邊嘅數字當噪音、唔好用。\n` +
+      `Sanity: Price < Prev Close → 必須跌；Price > Prev Close → 必須升。如果唔夾，必須講「數據顯示有衝突，我重新幫你查一次。」然後重新 search。\n` +
+      `如果 Yahoo 同 Google 兩邊主數字差超過 1%，亦觸發 SAFETY TRIGGER。\n\n` +
+      `[YAHOO FINANCE SOURCE]\n${summary}\n\n[GOOGLE FINANCE SOURCE]\n${google}`;
   }
   return summary;
 }
@@ -482,6 +519,7 @@ Rules:
 - If DRAFT says "data not found / 搵唔到 / 暫時冇" BUT TOOL_DATA contains concrete facts (scores, names, dates, numbers) → status=INCOMPLETE
 - If DRAFT lacks concrete facts/scores/numbers that TOOL_DATA provides → status=INCOMPLETE
 - If DRAFT is a shallow one-liner for an analytical query → status=LACKS_DEPTH
+- FINANCE: If TOOL_DATA has [FINANCE GUARD] block and DRAFT's price/change direction conflict (price down but says rise, or vice versa), OR draft uses a number from a different ticker than the one requested, OR Yahoo vs Google numbers in TOOL_DATA differ >1% and draft picks one without flagging → status=INCOMPLETE, feedback must instruct: 講「數據顯示有衝突，我重新幫你查一次。」然後重 search Yahoo Finance + 完整 ticker。
 - Otherwise → status=OK
 
 Respond ONLY as compact JSON: {"status":"OK|INCOMPLETE|LACKS_DEPTH","feedback":"specific missing fact or what to search next, in Cantonese, <=80 chars"}`;
