@@ -12,6 +12,14 @@ import {
   upsertKnowledge,
   deleteKnowledge,
 } from "@/lib/voice/knowledge.functions";
+import {
+  getProviderSettings,
+  saveProviderSettings,
+  LLM_PROVIDERS,
+  TTS_PROVIDERS,
+  type LlmProvider,
+  type TtsProvider,
+} from "@/lib/voice/providerSettings.functions";
 
 export const Route = createFileRoute("/instruction")({
   head: () => ({
@@ -36,6 +44,12 @@ function InstructionPage() {
   const fetchKb = useServerFn(listKnowledge);
   const upsertKb = useServerFn(upsertKnowledge);
   const deleteKb = useServerFn(deleteKnowledge);
+  const fetchProviders = useServerFn(getProviderSettings);
+  const saveProviders = useServerFn(saveProviderSettings);
+
+  const [llmProvider, setLlmProvider] = useState<LlmProvider>("gemini");
+  const [ttsProvider, setTtsProvider] = useState<TtsProvider>("google");
+  const [providerStatus, setProviderStatus] = useState("");
 
   const [value, setValue] = useState<string>("");
   const [loading, setLoading] = useState(true);
@@ -58,14 +72,17 @@ function InstructionPage() {
   useEffect(() => {
     void (async () => {
       try {
-        const [{ template, updatedAt }] = await Promise.all([
+        const [{ template, updatedAt }, providers] = await Promise.all([
           fetchPrompt(),
+          fetchProviders().catch(() => ({ llm: "gemini" as LlmProvider, tts: "google" as TtsProvider })),
           loadKb().catch((e) => setKbStatus(`load failed: ${(e as Error).message}`)),
         ]);
         const effective = template ?? DEFAULT_SYSTEM_PROMPT_TEMPLATE;
         setValue(effective);
         setIsDefault(template === null);
         setUpdatedAt(updatedAt);
+        setLlmProvider(providers.llm);
+        setTtsProvider(providers.tts);
       } catch (err) {
         setStatus(`Load failed: ${(err as Error).message}`);
         setValue(DEFAULT_SYSTEM_PROMPT_TEMPLATE);
@@ -75,6 +92,28 @@ function InstructionPage() {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const onChangeLlm = async (v: LlmProvider) => {
+    setLlmProvider(v);
+    setProviderStatus("Saving…");
+    try {
+      await saveProviders({ data: { llm: v } });
+      setProviderStatus(`LLM set to ${v} at ${new Date().toLocaleTimeString()}.`);
+    } catch (e) {
+      setProviderStatus(`Save failed: ${(e as Error).message}`);
+    }
+  };
+
+  const onChangeTts = async (v: TtsProvider) => {
+    setTtsProvider(v);
+    setProviderStatus("Saving…");
+    try {
+      await saveProviders({ data: { tts: v } });
+      setProviderStatus(`TTS set to ${v} at ${new Date().toLocaleTimeString()}.`);
+    } catch (e) {
+      setProviderStatus(`Save failed: ${(e as Error).message}`);
+    }
+  };
 
   const onSave = async () => {
     setSaving(true);
