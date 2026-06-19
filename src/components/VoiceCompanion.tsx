@@ -299,7 +299,7 @@ export function VoiceCompanion() {
     ).then((result) => {
       if (result) historyRef.current = result.history;
     });
-  }, [status, sttFn, llmFn, ttsFn, pushLog]);
+  }, [status, sttFn, llmFn, ttsFn, pushLog, persistTurn]);
 
   // Keyboard: hold Spacebar to talk (when no input is focused).
   useEffect(() => {
