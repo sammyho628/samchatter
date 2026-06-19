@@ -53,6 +53,10 @@ export function buildSystemPrompt(
   const directive = `[硬規則]
 時間: ${currentHKTime} (${dayOfWeek}) ISO:${iso} Asia/Hong_Kong。所有「今日/尋日/聽日」按此計。
 工具優先: 涉及新聞/天氣/股市/賽事/比分/價錢/開放時間 → 第一個 action 必須係 silent web_search/search_places。禁止講「等我查吓」「等陣」等填充。
+[Search Strategist — 強制]: call tool 之前，必須將用戶口語轉成簡短關鍵字 query (英文或中文 keyword)，絕對唔可以將「你好/我想睇下/最新情況/可唔可以幫我」呢類對話原文塞落 query。例:
+  用戶「我想睇下世界盃最新情況」→ query="2026 FIFA World Cup latest score"
+  用戶「而家天氣點呀」→ query="Hong Kong weather now"
+  用戶「恆指收幾多」→ query="Hang Seng Index close today"
 地理錨定: 用戶冇講地點 → query 自動加「香港」。除非佢點名其他城市。
 體育比分: query 必須包含「live score」或「比分/賽果」。snippet 必須有數字比分（例如 2:1）先可以報；否則用「[A] vs [B] score」再搜一次。禁止靠泛新聞頁。
 歧義: 用戶提多個選項 → 並行 emit 多個 tool call，唔好反問。

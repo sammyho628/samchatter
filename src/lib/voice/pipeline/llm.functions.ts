@@ -116,8 +116,22 @@ const LOCAL_CATEGORIES = new Set(["news", "health", "finance", "shopping"]);
 const SPORTS_RE =
   /(世界盃|世界杯|歐國盃|歐冠|英超|西甲|意甲|德甲|法甲|港超|nba|epl|mlb|nfl|ufc|世錦|奧運|溫網|美網|法網|澳網|f1|grand prix|決賽|準決賽|分組賽|vs |對|球賽|比分|賽果|score|match)/i;
 
+// Strip conversational filler so the search engine sees keywords only.
+// Examples removed: 你好/唔該/我想/睇下/同我/幫我/可唔可以/最新情況/啦/呀/喎/嘅/?/？
+const CONVERSATIONAL_RE =
+  /(你好|哈囉|hello|hi|唔該|請問|我想|我要|可唔可以|可以唔可以|幫我|同我|搵下|睇下|睇吓|查下|查吓|了解一下|最新情況|情況|啦|呀|喎|啊|㗎|喺度|而家|宜家|依家|^\s*嗯+|嗯+\s*$)/gi;
+
+function sanitizeQuery(raw: string): string {
+  return raw
+    .replace(CONVERSATIONAL_RE, " ")
+    .replace(/[?？!！。，,、；;：:「」『』""'']/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function refineQuery(rawQuery: string, category: string): string {
-  let q = rawQuery.trim();
+  let q = sanitizeQuery(rawQuery);
+  if (!q) q = rawQuery.trim();
   if (!q) return q;
   // Sports → force precision keywords.
   if (SPORTS_RE.test(q) && !/live score|比分|賽果|score/i.test(q)) {
@@ -205,7 +219,8 @@ async function runTool(
   if (!fn) return `Error: unknown tool '${name}'.`;
 
   if (name === "search_places") {
-    return callEdgeSearch(fn, { query });
+    const cleaned = sanitizeQuery(query) || query;
+    return callEdgeSearch(fn, { query: cleaned });
   }
 
   // web_search
@@ -442,22 +457,13 @@ async function runGrok(data: GenerateInput) {
 
 // ---------- entrypoint ----------
 
-// FAST-PATH: detect hot intents in the user transcript and pre-execute the
-// web_search in parallel with the LLM round-trip. The pre-fetched summary
-// is injected as a synthetic tool-call/response so the model can answer in
-// a SINGLE round instead of two — saves ~1-2s on common queries.
-const FAST_PATH_RE =
-  /(世界盃|世界杯|歐國盃|英超|港超|nba|奧運|決賽|比分|賽果|天氣|氣溫|溫度|落雨|打風|颱風|新聞|頭條|恆指|恆生|港股|股價|匯率|油價)/i;
-
-function detectFastPathQuery(userText: string): { query: string; category: string } | null {
-  if (!FAST_PATH_RE.test(userText)) return null;
-  const t = userText.trim();
-  let category = "news";
-  if (/天氣|氣溫|溫度|落雨|打風|颱風/.test(t)) category = "news";
-  else if (/恆指|恆生|港股|股價|匯率|油價/.test(t)) category = "finance";
-  else if (/世界盃|世界杯|歐國盃|英超|港超|nba|奧運|決賽|比分|賽果/i.test(t)) category = "news";
-  return { query: t, category };
-}
+// FAST-PATH PREFETCH DISABLED (v1.12.0):
+// Previously we pre-executed web_search in parallel with the LLM call to save
+// 1-2s on common queries. This was injecting STALE conversational user text
+// as the search query (e.g. "我想睇下世界盃最新情況") and causing the model to
+// hallucinate match results from generic news pages. Factual queries (news /
+// weather / scores) MUST go through the LLM's refined query path so the model
+// extracts keywords first. See `refineQuery()` + system prompt 硬規則.
 
 export const generateAIResponse = createServerFn({ method: "POST" })
   .inputValidator((d: GenerateInput) => d)
@@ -466,41 +472,8 @@ export const generateAIResponse = createServerFn({ method: "POST" })
     const runner =
       llm === "qwen" ? runQwen : llm === "grok" ? runGrok : runGemini;
 
-    // Kick off prefetch in parallel with LLM (fire-and-store, await later).
-    const fp = detectFastPathQuery(data.userText);
-    const prefetch = fp
-      ? runTool("web_search", { query: fp.query, category: fp.category }).catch(
-          (e: Error) => `prefetch failed: ${e.message}`,
-        )
-      : null;
-
-    let workData = data;
-    if (prefetch) {
-      const summary = await prefetch;
-      // Inject as preamble so the model uses it directly without a tool round-trip.
-      workData = {
-        ...data,
-        userText: `[預載搜尋結果 — 已自動代你查咗，唔使再 call tool，直接答]\n${summary}\n\n[原問題] ${data.userText}`,
-      };
-    }
-
-    const result = await runner(workData);
+    const result = await runner(data);
     const text = result.text.trim();
-
-    // Restore the clean userText in the history we return to the client so the
-    // chat log doesn't get polluted with the injected preamble.
-    if (prefetch) {
-      const lastUserIdx = [...result.history].reverse().findIndex((t) => t.role === "user");
-      if (lastUserIdx >= 0) {
-        const idx = result.history.length - 1 - lastUserIdx;
-        result.history[idx] = { role: "user", parts: [{ text: data.userText }] };
-      }
-      result.toolCalls.unshift({
-        name: "web_search",
-        args: { query: fp!.query, category: fp!.category },
-        summary: "[fast-path prefetch]",
-      });
-    }
 
     return {
       text: text || "（系統處理緊有啲慢，請稍後再試吓啦）",
