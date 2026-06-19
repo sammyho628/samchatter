@@ -65,6 +65,20 @@ const TOOLS = [
   },
 ];
 
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: ctl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function runTool(
   name: string,
   args: Record<string, string>,
@@ -88,15 +102,19 @@ async function runTool(
     body.category = args.category;
   }
   try {
-    const r = await fetch(`${supabaseUrl}/functions/v1/${fn}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: anon,
-        Authorization: `Bearer ${anon}`,
+    const r = await fetchWithTimeout(
+      `${supabaseUrl}/functions/v1/${fn}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: anon,
+          Authorization: `Bearer ${anon}`,
+        },
+        body: JSON.stringify(body),
       },
-      body: JSON.stringify(body),
-    });
+      8000,
+    );
     const j = (await r.json().catch(() => ({}))) as {
       summary?: string;
       error?: string;
