@@ -430,6 +430,22 @@ export function VoiceCompanion() {
     );
   }, [debugLog, pushLog]);
 
+  const handleSplashTap = useCallback(async () => {
+    setGreeting(true);
+    try {
+      await unlockAudio();
+    } catch { /* ignore */ }
+    setShowSplash(false);
+    try {
+      const tts = await ttsFn({ data: { text: "你好！我喺度，撳個掣就可以同我傾偈。" } });
+      await playBase64Audio(tts.audioBase64);
+    } catch (err) {
+      pushLog("err", `greeting: ${(err as Error).message}`);
+    } finally {
+      setGreeting(false);
+    }
+  }, [ttsFn, pushLog]);
+
   return (
     <div className="relative flex min-h-[100dvh] w-full flex-col items-center overflow-hidden bg-[oklch(0.18_0.04_265)] px-6 py-6 text-white">
       <div className="flex w-full items-start justify-between">
