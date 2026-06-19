@@ -214,7 +214,7 @@ function InstructionPage() {
               <span className="text-sm font-medium">Brain (LLM)</span>
               <select
                 value={llmProvider}
-                onChange={(e) => void onChangeLlm(e.target.value as LlmProvider)}
+                onChange={(e) => setLlmProvider(e.target.value as LlmProvider)}
                 disabled={loading}
                 className="w-full rounded-md border border-border bg-card text-card-foreground p-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
               >
