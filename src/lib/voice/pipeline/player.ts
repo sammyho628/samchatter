@@ -3,6 +3,7 @@
 let ctx: AudioContext | null = null;
 let current: AudioBufferSourceNode | null = null;
 let lastBuffer: AudioBuffer | null = null;
+const listeners = new Set<(has: boolean) => void>();
 
 function getCtx(): AudioContext {
   if (ctx && ctx.state !== "closed") return ctx;
@@ -32,30 +33,28 @@ export function stopPlayback() {
   }
 }
 
-export async function playBase64Audio(
-  audioBase64: string,
-  onEnded?: () => void,
-): Promise<AudioBuffer> {
+/** Play an audio clip. Resolves when playback ends (or is stopped). */
+export async function playBase64Audio(audioBase64: string): Promise<void> {
   const c = getCtx();
   if (c.state === "suspended") await c.resume().catch(() => {});
   const bytes = Uint8Array.from(atob(audioBase64), (ch) => ch.charCodeAt(0));
-  // decodeAudioData consumes the underlying ArrayBuffer — copy first so the
-  // caller's view stays usable and Safari doesn't trip on detached buffers.
   const ab = bytes.buffer.slice(0) as ArrayBuffer;
   const buffer = await c.decodeAudioData(ab);
   stopPlayback();
-  const src = c.createBufferSource();
-  src.buffer = buffer;
-  src.connect(c.destination);
-  src.onended = () => {
-    if (current === src) current = null;
-    onEnded?.();
-  };
-  // 50ms look-ahead so the soundcard wakes before the first sample.
-  src.start(c.currentTime + 0.05);
-  current = src;
-  lastBuffer = buffer;
-  return buffer;
+  return new Promise<void>((resolve) => {
+    const src = c.createBufferSource();
+    src.buffer = buffer;
+    src.connect(c.destination);
+    src.onended = () => {
+      if (current === src) current = null;
+      resolve();
+    };
+    src.start(c.currentTime + 0.05);
+    current = src;
+    const prevHad = lastBuffer !== null;
+    lastBuffer = buffer;
+    if (!prevHad) for (const l of listeners) l(true);
+  });
 }
 
 export function replayLast(onEnded?: () => void) {
@@ -75,4 +74,9 @@ export function replayLast(onEnded?: () => void) {
 
 export function hasLastBuffer() {
   return lastBuffer !== null;
+}
+
+export function subscribeLastBuffer(fn: (has: boolean) => void): () => void {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
 }
