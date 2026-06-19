@@ -108,6 +108,7 @@ export const getVoiceSession = createServerFn({ method: "GET" }).handler(
       promptTemplate,
       prefetchContext,
       memoryContext,
+      cacheMeta,
     };
   },
 );
