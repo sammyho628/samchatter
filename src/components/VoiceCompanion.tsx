@@ -4,6 +4,10 @@ import { WaveformOrb } from "./WaveformOrb";
 import { buildSystemPrompt } from "@/lib/voice/systemPrompt";
 import { getVoiceSession } from "@/lib/voice/session.functions";
 import { summarizeAndSaveSession } from "@/lib/voice/memory.functions";
+import {
+  getTodayChatTurns,
+  appendChatTurn,
+} from "@/lib/voice/chatTurns.functions";
 import { transcribeAudio } from "@/lib/voice/pipeline/stt.functions";
 import {
   generateAIResponse,
