@@ -60,6 +60,8 @@ export const synthesizeSpeech = createServerFn({ method: "POST" })
     if (!text) throw new Error("Empty text for synthesizeSpeech");
     const voiceName = data.voice ?? "Kore";
 
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), 15000);
     const resp = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${encodeURIComponent(key)}`,
       {
@@ -76,8 +78,9 @@ export const synthesizeSpeech = createServerFn({ method: "POST" })
             },
           },
         }),
+        signal: ctl.signal,
       },
-    );
+    ).finally(() => clearTimeout(timer));
     if (!resp.ok) {
       const t = await resp.text().catch(() => "");
       throw new Error(`Gemini TTS ${resp.status}: ${t.slice(0, 400)}`);
