@@ -49,6 +49,9 @@ function InstructionPage() {
 
   const [llmProvider, setLlmProvider] = useState<LlmProvider>("gemini");
   const [ttsProvider, setTtsProvider] = useState<TtsProvider>("google");
+  const [savedLlm, setSavedLlm] = useState<LlmProvider>("gemini");
+  const [savedTts, setSavedTts] = useState<TtsProvider>("google");
+  const [providerSaving, setProviderSaving] = useState(false);
   const [providerStatus, setProviderStatus] = useState("");
 
   const [value, setValue] = useState<string>("");
@@ -83,6 +86,8 @@ function InstructionPage() {
         setUpdatedAt(updatedAt);
         setLlmProvider(providers.llm);
         setTtsProvider(providers.tts);
+        setSavedLlm(providers.llm);
+        setSavedTts(providers.tts);
       } catch (err) {
         setStatus(`Load failed: ${(err as Error).message}`);
         setValue(DEFAULT_SYSTEM_PROMPT_TEMPLATE);
@@ -93,25 +98,22 @@ function InstructionPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const onChangeLlm = async (v: LlmProvider) => {
-    setLlmProvider(v);
-    setProviderStatus("Saving…");
-    try {
-      await saveProviders({ data: { llm: v } });
-      setProviderStatus(`LLM set to ${v} at ${new Date().toLocaleTimeString()}.`);
-    } catch (e) {
-      setProviderStatus(`Save failed: ${(e as Error).message}`);
-    }
-  };
+  const providerDirty = llmProvider !== savedLlm || ttsProvider !== savedTts;
 
-  const onChangeTts = async (v: TtsProvider) => {
-    setTtsProvider(v);
+  const onSaveProviders = async () => {
+    setProviderSaving(true);
     setProviderStatus("Saving…");
     try {
-      await saveProviders({ data: { tts: v } });
-      setProviderStatus(`TTS set to ${v} at ${new Date().toLocaleTimeString()}.`);
+      await saveProviders({ data: { llm: llmProvider, tts: ttsProvider } });
+      setSavedLlm(llmProvider);
+      setSavedTts(ttsProvider);
+      setProviderStatus(
+        `Saved (LLM=${llmProvider}, TTS=${ttsProvider}) at ${new Date().toLocaleTimeString()}.`,
+      );
     } catch (e) {
       setProviderStatus(`Save failed: ${(e as Error).message}`);
+    } finally {
+      setProviderSaving(false);
     }
   };
 
@@ -212,7 +214,7 @@ function InstructionPage() {
               <span className="text-sm font-medium">Brain (LLM)</span>
               <select
                 value={llmProvider}
-                onChange={(e) => void onChangeLlm(e.target.value as LlmProvider)}
+                onChange={(e) => setLlmProvider(e.target.value as LlmProvider)}
                 disabled={loading}
                 className="w-full rounded-md border border-border bg-card text-card-foreground p-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
               >
@@ -231,7 +233,7 @@ function InstructionPage() {
               <span className="text-sm font-medium">Mouth (TTS)</span>
               <select
                 value={ttsProvider}
-                onChange={(e) => void onChangeTts(e.target.value as TtsProvider)}
+                onChange={(e) => setTtsProvider(e.target.value as TtsProvider)}
                 disabled={loading}
                 className="w-full rounded-md border border-border bg-card text-card-foreground p-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
               >
@@ -245,6 +247,21 @@ function InstructionPage() {
                 {TTS_PROVIDERS.find((p) => p.value === ttsProvider)?.note}
               </span>
             </label>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={onSaveProviders}
+              disabled={!providerDirty || providerSaving || loading}
+              className="px-4 py-2 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 disabled:opacity-50"
+            >
+              {providerSaving ? "Saving…" : "Save providers"}
+            </button>
+            <span className="text-xs text-muted-foreground">
+              Saved: LLM={savedLlm}, TTS={savedTts}
+              {providerDirty && " · unsaved changes"}
+            </span>
           </div>
         </section>
 

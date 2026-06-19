@@ -29,6 +29,7 @@ import {
   subscribeLastBuffer,
 } from "@/lib/voice/pipeline/player";
 import { APP_VERSION } from "@/lib/version";
+import { getProviderSettings } from "@/lib/voice/providerSettings.functions";
 
 type Status =
   | "idle"
@@ -68,6 +69,10 @@ export function VoiceCompanion() {
   const [debugOpen, setDebugOpen] = useState(false);
   const [searching, setSearching] = useState(false);
   const [hasReplay, setHasReplay] = useState<boolean>(() => hasLastBuffer());
+  const [providers, setProviders] = useState<{ llm: string; tts: string }>({
+    llm: "gemini",
+    tts: "google",
+  });
   const [debugLog, setDebugLog] = useState<
     Array<{ t: number; kind: "user" | "ai" | "tool" | "evt" | "err" | "db"; text: string }>
   >([]);
@@ -101,6 +106,15 @@ export function VoiceCompanion() {
   const sttFn = useServerFn(transcribeAudio);
   const llmFn = useServerFn(generateAIResponse);
   const ttsFn = useServerFn(synthesizeSpeech);
+  const fetchProviders = useServerFn(getProviderSettings);
+
+  // Load active provider settings so the header (and debug log) reflects
+  // what the brain is actually using on the next turn.
+  useEffect(() => {
+    void fetchProviders()
+      .then((p) => setProviders(p))
+      .catch(() => {});
+  }, [fetchProviders]);
 
   const persistTurn = useCallback(
     (role: "user" | "model", text: string) => {
@@ -420,7 +434,7 @@ export function VoiceCompanion() {
         <div className="text-left">
           <div className="text-3xl font-black tracking-tight">傾偈</div>
           <div className="mt-1 text-sm text-white/60">
-            Voice Companion · <span className="text-white/80">REST · Gemini 2.5 Flash</span>
+            Voice Companion · <span className="text-white/80">REST · LLM={providers.llm} · TTS={providers.tts} · v{APP_VERSION}</span>
           </div>
         </div>
       </div>
