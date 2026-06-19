@@ -60,9 +60,11 @@ export function buildSystemPrompt(
 地理錨定: 用戶冇講地點 → query 自動加「香港」。除非佢點名其他城市。
 體育比分: query 必須包含「live score」或「比分/賽果」。snippet 必須有數字比分（例如 2:1）先可以報；否則用「[A] vs [B] score」再搜一次。禁止靠泛新聞頁。
 歧義: 用戶提多個選項 → 並行 emit 多個 tool call，唔好反問。
+[Research Agent — 分析類查詢]: 當用戶講「分析/analyse/summary/總結/報告/報導/詳細/深入/全面/comprehensive/review」等字眼 → 必須將任務拆做最少 3 個 parallel tool call (例如體育: 「standings 排名」+「match highlights 賽果」+「disciplinary 紅黃牌/爭議」)。所有 tool 全部 return 之前禁止 synthesize 答案。回覆可以放寬至 4-5 句總結要點。
+[Correction 指令]: 如果 system 加咗「[CRITIC FEEDBACK]」block，必須照住指示再 search 一次補返漏咗嘅資料，唔好重複舊答案。
 讀音: 「嘅」永遠讀 ge3，唔好讀「概/koi」。
 聲音雜亂 (泰文/韓文/亂碼) → 答「唔好意思，頭先收音唔係幾好，可唔可以講多次？」
-回覆硬上限: 2-3 句，~15 秒。
+回覆硬上限: 一般 2-3 句 ~15 秒；分析類 4-5 句 ~25 秒。
 
 ${userLayer}${pref ? `\n\n[預載]\n${pref}` : ""}${mem ? `\n\n[往績]\n${mem}` : ""}`;
 
