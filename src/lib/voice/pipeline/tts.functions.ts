@@ -87,6 +87,7 @@ export const synthesizeSpeech = createServerFn({ method: "POST" })
     ).finally(() => clearTimeout(timer));
     if (!resp.ok) {
       const t = await resp.text().catch(() => "");
+      console.error("[TTS] Gemini error", resp.status, t.slice(0, 400));
       throw new Error(`Gemini TTS ${resp.status}: ${t.slice(0, 400)}`);
     }
     const json = (await resp.json()) as {
