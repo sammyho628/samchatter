@@ -335,18 +335,26 @@ export function VoiceCompanion() {
 
   const buttonLabel =
     status === "listening"
-      ? "放開\n發送"
+      ? "撳掣停止"
       : status === "speaking"
-        ? "點一下\n停止"
+        ? "點一下停止"
         : status === "transcribing" || status === "thinking"
           ? "處理緊…"
-          : "按住\n講嘢";
+          : "撳掣開始";
 
   const buttonDisabled =
     status === "transcribing" || status === "thinking";
 
+  const handleToggle = useCallback(() => {
+    if (status === "listening") {
+      void stopTalkingAndSend();
+    } else {
+      void startTalking();
+    }
+  }, [status, startTalking, stopTalkingAndSend]);
+
   return (
-    <div className="relative flex min-h-[100dvh] w-full flex-col items-center justify-between overflow-hidden bg-[oklch(0.18_0.04_265)] px-6 py-8 text-white">
+    <div className="relative flex min-h-[100dvh] w-full flex-col items-center overflow-hidden bg-[oklch(0.18_0.04_265)] px-6 py-8 text-white">
       <div className="flex w-full items-start justify-between">
         <div className="text-left">
           <div className="text-3xl font-black tracking-tight">傾偈</div>
@@ -356,32 +364,21 @@ export function VoiceCompanion() {
         </div>
       </div>
 
-      <div className="relative flex w-full flex-1 items-center justify-center">
-        <div className="relative aspect-square w-[80vw] max-w-[440px]">
+      <div className="relative mt-8 flex w-full items-center justify-center">
+        <div className="relative aspect-square w-[70vw] max-w-[360px]">
           <WaveformOrb getAnalyser={() => null} active={isActive} tint={tint} />
           <button
             type="button"
             disabled={buttonDisabled}
-            onPointerDown={(e) => {
+            onClick={(e) => {
               e.preventDefault();
-              void startTalking();
-            }}
-            onPointerUp={(e) => {
-              e.preventDefault();
-              void stopTalkingAndSend();
-            }}
-            onPointerCancel={() => {
-              void stopTalkingAndSend();
-            }}
-            onPointerLeave={(e) => {
-              if (e.buttons === 0) return;
-              void stopTalkingAndSend();
+              handleToggle();
             }}
             onContextMenu={(e) => e.preventDefault()}
             className={[
               "absolute inset-[18%] select-none whitespace-pre-line rounded-full text-2xl font-black tracking-wide shadow-2xl transition-transform active:scale-95",
               status === "listening"
-                ? "bg-gradient-to-br from-rose-400 to-orange-500 text-white"
+                ? "animate-pulse bg-gradient-to-br from-rose-500 to-red-600 text-white"
                 : status === "speaking"
                   ? "bg-gradient-to-br from-sky-400 to-indigo-500 text-white"
                   : buttonDisabled
@@ -389,14 +386,14 @@ export function VoiceCompanion() {
                     : "bg-gradient-to-br from-amber-300 to-orange-400 text-orange-950",
               status === "idle" ? "animate-vc-pulse" : "",
             ].join(" ")}
-            style={{ touchAction: "none" }}
+            style={{ touchAction: "manipulation" }}
           >
             {buttonLabel}
           </button>
         </div>
       </div>
 
-      <div className="w-full text-center">
+      <div className="mt-6 w-full text-center">
         <div className="text-2xl font-bold">{STATUS_LABEL[status]}</div>
         {searching ? (
           <div className="mt-2 inline-flex items-center gap-2 rounded-full border border-amber-300/40 bg-amber-400/15 px-3 py-1 text-sm text-amber-200">
@@ -409,7 +406,7 @@ export function VoiceCompanion() {
             {errorMsg}
           </div>
         ) : null}
-        <div className="mt-3 flex items-center justify-center gap-3 text-xs text-white/40">
+        <div className="mt-3 flex flex-wrap items-center justify-center gap-3 text-xs text-white/40">
           <span>v{APP_VERSION}</span>
           <button
             type="button"
@@ -440,6 +437,8 @@ export function VoiceCompanion() {
           </button>
         </div>
       </div>
+
+      <div className="flex-1" />
 
       {debugOpen ? (
         <div className="fixed inset-x-0 bottom-0 z-50 max-h-[55vh] overflow-y-auto border-t border-white/10 bg-black/80 p-3 text-xs backdrop-blur">
