@@ -456,7 +456,7 @@ export function VoiceCompanion() {
             </div>
           </div>
           {debugLog.length === 0 ? (
-            <div className="text-white/40">No events yet. Press &amp; hold the button to speak.</div>
+            <div className="text-white/40">No events yet. Tap the button to start.</div>
           ) : (
             <ul className="space-y-1 font-mono">
               {debugLog.map((e, i) => {
