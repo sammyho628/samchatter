@@ -26,12 +26,13 @@ import {
   stopPlayback,
   unlockAudio,
   hasLastBuffer,
+  subscribeLastBuffer,
 } from "@/lib/voice/pipeline/player";
 import { APP_VERSION } from "@/lib/version";
 
 type Status =
   | "idle"
-  | "listening" // mic open, user holding button
+  | "listening"
   | "transcribing"
   | "thinking"
   | "speaking"
@@ -46,25 +47,43 @@ const STATUS_LABEL: Record<Status, string> = {
   error: "出咗啲問題",
 };
 
+const HISTORY_WINDOW = 20;
+
+/** Keep only role=user|model turns whose parts are plain text — drop tool
+ *  call / function-response turns so they don't leak back into future
+ *  requests (causes Gemini 400s after hydration from DB). */
+function sanitizeHistory(turns: GeminiTurn[]): GeminiTurn[] {
+  return turns
+    .filter((t) => t.role === "user" || t.role === "model")
+    .map((t) => ({
+      role: t.role,
+      parts: t.parts.filter((p) => "text" in p && typeof p.text === "string"),
+    }))
+    .filter((t) => t.parts.length > 0);
+}
+
 export function VoiceCompanion() {
   const [status, setStatus] = useState<Status>("idle");
   const [errorMsg, setErrorMsg] = useState<string>("");
   const [debugOpen, setDebugOpen] = useState(false);
   const [searching, setSearching] = useState(false);
-  const [, forceRepaint] = useState(0);
+  const [hasReplay, setHasReplay] = useState<boolean>(() => hasLastBuffer());
   const [debugLog, setDebugLog] = useState<
-    Array<{ t: number; kind: "user" | "ai" | "tool" | "evt" | "err"; text: string }>
+    Array<{ t: number; kind: "user" | "ai" | "tool" | "evt" | "err" | "db"; text: string }>
   >([]);
 
   const pushLog = useCallback(
-    (kind: "user" | "ai" | "tool" | "evt" | "err", text: string) => {
+    (kind: "user" | "ai" | "tool" | "evt" | "err" | "db", text: string) => {
       setDebugLog((prev) => {
         const next = [...prev, { t: Date.now(), kind, text }];
-        return next.length > 120 ? next.slice(next.length - 120) : next;
+        return next.length > 200 ? next.slice(next.length - 200) : next;
       });
     },
     [],
   );
+
+  // Reactive replay button.
+  useEffect(() => subscribeLastBuffer(setHasReplay), []);
 
   const recorderRef = useRef<RecorderHandle | null>(null);
   const historyRef = useRef<GeminiTurn[]>([]);
@@ -83,32 +102,33 @@ export function VoiceCompanion() {
   const llmFn = useServerFn(generateAIResponse);
   const ttsFn = useServerFn(synthesizeSpeech);
 
-  // Fire-and-forget background save. Never blocks UI / LLM / TTS.
   const persistTurn = useCallback(
     (role: "user" | "model", text: string) => {
       if (!text.trim()) return;
-      void saveTurn({ data: { role, text } }).catch((err) => {
-        pushLog("err", `persist ${role}: ${(err as Error).message}`);
-      });
+      pushLog("db", `→ write ${role} (${text.length} chars)`);
+      void saveTurn({ data: { role, text } })
+        .then(() => pushLog("db", `✓ wrote ${role}`))
+        .catch((err) => {
+          pushLog("err", `persist ${role}: ${(err as Error).message}`);
+        });
     },
     [saveTurn, pushLog],
   );
 
-  // Hydrate local chatContext from today's persisted turns (read once).
   useEffect(() => {
     let cancelled = false;
+    pushLog("db", "→ read today's chat_turns");
     (async () => {
       try {
         const { date, turns } = await loadTurns();
         if (cancelled) return;
-        historyRef.current = turns.map<GeminiTurn>((t) => ({
-          role: t.role,
-          parts: [{ text: t.text }],
-        }));
-        pushLog(
-          "evt",
-          `💾 hydrated ${turns.length} turn(s) from ${date}`,
+        historyRef.current = sanitizeHistory(
+          turns.map<GeminiTurn>((t) => ({
+            role: t.role,
+            parts: [{ text: t.text }],
+          })),
         );
+        pushLog("db", `✓ hydrated ${turns.length} turn(s) from ${date}`);
       } catch (err) {
         pushLog("err", `hydrate turns: ${(err as Error).message}`);
       }
@@ -122,6 +142,7 @@ export function VoiceCompanion() {
     if (promptLoadedRef.current || promptLoadingRef.current) return;
     promptLoadingRef.current = true;
     try {
+      pushLog("db", "→ read voice session (prompt/context/memory)");
       const session = await fetchSession();
       const nowHK = new Date().toLocaleString("en-GB", {
         timeZone: "Asia/Hong_Kong",
@@ -139,8 +160,8 @@ export function VoiceCompanion() {
       sessionIdRef.current = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       pushLog("evt", `🕒 HK now: ${nowHK}`);
       pushLog(
-        "evt",
-        `📚 ctx: ${session.contextText.length} · prefetch: ${session.prefetchContext.length} · memory: ${session.memoryContext.length}`,
+        "db",
+        `✓ session loaded · ctx:${session.contextText.length} prefetch:${session.prefetchContext.length} memory:${session.memoryContext.length}`,
       );
       pushLog("evt", `📝 FULL PROMPT (${prompt.length} chars) ↓↓↓`);
       const CHUNK = 1500;
@@ -188,38 +209,9 @@ export function VoiceCompanion() {
     };
   }, [flushSessionSummary]);
 
-  // ---- Push-to-talk lifecycle ----
-  const startTalking = useCallback(async () => {
-    if (
-      status === "listening" ||
-      status === "transcribing" ||
-      status === "thinking"
-    ) {
-      return;
-    }
-    // Tapping during AI speech = barge-in stop.
-    if (status === "speaking") {
-      stopPlayback();
-      setStatus("idle");
-      return;
-    }
-    setErrorMsg("");
-    try {
-      await unlockAudio();
-      await loadPromptIfNeeded();
-      const handle = await startRecording();
-      recorderRef.current = handle;
-      setStatus("listening");
-    } catch (err) {
-      setErrorMsg((err as Error).message);
-      setStatus("error");
-      pushLog("err", `mic: ${(err as Error).message}`);
-    }
-  }, [status, loadPromptIfNeeded, pushLog]);
-
   const stopTalkingAndSend = useCallback(async () => {
     const handle = recorderRef.current;
-    if (!handle || status !== "listening") return;
+    if (!handle) return;
     recorderRef.current = null;
     let blob: Blob;
     let mimeType: string;
@@ -240,21 +232,24 @@ export function VoiceCompanion() {
     const audioBase64 = await blobToBase64(blob);
     pushLog("evt", `recorded ${blob.size}B (${mimeType})`);
 
+    const windowed = historyRef.current.slice(-HISTORY_WINDOW);
+    pushLog(
+      "evt",
+      `🧠 LLM history window: ${windowed.length}/${historyRef.current.length} turns`,
+    );
+
     await runTurn(
       {
         audioBase64,
         mimeType,
         systemInstruction: promptRef.current,
-        history: historyRef.current,
+        history: windowed,
       },
       {
         transcribe: sttFn,
         generate: llmFn,
         synthesize: ttsFn,
-        playAudio: async (b64, onEnded) => {
-          await playBase64Audio(b64, onEnded);
-          forceRepaint((n) => n + 1); // refresh replay button visibility
-        },
+        playAudio: (b64) => playBase64Audio(b64),
       },
       {
         onTranscribing: () => setStatus("transcribing"),
@@ -283,10 +278,16 @@ export function VoiceCompanion() {
           transcriptLinesRef.current.push(`AI: ${t}`);
           persistTurn("model", t);
         },
+        onHistory: (h) => {
+          // Update history synchronously before TTS/playback — eliminates
+          // the race where onDone fires before .then() runs.
+          historyRef.current = sanitizeHistory(h);
+        },
         onSpeaking: () => {
           setSearching(false);
           setStatus("speaking");
         },
+        onLog: (m) => pushLog("evt", m),
         onDone: () => {
           setStatus((s) => (s === "error" ? s : "idle"));
         },
@@ -296,12 +297,42 @@ export function VoiceCompanion() {
           setStatus("error");
         },
       },
-    ).then((result) => {
-      if (result) historyRef.current = result.history;
-    });
-  }, [status, sttFn, llmFn, ttsFn, pushLog, persistTurn]);
+    );
+  }, [sttFn, llmFn, ttsFn, pushLog, persistTurn]);
 
-  // Keyboard: tap Spacebar to toggle (when no input is focused).
+  const startTalking = useCallback(async () => {
+    if (
+      status === "listening" ||
+      status === "transcribing" ||
+      status === "thinking"
+    ) {
+      return;
+    }
+    if (status === "speaking") {
+      stopPlayback();
+      setStatus("idle");
+      return;
+    }
+    setErrorMsg("");
+    try {
+      await unlockAudio();
+      await loadPromptIfNeeded();
+      const handle = await startRecording({
+        maxDurationMs: 60_000,
+        onAutoStop: () => {
+          pushLog("evt", "⏱️ auto-stop: 60s max recording reached");
+          void stopTalkingAndSend();
+        },
+      });
+      recorderRef.current = handle;
+      setStatus("listening");
+    } catch (err) {
+      setErrorMsg((err as Error).message);
+      setStatus("error");
+      pushLog("err", `mic: ${(err as Error).message}`);
+    }
+  }, [status, loadPromptIfNeeded, pushLog, stopTalkingAndSend]);
+
   useEffect(() => {
     const isTyping = () => {
       const el = document.activeElement as HTMLElement | null;
@@ -339,16 +370,35 @@ export function VoiceCompanion() {
   const buttonDisabled =
     status === "transcribing" || status === "thinking";
 
-  const handleToggle = useCallback(() => {
-    if (status === "listening") {
-      void stopTalkingAndSend();
-    } else {
-      void startTalking();
-    }
-  }, [status, startTalking, stopTalkingAndSend]);
+  const handleToggle = useCallback(
+    (e: React.MouseEvent<HTMLButtonElement>) => {
+      // Drop focus so a subsequent Spacebar press doesn't double-trigger
+      // (native button activation + our keydown listener).
+      e.currentTarget.blur();
+      if (status === "listening") {
+        void stopTalkingAndSend();
+      } else {
+        void startTalking();
+      }
+    },
+    [status, startTalking, stopTalkingAndSend],
+  );
+
+  const copyDebugLog = useCallback(() => {
+    const text = debugLog
+      .map((e) => {
+        const ts = new Date(e.t).toISOString();
+        return `[${ts}] ${e.kind.toUpperCase()} ${e.text}`;
+      })
+      .join("\n");
+    void navigator.clipboard?.writeText(text).then(
+      () => pushLog("evt", "📋 debug log copied to clipboard"),
+      (err) => pushLog("err", `copy failed: ${(err as Error).message}`),
+    );
+  }, [debugLog, pushLog]);
 
   return (
-    <div className="relative flex min-h-[100dvh] w-full flex-col items-center overflow-hidden bg-[oklch(0.18_0.04_265)] px-6 py-8 text-white">
+    <div className="relative flex min-h-[100dvh] w-full flex-col items-center overflow-hidden bg-[oklch(0.18_0.04_265)] px-6 py-6 text-white">
       <div className="flex w-full items-start justify-between">
         <div className="text-left">
           <div className="text-3xl font-black tracking-tight">傾偈</div>
@@ -358,15 +408,15 @@ export function VoiceCompanion() {
         </div>
       </div>
 
-      <div className="relative mt-8 flex w-full items-center justify-center">
-        <div className="relative aspect-square w-[70vw] max-w-[360px]">
+      <div className="relative mt-3 flex w-full items-center justify-center">
+        <div className="relative aspect-square w-[68vw] max-w-[340px]">
           <WaveformOrb getAnalyser={() => null} active={isActive} tint={tint} />
           <button
             type="button"
             disabled={buttonDisabled}
             onClick={(e) => {
               e.preventDefault();
-              handleToggle();
+              handleToggle(e);
             }}
             onContextMenu={(e) => e.preventDefault()}
             className={[
@@ -387,7 +437,7 @@ export function VoiceCompanion() {
         </div>
       </div>
 
-      <div className="mt-6 w-full text-center">
+      <div className="mt-5 w-full text-center">
         <div className="text-2xl font-bold">{STATUS_LABEL[status]}</div>
         {searching ? (
           <div className="mt-2 inline-flex items-center gap-2 rounded-full border border-amber-300/40 bg-amber-400/15 px-3 py-1 text-sm text-amber-200">
@@ -409,7 +459,7 @@ export function VoiceCompanion() {
           >
             {debugOpen ? "Hide debug" : "Show debug"} ({debugLog.length})
           </button>
-          {hasLastBuffer() ? (
+          {hasReplay ? (
             <button
               type="button"
               onClick={() => replayLast(() => setStatus("idle"))}
@@ -436,24 +486,15 @@ export function VoiceCompanion() {
 
       {debugOpen ? (
         <div className="fixed inset-x-0 bottom-0 z-50 max-h-[55vh] overflow-y-auto border-t border-white/10 bg-black/80 p-3 text-xs backdrop-blur">
-          <div className="mb-2 flex items-center justify-between">
+          <div className="mb-2 flex items-center justify-between sticky top-0 bg-black/80 py-1">
             <div className="font-mono text-white/70">Debug ({debugLog.length})</div>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => setDebugLog([])}
-                className="rounded border border-white/20 px-2 py-0.5 text-white/70 hover:bg-white/10"
-              >
-                Clear
-              </button>
-              <button
-                type="button"
-                onClick={() => setDebugOpen(false)}
-                className="rounded border border-white/20 px-2 py-0.5 text-white/70 hover:bg-white/10"
-              >
-                Close
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={copyDebugLog}
+              className="rounded border border-sky-300/40 bg-sky-400/10 px-2 py-0.5 text-sky-200 hover:bg-sky-400/20"
+            >
+              📋 Copy log
+            </button>
           </div>
           {debugLog.length === 0 ? (
             <div className="text-white/40">No events yet. Tap the button to start.</div>
@@ -470,7 +511,9 @@ export function VoiceCompanion() {
                         ? "text-amber-300"
                         : e.kind === "err"
                           ? "text-rose-300"
-                          : "text-white/50";
+                          : e.kind === "db"
+                            ? "text-fuchsia-300"
+                            : "text-white/50";
                 const tag =
                   e.kind === "user"
                     ? "YOU"
@@ -480,7 +523,9 @@ export function VoiceCompanion() {
                         ? "TOOL"
                         : e.kind === "err"
                           ? "ERR"
-                          : "evt";
+                          : e.kind === "db"
+                            ? "DB "
+                            : "evt";
                 return (
                   <li key={i} className={`break-words ${color}`}>
                     <span className="text-white/30">{ts}</span>{" "}
@@ -490,6 +535,29 @@ export function VoiceCompanion() {
               })}
             </ul>
           )}
+          <div className="sticky bottom-0 mt-3 flex justify-end gap-2 bg-black/80 py-2">
+            <button
+              type="button"
+              onClick={copyDebugLog}
+              className="rounded border border-sky-300/40 bg-sky-400/10 px-2 py-0.5 text-sky-200 hover:bg-sky-400/20"
+            >
+              📋 Copy
+            </button>
+            <button
+              type="button"
+              onClick={() => setDebugLog([])}
+              className="rounded border border-white/20 px-2 py-0.5 text-white/70 hover:bg-white/10"
+            >
+              Clear
+            </button>
+            <button
+              type="button"
+              onClick={() => setDebugOpen(false)}
+              className="rounded border border-white/20 px-2 py-0.5 text-white/70 hover:bg-white/10"
+            >
+              Close
+            </button>
+          </div>
         </div>
       ) : null}
     </div>

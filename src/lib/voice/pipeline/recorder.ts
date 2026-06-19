@@ -1,7 +1,14 @@
 // Push-to-talk MediaRecorder wrapper. start() / stop() → Blob.
+// Safety: auto-stop after maxDurationMs (default 60s) so a forgotten mic
+// doesn't record indefinitely.
 export type RecorderHandle = {
   stop: () => Promise<{ blob: Blob; mimeType: string }>;
   cancel: () => void;
+};
+
+export type RecorderOptions = {
+  maxDurationMs?: number;
+  onAutoStop?: () => void;
 };
 
 const CANDIDATES = [
@@ -23,7 +30,10 @@ function pickMimeType(): string {
   return "audio/webm";
 }
 
-export async function startRecording(): Promise<RecorderHandle> {
+export async function startRecording(
+  opts: RecorderOptions = {},
+): Promise<RecorderHandle> {
+  const maxDurationMs = opts.maxDurationMs ?? 60_000;
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: {
       echoCancellation: true,
@@ -44,24 +54,49 @@ export async function startRecording(): Promise<RecorderHandle> {
     for (const t of stream.getTracks()) t.stop();
   };
 
+  let safetyTimer: ReturnType<typeof setTimeout> | null = setTimeout(() => {
+    safetyTimer = null;
+    try {
+      if (recorder.state === "recording") recorder.stop();
+    } catch {
+      /* ignore */
+    }
+    opts.onAutoStop?.();
+  }, maxDurationMs);
+
+  const clearSafety = () => {
+    if (safetyTimer) {
+      clearTimeout(safetyTimer);
+      safetyTimer = null;
+    }
+  };
+
   return {
     stop: () =>
       new Promise((resolve) => {
         recorder.onstop = () => {
+          clearSafety();
           cleanup();
           const blob = new Blob(chunks, { type: mimeType });
           resolve({ blob, mimeType });
         };
         try {
-          recorder.stop();
+          if (recorder.state === "recording") recorder.stop();
+          else {
+            clearSafety();
+            cleanup();
+            resolve({ blob: new Blob(chunks, { type: mimeType }), mimeType });
+          }
         } catch {
+          clearSafety();
           cleanup();
           resolve({ blob: new Blob(chunks, { type: mimeType }), mimeType });
         }
       }),
     cancel: () => {
+      clearSafety();
       try {
-        recorder.stop();
+        if (recorder.state === "recording") recorder.stop();
       } catch {
         /* ignore */
       }

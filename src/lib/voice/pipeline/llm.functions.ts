@@ -65,6 +65,20 @@ const TOOLS = [
   },
 ];
 
+async function fetchWithTimeout(
+  url: string,
+  init: RequestInit,
+  timeoutMs: number,
+): Promise<Response> {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...init, signal: ctl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function runTool(
   name: string,
   args: Record<string, string>,
@@ -88,15 +102,19 @@ async function runTool(
     body.category = args.category;
   }
   try {
-    const r = await fetch(`${supabaseUrl}/functions/v1/${fn}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: anon,
-        Authorization: `Bearer ${anon}`,
+    const r = await fetchWithTimeout(
+      `${supabaseUrl}/functions/v1/${fn}`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: anon,
+          Authorization: `Bearer ${anon}`,
+        },
+        body: JSON.stringify(body),
       },
-      body: JSON.stringify(body),
-    });
+      8000,
+    );
     const j = (await r.json().catch(() => ({}))) as {
       summary?: string;
       error?: string;
@@ -116,19 +134,23 @@ async function callGemini(
   parts: GeminiPart[];
 }> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(key)}`;
-  const resp = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: systemInstruction }] },
-      contents,
-      tools: TOOLS,
-      generationConfig: {
-        temperature: 0.8,
-        maxOutputTokens: 400,
-      },
-    }),
-  });
+  const resp = await fetchWithTimeout(
+    url,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemInstruction }] },
+        contents,
+        tools: TOOLS,
+        generationConfig: {
+          temperature: 0.8,
+          maxOutputTokens: 400,
+        },
+      }),
+    },
+    15000,
+  );
   if (!resp.ok) {
     const t = await resp.text().catch(() => "");
     throw new Error(`Gemini ${resp.status}: ${t.slice(0, 500)}`);
