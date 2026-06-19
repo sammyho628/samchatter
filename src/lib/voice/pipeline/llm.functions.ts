@@ -116,8 +116,22 @@ const LOCAL_CATEGORIES = new Set(["news", "health", "finance", "shopping"]);
 const SPORTS_RE =
   /(世界盃|世界杯|歐國盃|歐冠|英超|西甲|意甲|德甲|法甲|港超|nba|epl|mlb|nfl|ufc|世錦|奧運|溫網|美網|法網|澳網|f1|grand prix|決賽|準決賽|分組賽|vs |對|球賽|比分|賽果|score|match)/i;
 
+// Strip conversational filler so the search engine sees keywords only.
+// Examples removed: 你好/唔該/我想/睇下/同我/幫我/可唔可以/最新情況/啦/呀/喎/嘅/?/？
+const CONVERSATIONAL_RE =
+  /(你好|哈囉|hello|hi|唔該|請問|我想|我要|可唔可以|可以唔可以|幫我|同我|搵下|睇下|睇吓|查下|查吓|了解一下|最新情況|情況|啦|呀|喎|啊|㗎|喺度|而家|宜家|依家|^\s*嗯+|嗯+\s*$)/gi;
+
+function sanitizeQuery(raw: string): string {
+  return raw
+    .replace(CONVERSATIONAL_RE, " ")
+    .replace(/[?？!！。，,、；;：:「」『』""'']/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function refineQuery(rawQuery: string, category: string): string {
-  let q = rawQuery.trim();
+  let q = sanitizeQuery(rawQuery);
+  if (!q) q = rawQuery.trim();
   if (!q) return q;
   // Sports → force precision keywords.
   if (SPORTS_RE.test(q) && !/live score|比分|賽果|score/i.test(q)) {
