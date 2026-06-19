@@ -113,8 +113,11 @@ async function runTool(
   name: string,
   args: Record<string, string>,
 ): Promise<string> {
-  const query = String(args.query ?? "").trim();
+  let query = String(args.query ?? "").trim();
   if (!query) return `Error: missing 'query' for ${name}.`;
+  if (name === "web_search") {
+    query = refineQuery(query, String(args.category ?? ""));
+  }
   const supabaseUrl = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
   const anon =
     process.env.SUPABASE_PUBLISHABLE_KEY ??
