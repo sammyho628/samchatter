@@ -457,13 +457,82 @@ async function runGrok(data: GenerateInput) {
 
 // ---------- entrypoint ----------
 
-// FAST-PATH PREFETCH DISABLED (v1.12.0):
-// Previously we pre-executed web_search in parallel with the LLM call to save
-// 1-2s on common queries. This was injecting STALE conversational user text
-// as the search query (e.g. "我想睇下世界盃最新情況") and causing the model to
-// hallucinate match results from generic news pages. Factual queries (news /
-// weather / scores) MUST go through the LLM's refined query path so the model
-// extracts keywords first. See `refineQuery()` + system prompt 硬規則.
+// ---------- Research Agent: Critic layer + Refinement loop ----------
+
+// Detect analytical queries that warrant decomposition + critic review.
+const ANALYTICAL_RE =
+  /(分析|analyse|analyze|summary|總結|報告|報導|詳細|深入|全面|comprehensive|review|breakdown|睇下整體|完整|綜合)/i;
+
+type CriticVerdict = {
+  status: "OK" | "INCOMPLETE" | "LACKS_DEPTH";
+  feedback: string;
+};
+
+// Critic prompt — runs a hidden LLM pass to check draft quality.
+function buildCriticPrompt(toolData: string, draft: string): string {
+  return `You are a strict QA critic. Review the assistant's DRAFT against the TOOL_DATA gathered from searches.
+
+TOOL_DATA:
+${toolData.slice(0, 4000)}
+
+DRAFT:
+${draft}
+
+Rules:
+- If DRAFT says "data not found / 搵唔到 / 暫時冇" BUT TOOL_DATA contains concrete facts (scores, names, dates, numbers) → status=INCOMPLETE
+- If DRAFT lacks concrete facts/scores/numbers that TOOL_DATA provides → status=INCOMPLETE
+- If DRAFT is a shallow one-liner for an analytical query → status=LACKS_DEPTH
+- Otherwise → status=OK
+
+Respond ONLY as compact JSON: {"status":"OK|INCOMPLETE|LACKS_DEPTH","feedback":"specific missing fact or what to search next, in Cantonese, <=80 chars"}`;
+}
+
+async function evaluateDraft(
+  toolData: string,
+  draft: string,
+): Promise<CriticVerdict> {
+  if (!draft.trim() || !toolData.trim()) return { status: "OK", feedback: "" };
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) return { status: "OK", feedback: "" };
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(key)}`;
+    const resp = await fetchWithTimeout(
+      url,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [
+            { role: "user", parts: [{ text: buildCriticPrompt(toolData, draft) }] },
+          ],
+          generationConfig: { temperature: 0.1, maxOutputTokens: 150 },
+        }),
+      },
+      8000,
+    );
+    if (!resp.ok) return { status: "OK", feedback: "" };
+    const json = (await resp.json()) as {
+      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+    };
+    const raw =
+      json.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
+    const m = raw.match(/\{[\s\S]*\}/);
+    if (!m) return { status: "OK", feedback: "" };
+    const parsed = JSON.parse(m[0]) as CriticVerdict;
+    if (parsed.status === "INCOMPLETE" || parsed.status === "LACKS_DEPTH") {
+      return { status: parsed.status, feedback: String(parsed.feedback ?? "").slice(0, 200) };
+    }
+    return { status: "OK", feedback: "" };
+  } catch {
+    return { status: "OK", feedback: "" };
+  }
+}
+
+function aggregateToolData(toolCalls: ToolCallTrace[]): string {
+  return toolCalls
+    .map((t) => `[${t.name} ${JSON.stringify(t.args)}]\n${t.summary}`)
+    .join("\n\n---\n\n");
+}
 
 export const generateAIResponse = createServerFn({ method: "POST" })
   .inputValidator((d: GenerateInput) => d)
@@ -472,14 +541,49 @@ export const generateAIResponse = createServerFn({ method: "POST" })
     const runner =
       llm === "qwen" ? runQwen : llm === "grok" ? runGrok : runGemini;
 
-    const result = await runner(data);
+    const isAnalytical = ANALYTICAL_RE.test(data.userText);
+
+    let currentInput: GenerateInput = data;
+    let result = await runner(currentInput);
+    const allToolCalls: ToolCallTrace[] = [...result.toolCalls];
+
+    // Refinement loop: max 2 critic-driven retries. Only runs when we have
+    // tool data to verify against (otherwise the critic has nothing to check).
+    const MAX_REFINEMENTS = 2;
+    for (let loop = 0; loop < MAX_REFINEMENTS; loop++) {
+      if (allToolCalls.length === 0) break;
+      const toolData = aggregateToolData(allToolCalls);
+      const verdict = await evaluateDraft(toolData, result.text);
+      if (verdict.status === "OK") break;
+
+      // Append critic feedback as a correction instruction for the next pass.
+      const correction = `[CRITIC FEEDBACK — ${verdict.status}]\n${verdict.feedback}\n請根據以上指示，再 call tool 補資料，然後重新回答（唔好淨係 paraphrase 舊答案）。`;
+      currentInput = {
+        systemInstruction: data.systemInstruction + "\n\n" + correction,
+        history: result.history,
+        userText: correction,
+      };
+      try {
+        const refined = await runner(currentInput);
+        allToolCalls.push(...refined.toolCalls);
+        result = {
+          text: refined.text || result.text,
+          history: refined.history,
+          toolCalls: allToolCalls,
+        };
+      } catch {
+        break;
+      }
+    }
+
     const text = result.text.trim();
 
     return {
       text: text || "（系統處理緊有啲慢，請稍後再試吓啦）",
       history: result.history,
-      toolCalls: result.toolCalls,
+      toolCalls: allToolCalls,
       provider: llm,
+      analytical: isAnalytical,
     };
   });
 
