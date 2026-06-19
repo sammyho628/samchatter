@@ -69,6 +69,8 @@ export function VoiceCompanion() {
   const [debugOpen, setDebugOpen] = useState(false);
   const [searching, setSearching] = useState(false);
   const [hasReplay, setHasReplay] = useState<boolean>(() => hasLastBuffer());
+  const [showSplash, setShowSplash] = useState<boolean>(true);
+  const [greeting, setGreeting] = useState<boolean>(false);
   const [providers, setProviders] = useState<{ llm: string; tts: string }>({
     llm: "gemini",
     tts: "google",
@@ -428,6 +430,22 @@ export function VoiceCompanion() {
     );
   }, [debugLog, pushLog]);
 
+  const handleSplashTap = useCallback(async () => {
+    setGreeting(true);
+    try {
+      await unlockAudio();
+    } catch { /* ignore */ }
+    setShowSplash(false);
+    try {
+      const tts = await ttsFn({ data: { text: "你好！我喺度，撳個掣就可以同我傾偈。" } });
+      await playBase64Audio(tts.audioBase64);
+    } catch (err) {
+      pushLog("err", `greeting: ${(err as Error).message}`);
+    } finally {
+      setGreeting(false);
+    }
+  }, [ttsFn, pushLog]);
+
   return (
     <div className="relative flex min-h-[100dvh] w-full flex-col items-center overflow-hidden bg-[oklch(0.18_0.04_265)] px-6 py-6 text-white">
       <div className="flex w-full items-start justify-between">
@@ -514,6 +532,22 @@ export function VoiceCompanion() {
       </div>
 
       <div className="flex-1" />
+
+      {showSplash ? (
+        <button
+          type="button"
+          onClick={handleSplashTap}
+          className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-6 bg-[oklch(0.18_0.04_265)]/95 px-6 text-white backdrop-blur"
+        >
+          <div className="text-5xl font-black tracking-tight">傾偈</div>
+          <div className="text-lg text-white/70">點一下開始 · Tap to start</div>
+          <div className="rounded-full bg-gradient-to-br from-amber-300 to-orange-400 px-8 py-4 text-xl font-black text-orange-950 shadow-2xl">
+            {greeting ? "講緊…" : "👋 你好"}
+          </div>
+          <div className="text-xs text-white/40">啟動聲音播放 · Enables audio</div>
+        </button>
+      ) : null}
+
 
       {debugOpen ? (
         <div className="fixed inset-x-0 bottom-0 z-50 max-h-[55vh] overflow-y-auto border-t border-white/10 bg-black/80 p-3 text-xs backdrop-blur">

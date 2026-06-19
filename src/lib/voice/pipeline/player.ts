@@ -14,10 +14,35 @@ function getCtx(): AudioContext {
   return ctx;
 }
 
-/** Call once inside a user gesture (pointerdown) so iOS Safari unlocks audio. */
+/** Call once inside a user gesture (pointerdown) so iOS Safari unlocks audio.
+ *  Resuming alone is NOT enough on iOS — we must also play a real (silent)
+ *  buffer synchronously inside the gesture, otherwise scheduled audio stays
+ *  queued until the user backgrounds and foregrounds the tab. */
 export async function unlockAudio(): Promise<void> {
   const c = getCtx();
-  if (c.state === "suspended") await c.resume().catch(() => {});
+  try {
+    const buf = c.createBuffer(1, 1, 22050);
+    const src = c.createBufferSource();
+    src.buffer = buf;
+    src.connect(c.destination);
+    src.start(0);
+  } catch {
+    /* ignore */
+  }
+  if (c.state === "suspended") {
+    try { await c.resume(); } catch { /* ignore */ }
+  }
+}
+
+// Resume the context when the page returns to foreground — iOS Safari
+// suspends background AudioContexts and pending playback would otherwise
+// stay silent until another user gesture.
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && ctx && ctx.state === "suspended") {
+      ctx.resume().catch(() => {});
+    }
+  });
 }
 
 export function stopPlayback() {
