@@ -533,6 +533,22 @@ export function VoiceCompanion() {
 
       <div className="flex-1" />
 
+      {showSplash ? (
+        <button
+          type="button"
+          onClick={handleSplashTap}
+          className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-6 bg-[oklch(0.18_0.04_265)]/95 px-6 text-white backdrop-blur"
+        >
+          <div className="text-5xl font-black tracking-tight">傾偈</div>
+          <div className="text-lg text-white/70">點一下開始 · Tap to start</div>
+          <div className="rounded-full bg-gradient-to-br from-amber-300 to-orange-400 px-8 py-4 text-xl font-black text-orange-950 shadow-2xl">
+            {greeting ? "講緊…" : "👋 你好"}
+          </div>
+          <div className="text-xs text-white/40">啟動聲音播放 · Enables audio</div>
+        </button>
+      ) : null}
+
+
       {debugOpen ? (
         <div className="fixed inset-x-0 bottom-0 z-50 max-h-[55vh] overflow-y-auto border-t border-white/10 bg-black/80 p-3 text-xs backdrop-blur">
           <div className="mb-2 flex items-center justify-between sticky top-0 bg-black/80 py-1 gap-2">
