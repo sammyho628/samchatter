@@ -259,6 +259,25 @@ async function runTool(
       summary = `${retry}\n\n[fallback from first pass]\n${summary}`;
     }
   }
+
+  // FINANCE VERIFICATION — for stock/index queries, also fetch Google Finance
+  // as a cross-source. Append a [FINANCE GUARD] block instructing the LLM to
+  // DATA-LOCK on numbers adjacent to the ticker, run sanity check, and trigger
+  // the safety phrase if Yahoo/Google numbers disagree or price/change conflict.
+  if (isFinanceQuery(query)) {
+    const ticker = extractTicker(query);
+    const tickerLabel = ticker ?? "(no ticker)";
+    const googleQ = ticker
+      ? `${ticker} Google Finance price change`
+      : `${query.replace(/yahoo finance/gi, "").trim()} Google Finance price change`;
+    const google = await callEdgeSearch(fn, { query: googleQ, category: "finance" });
+    summary =
+      `[FINANCE GUARD — ticker=${tickerLabel}]\n` +
+      `規則: 只可引用緊貼「${tickerLabel}」或公司全名後面嘅數字。其他 ticker 旁邊嘅數字當噪音、唔好用。\n` +
+      `Sanity: Price < Prev Close → 必須跌；Price > Prev Close → 必須升。如果唔夾，必須講「數據顯示有衝突，我重新幫你查一次。」然後重新 search。\n` +
+      `如果 Yahoo 同 Google 兩邊主數字差超過 1%，亦觸發 SAFETY TRIGGER。\n\n` +
+      `[YAHOO FINANCE SOURCE]\n${summary}\n\n[GOOGLE FINANCE SOURCE]\n${google}`;
+  }
   return summary;
 }
 
