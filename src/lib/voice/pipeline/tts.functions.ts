@@ -1,20 +1,18 @@
-// Layer 3: Text-to-Speech via Gemini API (Generative Language API).
-// Uses the Gemini API key (AI Studio), NOT the Google Cloud TTS endpoint.
-// Gemini returns raw PCM (signed 16-bit LE, mono, 24kHz). We wrap it in a
-// WAV header server-side so the browser's AudioContext.decodeAudioData()
-// can play it without any custom PCM handling on the client.
+// Layer 3: Text-to-Speech.
+// Dispatches to either Google Gemini TTS (default) or MiniMax speech-02-hd
+// (Cantonese) based on the provider configured in app_settings.
 import { createServerFn } from "@tanstack/react-start";
+import { readProvidersServerSide } from "@/lib/voice/providerSettings.functions";
 
 export type SynthesizeInput = {
   text: string;
-  voice?: string; // e.g. "Kore", "Puck", "Charon", "Fenrir", "Aoede"
+  voice?: string; // Gemini voice name only
 };
 
-// NOTE: Google does not ship a "gemini-3.1-flash-tts-preview" model on the
-// Gemini AI Studio API. The actual available preview TTS model is
-// gemini-2.5-flash-preview-tts (responseModalities: ["AUDIO"]). Using the
-// fictional 3.1 name returns 404 and the client hears silence.
-const MODEL = "gemini-2.5-flash-preview-tts";
+const GEMINI_MODEL = "gemini-2.5-flash-preview-tts";
+const MINIMAX_MODEL = "speech-02-hd";
+const MINIMAX_DEFAULT_VOICE = "Cantonese_Articulate_commentator_vv2";
+const MINIMAX_ENDPOINT = "https://api.minimaxi.chat/v1/t2a_v2";
 
 function pcm16ToWav(pcm: Uint8Array, sampleRate: number): Uint8Array {
   const numChannels = 1;
@@ -32,12 +30,11 @@ function pcm16ToWav(pcm: Uint8Array, sampleRate: number): Uint8Array {
   writeStr(8, "WAVE");
   writeStr(12, "fmt ");
   view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true); // PCM
+  view.setUint16(20, 1, true);
   view.setUint16(22, numChannels, true);
   view.setUint32(24, sampleRate, true);
   view.setUint32(28, byteRate, true);
   view.setUint16(32, blockAlign, true);
-  view.setUint16(34, bitsPerSample, true);
   writeStr(36, "data");
   view.setUint32(40, dataSize, true);
   new Uint8Array(buffer, 44).set(pcm);
@@ -55,62 +52,126 @@ function bytesToBase64(bytes: Uint8Array): string {
   return btoa(bin);
 }
 
+function hexToBytes(hex: string): Uint8Array {
+  const clean = hex.trim();
+  const out = new Uint8Array(clean.length / 2);
+  for (let i = 0; i < out.length; i++) {
+    out[i] = parseInt(clean.substr(i * 2, 2), 16);
+  }
+  return out;
+}
+
+async function synthesizeGemini(text: string, voice: string) {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) throw new Error("Missing GEMINI_API_KEY on server");
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 15000);
+  const resp = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${encodeURIComponent(key)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts: [{ text }] }],
+        generationConfig: {
+          responseModalities: ["AUDIO"],
+          speechConfig: {
+            voiceConfig: { prebuiltVoiceConfig: { voiceName: voice } },
+          },
+        },
+      }),
+      signal: ctl.signal,
+    },
+  ).finally(() => clearTimeout(timer));
+  if (!resp.ok) {
+    const t = await resp.text().catch(() => "");
+    throw new Error(`Gemini TTS ${resp.status}: ${t.slice(0, 400)}`);
+  }
+  const json = (await resp.json()) as {
+    candidates?: Array<{
+      content?: { parts?: Array<{ inlineData?: { data?: string; mimeType?: string } }> };
+    }>;
+  };
+  const inline = json.candidates?.[0]?.content?.parts?.find((p) => p.inlineData?.data)
+    ?.inlineData;
+  if (!inline?.data) throw new Error("Gemini TTS returned no audio data");
+  const mime = inline.mimeType ?? "audio/L16;codec=pcm;rate=24000";
+  const rateMatch = /rate=(\d+)/i.exec(mime);
+  const sampleRate = rateMatch ? parseInt(rateMatch[1], 10) : 24000;
+  const pcm = Uint8Array.from(atob(inline.data), (ch) => ch.charCodeAt(0));
+  const wav = pcm16ToWav(pcm, sampleRate);
+  return { audioBase64: bytesToBase64(wav), mimeType: "audio/wav" };
+}
+
+async function synthesizeMinimax(text: string) {
+  const key = process.env.MINIMAX_API_KEY;
+  if (!key) throw new Error("Missing MINIMAX_API_KEY on server");
+  const groupId = process.env.MINIMAX_GROUP_ID;
+  const voiceId = process.env.MINIMAX_VOICE_ID || MINIMAX_DEFAULT_VOICE;
+
+  const url = groupId
+    ? `${MINIMAX_ENDPOINT}?GroupId=${encodeURIComponent(groupId)}`
+    : MINIMAX_ENDPOINT;
+
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 20000);
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: MINIMAX_MODEL,
+      text,
+      stream: false,
+      language_boost: "Chinese,Yue",
+      voice_setting: {
+        voice_id: voiceId,
+        speed: 1.0,
+        vol: 1.0,
+        pitch: 0,
+      },
+      audio_setting: {
+        sample_rate: 32000,
+        bitrate: 128000,
+        format: "mp3",
+        channel: 1,
+      },
+    }),
+    signal: ctl.signal,
+  }).finally(() => clearTimeout(timer));
+
+  if (!resp.ok) {
+    const t = await resp.text().catch(() => "");
+    console.error("[TTS] MiniMax error", resp.status, t.slice(0, 400));
+    throw new Error(`MiniMax TTS ${resp.status}: ${t.slice(0, 400)}`);
+  }
+  const json = (await resp.json()) as {
+    data?: { audio?: string; status?: number };
+    base_resp?: { status_code?: number; status_msg?: string };
+    trace_id?: string;
+  };
+  const status = json.base_resp?.status_code ?? 0;
+  if (status !== 0) {
+    throw new Error(
+      `MiniMax TTS error ${status}: ${json.base_resp?.status_msg ?? "unknown"} (trace=${json.trace_id ?? "n/a"})`,
+    );
+  }
+  const audioHex = json.data?.audio;
+  if (!audioHex) throw new Error("MiniMax TTS returned no audio data");
+  const bytes = hexToBytes(audioHex);
+  return { audioBase64: bytesToBase64(bytes), mimeType: "audio/mpeg" };
+}
+
 export const synthesizeSpeech = createServerFn({ method: "POST" })
   .inputValidator((d: SynthesizeInput) => d)
   .handler(async ({ data }) => {
-    const key = process.env.GEMINI_API_KEY;
-    if (!key) throw new Error("Missing GEMINI_API_KEY on server");
     const text = data.text.trim();
     if (!text) throw new Error("Empty text for synthesizeSpeech");
-    const voiceName = data.voice ?? "Kore";
-
-    const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), 15000);
-    const resp = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${encodeURIComponent(key)}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ role: "user", parts: [{ text }] }],
-          generationConfig: {
-            responseModalities: ["AUDIO"],
-            speechConfig: {
-              voiceConfig: {
-                prebuiltVoiceConfig: { voiceName },
-              },
-            },
-          },
-        }),
-        signal: ctl.signal,
-      },
-    ).finally(() => clearTimeout(timer));
-    if (!resp.ok) {
-      const t = await resp.text().catch(() => "");
-      console.error("[TTS] Gemini error", resp.status, t.slice(0, 400));
-      throw new Error(`Gemini TTS ${resp.status}: ${t.slice(0, 400)}`);
+    const { tts } = await readProvidersServerSide();
+    if (tts === "minimax") {
+      return await synthesizeMinimax(text);
     }
-    const json = (await resp.json()) as {
-      candidates?: Array<{
-        content?: {
-          parts?: Array<{
-            inlineData?: { data?: string; mimeType?: string };
-          }>;
-        };
-      }>;
-    };
-    const part = json.candidates?.[0]?.content?.parts?.find(
-      (p) => p.inlineData?.data,
-    );
-    const inline = part?.inlineData;
-    if (!inline?.data) throw new Error("Gemini TTS returned no audio data");
-
-    // mimeType looks like "audio/L16;codec=pcm;rate=24000"
-    const mime = inline.mimeType ?? "audio/L16;codec=pcm;rate=24000";
-    const rateMatch = /rate=(\d+)/i.exec(mime);
-    const sampleRate = rateMatch ? parseInt(rateMatch[1], 10) : 24000;
-
-    const pcm = Uint8Array.from(atob(inline.data), (ch) => ch.charCodeAt(0));
-    const wav = pcm16ToWav(pcm, sampleRate);
-    return { audioBase64: bytesToBase64(wav), mimeType: "audio/wav" };
+    return await synthesizeGemini(text, data.voice ?? "Kore");
   });
