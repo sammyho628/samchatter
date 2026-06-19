@@ -16,8 +16,8 @@ export const LLM_PROVIDERS: { value: LlmProvider; label: string; note: string }[
 ];
 
 export const TTS_PROVIDERS: { value: TtsProvider; label: string; note: string; available: boolean }[] = [
-  { value: "google", label: "Google Gemini TTS", note: "Default. Cantonese voices.", available: true },
-  { value: "minimax", label: "MiniMax (coming soon)", note: "Not yet wired.", available: false },
+  { value: "google", label: "Google Gemini TTS", note: "Cantonese voices.", available: true },
+  { value: "minimax", label: "MiniMax speech-02-hd", note: "Cantonese (Yue) boosted. Voice via MINIMAX_VOICE_ID env (default Cantonese_Articulate_commentator_vv2).", available: true },
 ];
 
 export async function readProvidersServerSide(): Promise<{

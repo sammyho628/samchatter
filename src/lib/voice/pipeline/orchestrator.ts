@@ -88,6 +88,32 @@ function splitIntoSentences(text: string): string[] {
   return out;
 }
 
+/** Browser-native SpeechSynthesis fallback when remote TTS fails (e.g. MiniMax
+ *  rate-limit or invalid voice id). Resolves when utterance ends or after a
+ *  hard timeout so the turn never hangs. */
+function speakBrowserFallback(text: string): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+      resolve();
+      return;
+    }
+    try {
+      const u = new SpeechSynthesisUtterance(text);
+      // Cantonese first; browser picks closest available if missing.
+      u.lang = "zh-HK";
+      const done = () => resolve();
+      u.onend = done;
+      u.onerror = done;
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.speak(u);
+      // Safety timeout: ~150ms/char, min 3s, max 20s.
+      setTimeout(done, Math.min(20000, Math.max(3000, text.length * 150)));
+    } catch {
+      resolve();
+    }
+  });
+}
+
 export async function runTurn(
   input: TurnInput,
   deps: TurnDeps,
@@ -129,11 +155,27 @@ export async function runTurn(
       };
     }
     cbs.onLog?.(`🔊 TTS chunks: ${sentences.length}`);
-    const ttsPromises = sentences.map((s) => deps.synthesize({ data: { text: s } }));
+    const ttsPromises = sentences.map((s) =>
+      deps.synthesize({ data: { text: s } }).catch((err: Error) => ({
+        __error: err.message,
+      })),
+    );
     cbs.onSpeaking?.();
     for (let i = 0; i < ttsPromises.length; i++) {
       const tts = await ttsPromises[i];
-      await deps.playAudio(tts.audioBase64);
+      if (tts && "__error" in tts) {
+        cbs.onLog?.(`⚠️ TTS failed (${tts.__error}) — browser fallback`);
+        await speakBrowserFallback(sentences[i]);
+      } else {
+        try {
+          await deps.playAudio(tts.audioBase64);
+        } catch (err) {
+          cbs.onLog?.(
+            `⚠️ Playback failed (${(err as Error).message}) — browser fallback`,
+          );
+          await speakBrowserFallback(sentences[i]);
+        }
+      }
     }
     cbs.onDone?.();
 
