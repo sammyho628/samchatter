@@ -457,41 +457,8 @@ export const generateAIResponse = createServerFn({ method: "POST" })
     const runner =
       llm === "qwen" ? runQwen : llm === "grok" ? runGrok : runGemini;
 
-    // Kick off prefetch in parallel with LLM (fire-and-store, await later).
-    const fp = detectFastPathQuery(data.userText);
-    const prefetch = fp
-      ? runTool("web_search", { query: fp.query, category: fp.category }).catch(
-          (e: Error) => `prefetch failed: ${e.message}`,
-        )
-      : null;
-
-    let workData = data;
-    if (prefetch) {
-      const summary = await prefetch;
-      // Inject as preamble so the model uses it directly without a tool round-trip.
-      workData = {
-        ...data,
-        userText: `[預載搜尋結果 — 已自動代你查咗，唔使再 call tool，直接答]\n${summary}\n\n[原問題] ${data.userText}`,
-      };
-    }
-
-    const result = await runner(workData);
+    const result = await runner(data);
     const text = result.text.trim();
-
-    // Restore the clean userText in the history we return to the client so the
-    // chat log doesn't get polluted with the injected preamble.
-    if (prefetch) {
-      const lastUserIdx = [...result.history].reverse().findIndex((t) => t.role === "user");
-      if (lastUserIdx >= 0) {
-        const idx = result.history.length - 1 - lastUserIdx;
-        result.history[idx] = { role: "user", parts: [{ text: data.userText }] };
-      }
-      result.toolCalls.unshift({
-        name: "web_search",
-        args: { query: fp!.query, category: fp!.category },
-        summary: "[fast-path prefetch]",
-      });
-    }
 
     return {
       text: text || "（系統處理緊有啲慢，請稍後再試吓啦）",
