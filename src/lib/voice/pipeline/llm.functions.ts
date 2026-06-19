@@ -116,6 +116,19 @@ const LOCAL_CATEGORIES = new Set(["news", "health", "finance", "shopping"]);
 const SPORTS_RE =
   /(世界盃|世界杯|歐國盃|歐冠|英超|西甲|意甲|德甲|法甲|港超|nba|epl|mlb|nfl|ufc|世錦|奧運|溫網|美網|法網|澳網|f1|grand prix|決賽|準決賽|分組賽|vs |對|球賽|比分|賽果|score|match)/i;
 
+// Finance-intent hint: ticker symbols (e.g. 1357.HK, 0700.HK, ^HSI, AAPL) or
+// keywords. Triggers Yahoo Finance source-locking + sanity check + dual-source.
+const TICKER_RE = /\b\d{3,5}\.HK\b|\^[A-Z]{2,5}\b|\b[A-Z]{1,5}(?:\.[A-Z]{1,3})?\b\s*(?:stock|股價|股票|報價|quote)/i;
+const FINANCE_RE =
+  /(股價|股票|報價|收市|開市|恆指|恆生|港股|美股|a股|日經|納指|道指|nasdaq|s&p|dow|stock|ticker|quote|exchange rate|匯率|加密幣|btc|eth|bitcoin|ethereum)/i;
+function isFinanceQuery(q: string): boolean {
+  return FINANCE_RE.test(q) || TICKER_RE.test(q);
+}
+function extractTicker(q: string): string | null {
+  const m = q.match(/\b\d{3,5}\.HK\b|\^[A-Z]{2,5}\b/i);
+  return m ? m[0].toUpperCase() : null;
+}
+
 // Strip conversational filler so the search engine sees keywords only.
 // Examples removed: 你好/唔該/我想/睇下/同我/幫我/可唔可以/最新情況/啦/呀/喎/嘅/?/？
 const CONVERSATIONAL_RE =
