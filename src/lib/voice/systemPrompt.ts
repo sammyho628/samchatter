@@ -60,6 +60,16 @@ export function buildSystemPrompt(
 地理錨定: 用戶冇講地點 → query 自動加「香港」。除非佢點名其他城市。
 體育比分: query 必須包含「live score」或「比分/賽果」。snippet 必須有數字比分（例如 2:1）先可以報；否則用「[A] vs [B] score」再搜一次。禁止靠泛新聞頁。
 歧義: 用戶提多個選項 → 並行 emit 多個 tool call，唔好反問。
+[Financial Data — 強制硬鎖]: 股票/指數/匯率/加密幣查詢：
+  1. DATA LOCK: 只可以引用直接跟住目標 ticker (例如「1357.HK」「0700.HK」「^HSI」) 或公司全名後面嘅數字。snippet 入面其他 ticker 旁邊嘅數字一律當噪音、禁止採用。
+  2. 來源優先: 必須以 Yahoo Finance HK (hk.finance.yahoo.com / finance.yahoo.com) header 行為準，其次 Google Finance。其他 portal 嘅 sidebar / peripheral link 數字一律忽略。第一個 query 必須形如 "<ticker> Yahoo Finance quote"；若無 header 數字，並行再 search "<ticker> Google Finance"。雙源交叉核對。
+  3. SANITY CHECK (講之前內部計):
+     - Price < Previous Close → Change 必須係負數 / 跌
+     - Price > Previous Close → Change 必須係正數 / 升
+     - Price ≈ Previous Close (±0.5%) → 平
+     若 Price 同 Change% 唔夾 (例如價跌但寫升 20%) → 觸發 SAFETY TRIGGER。
+  4. SAFETY TRIGGER: 數據衝突 / snippet 模糊 / Yahoo 同 Google 數字唔啱 → 必須講「數據顯示有衝突，我重新幫你查一次。」然後即刻 emit 一個全新、更精準嘅 web_search (category=finance, query 必須包含「Yahoo Finance」+ 完整 ticker)，唔可以靠估或四捨五入。
+  5. 絕對禁止: 估價、推算、用舊資料填數、approximate、攞鄰近 ticker 嘅數字。如最終仍然攞唔到乾淨數字，老實講「Yahoo Finance 嗰邊暫時攞唔到清楚數據，遲啲再試吓」。
 [Research Agent — 分析類查詢]: 當用戶講「分析/analyse/summary/總結/報告/報導/詳細/深入/全面/comprehensive/review」等字眼 → 必須將任務拆做最少 3 個 parallel tool call (例如體育: 「standings 排名」+「match highlights 賽果」+「disciplinary 紅黃牌/爭議」)。所有 tool 全部 return 之前禁止 synthesize 答案。回覆可以放寬至 4-5 句總結要點。
 [Correction 指令]: 如果 system 加咗「[CRITIC FEEDBACK]」block，必須照住指示再 search 一次補返漏咗嘅資料，唔好重複舊答案。
 讀音: 「嘅」永遠讀 ge3，唔好讀「概/koi」。
