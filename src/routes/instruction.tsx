@@ -233,7 +233,7 @@ function InstructionPage() {
               <span className="text-sm font-medium">Mouth (TTS)</span>
               <select
                 value={ttsProvider}
-                onChange={(e) => void onChangeTts(e.target.value as TtsProvider)}
+                onChange={(e) => setTtsProvider(e.target.value as TtsProvider)}
                 disabled={loading}
                 className="w-full rounded-md border border-border bg-card text-card-foreground p-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
               >
