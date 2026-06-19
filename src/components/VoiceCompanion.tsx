@@ -503,15 +503,32 @@ export function VoiceCompanion() {
 
       {debugOpen ? (
         <div className="fixed inset-x-0 bottom-0 z-50 max-h-[55vh] overflow-y-auto border-t border-white/10 bg-black/80 p-3 text-xs backdrop-blur">
-          <div className="mb-2 flex items-center justify-between sticky top-0 bg-black/80 py-1">
+          <div className="mb-2 flex items-center justify-between sticky top-0 bg-black/80 py-1 gap-2">
             <div className="font-mono text-white/70">Debug ({debugLog.length})</div>
-            <button
-              type="button"
-              onClick={copyDebugLog}
-              className="rounded border border-sky-300/40 bg-sky-400/10 px-2 py-0.5 text-sky-200 hover:bg-sky-400/20"
-            >
-              📋 Copy log
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={copyDebugLog}
+                className="rounded border border-sky-300/40 bg-sky-400/10 px-2 py-0.5 text-sky-200 hover:bg-sky-400/20"
+              >
+                📋 Copy log
+              </button>
+              <button
+                type="button"
+                onClick={() => setDebugLog([])}
+                className="rounded border border-white/20 px-2 py-0.5 text-white/70 hover:bg-white/10"
+              >
+                Clear
+              </button>
+              <button
+                type="button"
+                onClick={() => setDebugOpen(false)}
+                className="rounded border border-white/20 px-2 py-0.5 text-white/70 hover:bg-white/10"
+                aria-label="Close debug"
+              >
+                ✕ Close
+              </button>
+            </div>
           </div>
           {debugLog.length === 0 ? (
             <div className="text-white/40">No events yet. Tap the button to start.</div>
