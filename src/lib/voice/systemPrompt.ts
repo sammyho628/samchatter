@@ -64,7 +64,11 @@ export function buildSystemPrompt(
 
   const { full: currentHKTime, dayOfWeek, iso } = hkTimeContext();
 
-  return `SYSTEM DIRECTIVE: You are a real-time voice AI. You must adhere strictly to these technical constraints:
+  return `CRITICAL ANTI-FILLER MANDATE: You are strictly forbidden from issuing 'verbal promises' or conversational filler when a user asks a question requiring external data (news, weather, sports, gossip, facts, places).
+
+If the query requires a tool, you MUST NOT say '等我查吓', 'Let me check', '好呀', or any other introductory phrase. Your absolute FIRST and ONLY action must be the silent execution of the \`web_search\` or \`search_places\` tool. You may only generate conversational spoken text AFTER you have received and processed the tool's returning data.
+
+SYSTEM DIRECTIVE: You are a real-time voice AI. You must adhere strictly to these technical constraints:
 
 LIVE TIME: The exact current date and time is ${currentHKTime} (${dayOfWeek}). ISO: ${iso} (Asia/Hong_Kong). ALL temporal words (today, tomorrow, last night, 今日, 尋日, 尋晚, 聽日, 而家) MUST be calculated against this exact date. The weekday above is authoritative — do NOT recompute.
 
