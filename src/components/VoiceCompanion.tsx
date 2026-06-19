@@ -69,6 +69,8 @@ export function VoiceCompanion() {
   const [debugOpen, setDebugOpen] = useState(false);
   const [searching, setSearching] = useState(false);
   const [hasReplay, setHasReplay] = useState<boolean>(() => hasLastBuffer());
+  const [showSplash, setShowSplash] = useState<boolean>(true);
+  const [greeting, setGreeting] = useState<boolean>(false);
   const [providers, setProviders] = useState<{ llm: string; tts: string }>({
     llm: "gemini",
     tts: "google",
