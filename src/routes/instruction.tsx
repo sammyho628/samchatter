@@ -86,6 +86,8 @@ function InstructionPage() {
         setUpdatedAt(updatedAt);
         setLlmProvider(providers.llm);
         setTtsProvider(providers.tts);
+        setSavedLlm(providers.llm);
+        setSavedTts(providers.tts);
       } catch (err) {
         setStatus(`Load failed: ${(err as Error).message}`);
         setValue(DEFAULT_SYSTEM_PROMPT_TEMPLATE);
@@ -96,25 +98,22 @@ function InstructionPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const onChangeLlm = async (v: LlmProvider) => {
-    setLlmProvider(v);
-    setProviderStatus("Saving…");
-    try {
-      await saveProviders({ data: { llm: v } });
-      setProviderStatus(`LLM set to ${v} at ${new Date().toLocaleTimeString()}.`);
-    } catch (e) {
-      setProviderStatus(`Save failed: ${(e as Error).message}`);
-    }
-  };
+  const providerDirty = llmProvider !== savedLlm || ttsProvider !== savedTts;
 
-  const onChangeTts = async (v: TtsProvider) => {
-    setTtsProvider(v);
+  const onSaveProviders = async () => {
+    setProviderSaving(true);
     setProviderStatus("Saving…");
     try {
-      await saveProviders({ data: { tts: v } });
-      setProviderStatus(`TTS set to ${v} at ${new Date().toLocaleTimeString()}.`);
+      await saveProviders({ data: { llm: llmProvider, tts: ttsProvider } });
+      setSavedLlm(llmProvider);
+      setSavedTts(ttsProvider);
+      setProviderStatus(
+        `Saved (LLM=${llmProvider}, TTS=${ttsProvider}) at ${new Date().toLocaleTimeString()}.`,
+      );
     } catch (e) {
       setProviderStatus(`Save failed: ${(e as Error).message}`);
+    } finally {
+      setProviderSaving(false);
     }
   };
 
