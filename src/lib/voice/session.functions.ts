@@ -201,7 +201,12 @@ async function translateToTraditionalChinese(
   topic: string,
 ): Promise<string> {
   const key = process.env.LOVABLE_API_KEY;
-  if (!key) return raw;
+  if (!key) {
+    console.warn(
+      "[VoiceSession] LOVABLE_API_KEY missing — skipping translation, returning raw text.",
+    );
+    return raw;
+  }
   try {
     const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -224,13 +229,21 @@ async function translateToTraditionalChinese(
         ],
       }),
     });
-    if (!r.ok) return raw;
+    if (!r.ok) {
+      const body = await r.text().catch(() => "");
+      console.error(
+        `[VoiceSession] Translation ${topic} failed ${r.status}:`,
+        body.slice(0, 300),
+      );
+      return raw;
+    }
     const j = (await r.json()) as {
       choices?: Array<{ message?: { content?: string } }>;
     };
     const out = j.choices?.[0]?.message?.content?.trim();
     return out && out.length > 0 ? out : raw;
-  } catch {
+  } catch (e) {
+    console.error("Cache refresh failed:", e);
     return raw;
   }
 }
