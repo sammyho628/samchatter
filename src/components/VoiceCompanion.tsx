@@ -261,6 +261,7 @@ export function VoiceCompanion() {
         onTranscript: (t) => {
           pushLog("user", t);
           transcriptLinesRef.current.push(`USER: ${t}`);
+          persistTurn("user", t);
         },
         onThinking: () => {
           setStatus("thinking");
@@ -280,6 +281,7 @@ export function VoiceCompanion() {
         onAssistantText: (t) => {
           pushLog("ai", t);
           transcriptLinesRef.current.push(`AI: ${t}`);
+          persistTurn("model", t);
         },
         onSpeaking: () => {
           setSearching(false);
