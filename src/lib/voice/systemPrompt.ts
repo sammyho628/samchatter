@@ -92,6 +92,7 @@ HARD CAP: Every reply ≤ 2-3 short Cantonese sentences (~15 seconds spoken). Ca
 ${userLayer}
 
 【Prefetched live context (auto-refreshed cache)】
+(Note: The data below was cached at a specific time. Always cross-reference with the LIVE TIME provided above.)
 ${pref}
 
 【Past Memory (last 3 sessions)】

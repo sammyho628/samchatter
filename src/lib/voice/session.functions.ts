@@ -48,7 +48,9 @@ export const getVoiceSession = createServerFn({ method: "GET" }).handler(
       (promptRes.data?.value as string | undefined) ??
       DEFAULT_SYSTEM_PROMPT_TEMPLATE;
 
-    // Build prefetch_context from daily_cache; trigger background refresh if stale
+    // Build prefetch_context from daily_cache. If ANY topic is stale or
+    // missing we AWAIT the refresh (accept latency for accuracy), then
+    // re-read the cache so the LLM always gets fresh data.
     const now = Date.now();
     let cacheRows = (cacheRes.data ?? []) as Array<{
       topic: string;
@@ -63,24 +65,30 @@ export const getVoiceSession = createServerFn({ method: "GET" }).handler(
       }
     }
 
-    // COLD START: if the cache is completely empty, AWAIT the refresh so the
-    // very first session of the day has prefetch_context populated. On warm
-    // cache (some rows present but stale), fire-and-forget so we don't delay
-    // the WebSocket handshake.
-    if (cacheRows.length === 0 && staleTopics.length > 0) {
-      await refreshTopicsBackground(staleTopics).catch(() => {});
+    if (staleTopics.length > 0) {
+      console.log(
+        "[VoiceSession] Refreshing stale cache topics (awaited):",
+        staleTopics.join(", "),
+      );
+      await refreshTopicsBackground(staleTopics).catch((e) => {
+        console.error("[VoiceSession] Cache refresh failed:", e);
+      });
       const reread = await supabaseAdmin
         .from("daily_cache")
         .select("topic, content, updated_at")
         .in("topic", CACHE_TOPICS);
       cacheRows = (reread.data ?? []) as typeof cacheRows;
-    } else if (staleTopics.length > 0) {
-      void refreshTopicsBackground(staleTopics).catch(() => {});
     }
 
     const prefetchContext = cacheRows
       .map((r) => `【${r.topic}】\n${r.content}`)
       .join("\n\n");
+
+    const cacheMeta = cacheRows.map((r) => ({
+      topic: r.topic,
+      updated_at: r.updated_at,
+      chars: r.content.length,
+    }));
 
 
     // Build memory_context
@@ -100,13 +108,19 @@ export const getVoiceSession = createServerFn({ method: "GET" }).handler(
       promptTemplate,
       prefetchContext,
       memoryContext,
+      cacheMeta,
     };
   },
 );
 
 async function refreshTopicsBackground(topics: string[]) {
   const tavilyKey = process.env.TAVILY_API_KEY;
-  if (!tavilyKey) return;
+  if (!tavilyKey) {
+    console.warn(
+      "[VoiceSession] TAVILY_API_KEY missing — cannot refresh daily_cache. Skipping.",
+    );
+    return;
+  }
   const { supabaseAdmin } = await import(
     "@/integrations/supabase/client.server"
   );
@@ -134,7 +148,14 @@ async function refreshTopicsBackground(topics: string[]) {
             max_results: 3,
           }),
         });
-        if (!resp.ok) return;
+        if (!resp.ok) {
+          const body = await resp.text().catch(() => "");
+          console.error(
+            `[VoiceSession] Tavily ${topic} failed ${resp.status}:`,
+            body.slice(0, 300),
+          );
+          return;
+        }
         const data = (await resp.json()) as {
           answer?: string;
           results?: Array<{ title?: string; content?: string }>;
@@ -147,16 +168,29 @@ async function refreshTopicsBackground(topics: string[]) {
           if (t || c) parts.push(`${t}: ${c}`);
         });
         const rawContent = parts.join("\n").slice(0, 2000);
-        if (!rawContent) return;
+        if (!rawContent) {
+          console.warn(`[VoiceSession] Tavily ${topic} returned empty content`);
+          return;
+        }
         const content = await translateToTraditionalChinese(rawContent, topic);
-        await supabaseAdmin
+        const { error } = await supabaseAdmin
           .from("daily_cache")
           .upsert(
             { topic, content, updated_at: new Date().toISOString() },
             { onConflict: "topic" },
           );
-      } catch {
-        /* ignore */
+        if (error) {
+          console.error(
+            `[VoiceSession] daily_cache upsert ${topic} failed:`,
+            error.message,
+          );
+        } else {
+          console.log(
+            `[VoiceSession] daily_cache refreshed ${topic} (${content.length} chars)`,
+          );
+        }
+      } catch (e) {
+        console.error("Cache refresh failed:", e);
       }
     }),
   );
@@ -167,7 +201,12 @@ async function translateToTraditionalChinese(
   topic: string,
 ): Promise<string> {
   const key = process.env.LOVABLE_API_KEY;
-  if (!key) return raw;
+  if (!key) {
+    console.warn(
+      "[VoiceSession] LOVABLE_API_KEY missing — skipping translation, returning raw text.",
+    );
+    return raw;
+  }
   try {
     const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
@@ -190,13 +229,21 @@ async function translateToTraditionalChinese(
         ],
       }),
     });
-    if (!r.ok) return raw;
+    if (!r.ok) {
+      const body = await r.text().catch(() => "");
+      console.error(
+        `[VoiceSession] Translation ${topic} failed ${r.status}:`,
+        body.slice(0, 300),
+      );
+      return raw;
+    }
     const j = (await r.json()) as {
       choices?: Array<{ message?: { content?: string } }>;
     };
     const out = j.choices?.[0]?.message?.content?.trim();
     return out && out.length > 0 ? out : raw;
-  } catch {
+  } catch (e) {
+    console.error("Cache refresh failed:", e);
     return raw;
   }
 }

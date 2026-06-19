@@ -10,7 +10,11 @@ export type SynthesizeInput = {
   voice?: string; // e.g. "Kore", "Puck", "Charon", "Fenrir", "Aoede"
 };
 
-const MODEL = "gemini-3.1-flash-tts-preview";
+// NOTE: Google does not ship a "gemini-3.1-flash-tts-preview" model on the
+// Gemini AI Studio API. The actual available preview TTS model is
+// gemini-2.5-flash-preview-tts (responseModalities: ["AUDIO"]). Using the
+// fictional 3.1 name returns 404 and the client hears silence.
+const MODEL = "gemini-2.5-flash-preview-tts";
 
 function pcm16ToWav(pcm: Uint8Array, sampleRate: number): Uint8Array {
   const numChannels = 1;
@@ -83,6 +87,7 @@ export const synthesizeSpeech = createServerFn({ method: "POST" })
     ).finally(() => clearTimeout(timer));
     if (!resp.ok) {
       const t = await resp.text().catch(() => "");
+      console.error("[TTS] Gemini error", resp.status, t.slice(0, 400));
       throw new Error(`Gemini TTS ${resp.status}: ${t.slice(0, 400)}`);
     }
     const json = (await resp.json()) as {
