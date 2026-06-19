@@ -134,19 +134,23 @@ async function callGemini(
   parts: GeminiPart[];
 }> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(key)}`;
-  const resp = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: systemInstruction }] },
-      contents,
-      tools: TOOLS,
-      generationConfig: {
-        temperature: 0.8,
-        maxOutputTokens: 400,
-      },
-    }),
-  });
+  const resp = await fetchWithTimeout(
+    url,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: systemInstruction }] },
+        contents,
+        tools: TOOLS,
+        generationConfig: {
+          temperature: 0.8,
+          maxOutputTokens: 400,
+        },
+      }),
+    },
+    15000,
+  );
   if (!resp.ok) {
     const t = await resp.text().catch(() => "");
     throw new Error(`Gemini ${resp.status}: ${t.slice(0, 500)}`);
