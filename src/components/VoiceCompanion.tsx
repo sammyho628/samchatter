@@ -434,7 +434,7 @@ export function VoiceCompanion() {
         <div className="text-left">
           <div className="text-3xl font-black tracking-tight">傾偈</div>
           <div className="mt-1 text-sm text-white/60">
-            Voice Companion · <span className="text-white/80">REST · Gemini 2.5 Flash</span>
+            Voice Companion · <span className="text-white/80">REST · LLM={providers.llm} · TTS={providers.tts} · v{APP_VERSION}</span>
           </div>
         </div>
       </div>
