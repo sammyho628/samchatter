@@ -49,6 +49,9 @@ function InstructionPage() {
 
   const [llmProvider, setLlmProvider] = useState<LlmProvider>("gemini");
   const [ttsProvider, setTtsProvider] = useState<TtsProvider>("google");
+  const [savedLlm, setSavedLlm] = useState<LlmProvider>("gemini");
+  const [savedTts, setSavedTts] = useState<TtsProvider>("google");
+  const [providerSaving, setProviderSaving] = useState(false);
   const [providerStatus, setProviderStatus] = useState("");
 
   const [value, setValue] = useState<string>("");
