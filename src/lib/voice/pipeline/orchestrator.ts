@@ -123,9 +123,10 @@ export async function runTurn(
 ): Promise<TurnOutput | null> {
   try {
     cbs.onTranscribing?.();
-    const { transcript } = await deps.transcribe({
-      data: { audioBase64: input.audioBase64, mimeType: input.mimeType },
-    });
+    const fd = new FormData();
+    fd.append("audio", input.audio, "recording");
+    fd.append("mimeType", input.mimeType);
+    const { transcript } = await deps.transcribe({ data: fd });
     if (!transcript) {
       cbs.onError?.("聽唔清楚，可唔可以講多次？");
       cbs.onDone?.();
