@@ -448,6 +448,9 @@ export function VoiceCompanion() {
     try {
       await unlockAudio();
     } catch { /* ignore */ }
+    // Warm the prompt at the same moment audio unlocks so the user's first
+    // real interaction has no cold-start latency.
+    void loadPromptIfNeeded();
     setShowSplash(false);
     try {
       const tts = await ttsFn({ data: { text: "你好！我喺度，撳個掣就可以同我傾偈。" } });
@@ -457,7 +460,7 @@ export function VoiceCompanion() {
     } finally {
       setGreeting(false);
     }
-  }, [ttsFn, pushLog]);
+  }, [ttsFn, pushLog, loadPromptIfNeeded]);
 
   return (
     <div className="relative flex min-h-[100dvh] w-full flex-col items-center overflow-hidden bg-[oklch(0.18_0.04_265)] px-6 py-6 text-white">
