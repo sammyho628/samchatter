@@ -280,6 +280,7 @@ async function runTool(
     const googleQ = ticker
       ? `${ticker} Google Finance price change`
       : `${query.replace(/yahoo finance/gi, "").trim()} Google Finance price change`;
+    await sleep(2000);
     const google = await callEdgeSearch(fn, { query: googleQ, category: "finance" });
     summary =
       `[FINANCE GUARD — ticker=${tickerLabel}]\n` +
