@@ -76,6 +76,8 @@ export function VoiceCompanion() {
     llm: "gemini",
     tts: "google",
   });
+  const [textInput, setTextInput] = useState("");
+  const [textBusy, setTextBusy] = useState(false);
   const [debugLog, setDebugLog] = useState<
     Array<{ t: number; kind: "user" | "ai" | "tool" | "evt" | "err" | "db"; text: string }>
   >([]);
