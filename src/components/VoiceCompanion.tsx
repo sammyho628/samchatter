@@ -370,7 +370,14 @@ export function VoiceCompanion() {
       setStatus("error");
       pushLog("err", `mic: ${(err as Error).message}`);
     }
-  }, [status, loadPromptIfNeeded, pushLog, stopTalkingAndSend]);
+  }, [status, pushLog, stopTalkingAndSend]);
+
+  // Eager warm-up: fetch session/knowledge/memory/daily cache as soon as the
+  // component mounts so the very first tap doesn't pay for it. The guard
+  // inside loadPromptIfNeeded keeps this a no-op when already fresh.
+  useEffect(() => {
+    void loadPromptIfNeeded();
+  }, [loadPromptIfNeeded]);
 
   useEffect(() => {
     const isTyping = () => {
