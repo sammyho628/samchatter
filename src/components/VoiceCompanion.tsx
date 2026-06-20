@@ -159,7 +159,9 @@ export function VoiceCompanion() {
   }, [loadTurns, pushLog]);
 
   const loadPromptIfNeeded = useCallback(async () => {
-    if (promptLoadedRef.current || promptLoadingRef.current) return;
+    if (promptLoadingRef.current) return;
+    const age = Date.now() - promptLoadedAtRef.current;
+    if (age < PROMPT_TTL_MS) return;
     promptLoadingRef.current = true;
     try {
       pushLog("db", "→ read voice session (prompt/context/memory)");
