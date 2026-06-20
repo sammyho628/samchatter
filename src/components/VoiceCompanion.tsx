@@ -178,7 +178,7 @@ export function VoiceCompanion() {
         session.memoryContext,
       );
       promptRef.current = prompt;
-      promptLoadedRef.current = true;
+      promptLoadedAtRef.current = Date.now();
       sessionIdRef.current = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       pushLog("evt", `🕒 HK now: ${nowHK}`);
       pushLog(
