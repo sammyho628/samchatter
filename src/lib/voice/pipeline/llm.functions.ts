@@ -158,7 +158,7 @@ function refineQuery(rawQuery: string, category: string): string {
   if (SPORTS_RE.test(q) && !/live score|比分|賽果|score/i.test(q)) {
     q = `${q} live score 比分`;
   }
-  if (isFinanceQuery(q) && !/yahoo finance|google finance/i.test(q)) {
+  if ((category === "stocks" || isFinanceQuery(q)) && !/yahoo finance|google finance/i.test(q)) {
     const ticker = extractTicker(q);
     q = ticker ? `${ticker} ${q} Yahoo Finance quote` : `${q} Yahoo Finance quote`;
   }
