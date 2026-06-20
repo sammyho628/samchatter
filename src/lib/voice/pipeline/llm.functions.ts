@@ -258,8 +258,11 @@ async function runTool(
   // RESULT VERIFICATION LOOP — sports queries must contain a numeric score.
   // If first pass returned a generic page, retry once with an aggressive
   // "official score" / "match result" refinement before giving up.
+  // 2s sleep between attempts: (a) avoids upstream 429 rate limits,
+  // (b) gives the search provider time to surface fresh/cached results.
   const isSports = SPORTS_RE.test(query);
   if (isSports && !snippetHasScore(summary)) {
+    await sleep(2000);
     const retryQuery = `${query.replace(/\s*(live score|比分|賽果)\s*/gi, " ").trim()} match result official score`;
     const retry = await callEdgeSearch(fn, { query: retryQuery, category: category || "news" });
     if (snippetHasScore(retry) || retry.length > summary.length) {
