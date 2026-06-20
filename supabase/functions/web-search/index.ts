@@ -62,9 +62,10 @@ Deno.serve(async (req) => {
       );
     }
 
-    const { query, category } = (await req.json().catch(() => ({}))) as {
+    const { query, category, priority } = (await req.json().catch(() => ({}))) as {
       query?: string;
       category?: string;
+      priority?: number;
     };
     if (!query || typeof query !== "string") {
       return new Response(
