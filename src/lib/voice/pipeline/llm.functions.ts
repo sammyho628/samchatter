@@ -62,14 +62,15 @@ const TOOL_DECLS = [
   {
     name: "web_search",
     description:
-      "Search the web for current events, news, prices, finance, weather, health facts. Optional category: 'health' | 'finance' | 'news' | 'shopping' picks a curated trusted-domain filter.",
+      "Search the web for current events, news, prices, finance, weather, health, sports, transport, travel, government info, technology. Pick a category so we apply the curated trusted-domain tier filter.",
     parameters: {
       type: "object",
       properties: {
         query: { type: "string", description: "What to look up on the web." },
         category: {
           type: "string",
-          description: "Optional. health | finance | news | shopping",
+          description:
+            "Optional. health | stocks | finance | hk_news | world_news | shopping | weather | sports | transport | travel | government | technology",
         },
       },
       required: ["query"],
