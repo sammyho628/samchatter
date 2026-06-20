@@ -27,9 +27,7 @@ export type TurnCallbacks = {
 };
 
 export type TurnDeps = {
-  transcribe: (input: {
-    data: { audioBase64: string; mimeType: string };
-  }) => Promise<{ transcript: string }>;
+  transcribe: (input: { data: FormData }) => Promise<{ transcript: string }>;
   plan: (input: {
     data: {
       systemInstruction: string;
@@ -53,7 +51,7 @@ export type TurnDeps = {
 };
 
 export type TurnInput = {
-  audioBase64: string;
+  audio: Blob;
   mimeType: string;
   systemInstruction: string;
   history: GeminiTurn[];
