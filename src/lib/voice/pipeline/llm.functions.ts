@@ -198,7 +198,7 @@ async function fetchWithTimeout(
 
 async function callEdgeSearch(
   fn: string,
-  body: Record<string, string>,
+  body: Record<string, string | number>,
 ): Promise<string> {
   const supabaseUrl = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
   const anon =
