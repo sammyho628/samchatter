@@ -268,7 +268,6 @@ export function VoiceCompanion() {
       setStatus("idle");
       return;
     }
-    const audioBase64 = await blobToBase64(blob);
     pushLog("evt", `recorded ${blob.size}B (${mimeType})`);
 
     const windowed = historyRef.current.slice(-HISTORY_WINDOW);
@@ -279,7 +278,7 @@ export function VoiceCompanion() {
 
     await runTurn(
       {
-        audioBase64,
+        audio: blob,
         mimeType,
         systemInstruction: promptRef.current,
         history: windowed,
