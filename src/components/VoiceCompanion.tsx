@@ -14,12 +14,12 @@ import {
   executeToolCall,
   synthesizeAnswer,
   type GeminiTurn,
+  type ToolCallTrace,
 } from "@/lib/voice/pipeline/llm.functions";
 import { synthesizeSpeech } from "@/lib/voice/pipeline/tts.functions";
 import { runTurn } from "@/lib/voice/pipeline/orchestrator";
 import {
   startRecording,
-  blobToBase64,
   type RecorderHandle,
 } from "@/lib/voice/pipeline/recorder";
 import {
@@ -77,6 +77,8 @@ export function VoiceCompanion() {
     llm: "gemini",
     tts: "google",
   });
+  const [textInput, setTextInput] = useState("");
+  const [textBusy, setTextBusy] = useState(false);
   const [debugLog, setDebugLog] = useState<
     Array<{ t: number; kind: "user" | "ai" | "tool" | "evt" | "err" | "db"; text: string }>
   >([]);
@@ -100,8 +102,9 @@ export function VoiceCompanion() {
   const sessionIdRef = useRef<string>("");
   const transcriptLinesRef = useRef<string[]>([]);
   const executedSearchesRef = useRef<string[]>([]);
-  const promptLoadedRef = useRef(false);
+  const promptLoadedAtRef = useRef<number>(0);
   const promptLoadingRef = useRef(false);
+  const PROMPT_TTL_MS = 30 * 60 * 1000; // 30 min — refetch knowledge/memory/daily cache
 
   const fetchSession = useServerFn(getVoiceSession);
   const saveMemory = useServerFn(summarizeAndSaveSession);
@@ -159,7 +162,9 @@ export function VoiceCompanion() {
   }, [loadTurns, pushLog]);
 
   const loadPromptIfNeeded = useCallback(async () => {
-    if (promptLoadedRef.current || promptLoadingRef.current) return;
+    if (promptLoadingRef.current) return;
+    const age = Date.now() - promptLoadedAtRef.current;
+    if (age < PROMPT_TTL_MS) return;
     promptLoadingRef.current = true;
     try {
       pushLog("db", "→ read voice session (prompt/context/memory)");
@@ -176,7 +181,7 @@ export function VoiceCompanion() {
         session.memoryContext,
       );
       promptRef.current = prompt;
-      promptLoadedRef.current = true;
+      promptLoadedAtRef.current = Date.now();
       sessionIdRef.current = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       pushLog("evt", `🕒 HK now: ${nowHK}`);
       pushLog(
@@ -266,7 +271,6 @@ export function VoiceCompanion() {
       setStatus("idle");
       return;
     }
-    const audioBase64 = await blobToBase64(blob);
     pushLog("evt", `recorded ${blob.size}B (${mimeType})`);
 
     const windowed = historyRef.current.slice(-HISTORY_WINDOW);
@@ -277,7 +281,7 @@ export function VoiceCompanion() {
 
     await runTurn(
       {
-        audioBase64,
+        audio: blob,
         mimeType,
         systemInstruction: promptRef.current,
         history: windowed,
@@ -355,7 +359,6 @@ export function VoiceCompanion() {
     setErrorMsg("");
     try {
       await unlockAudio();
-      await loadPromptIfNeeded();
       const handle = await startRecording({
         maxDurationMs: 60_000,
         onAutoStop: () => {
@@ -370,7 +373,119 @@ export function VoiceCompanion() {
       setStatus("error");
       pushLog("err", `mic: ${(err as Error).message}`);
     }
-  }, [status, loadPromptIfNeeded, pushLog, stopTalkingAndSend]);
+  }, [status, pushLog, stopTalkingAndSend]);
+
+  // Eager warm-up: fetch session/knowledge/memory/daily cache as soon as the
+  // component mounts so the very first tap doesn't pay for it. The guard
+  // inside loadPromptIfNeeded keeps this a no-op when already fresh.
+  useEffect(() => {
+    void loadPromptIfNeeded();
+  }, [loadPromptIfNeeded]);
+
+  // Text-mode debug: skips STT entirely. plan → tools (parallel) →
+  // synthesize → TTS, mirroring runTurn but feeding the LLM raw text.
+  const sendTextTurn = useCallback(
+    async (rawText: string) => {
+      const text = rawText.trim();
+      if (!text || textBusy) return;
+      setTextBusy(true);
+      setErrorMsg("");
+      try {
+        await loadPromptIfNeeded();
+        const windowed = historyRef.current.slice(-HISTORY_WINDOW);
+        pushLog("user", `(text) ${text}`);
+        transcriptLinesRef.current.push(`USER: ${text}`);
+        persistTurn("user", text);
+
+        setStatus("thinking");
+        setSearching(false);
+        const plan = await planFn({
+          data: {
+            systemInstruction: promptRef.current,
+            history: windowed,
+            userText: text,
+          },
+        });
+        pushLog(
+          "evt",
+          `🧭 plan · tools=${plan.toolCalls.length}` +
+            (plan.analytical ? " · analytical" : "") +
+            (plan.directAnswer ? " · directAnswer" : ""),
+        );
+
+        let toolResults: ToolCallTrace[] = [];
+        if (plan.toolCalls.length > 0) {
+          setSearching(true);
+          toolResults = await Promise.all(
+            plan.toolCalls.map((c) =>
+              execToolFn({ data: c }).catch(
+                (err: Error): ToolCallTrace => ({
+                  name: c.name,
+                  args: c.args,
+                  summary: `Error: ${err.message}`,
+                }),
+              ),
+            ),
+          );
+          for (const tc of toolResults) {
+            pushLog(
+              "tool",
+              `${tc.name}(${JSON.stringify(tc.args)}) → ${tc.summary.length > 200 ? tc.summary.slice(0, 200) + "…" : tc.summary}`,
+            );
+            const q = tc.args.query;
+            if (typeof q === "string") {
+              executedSearchesRef.current.push(`${tc.name}: ${q}`);
+            }
+          }
+          setSearching(false);
+        }
+
+        let finalText: string;
+        let finalHistory: GeminiTurn[];
+        if (plan.toolCalls.length === 0 && plan.directAnswer) {
+          finalText = plan.directAnswer;
+          finalHistory = [
+            ...windowed,
+            { role: "user", parts: [{ text }] },
+            { role: "model", parts: [{ text: finalText }] },
+          ];
+        } else {
+          const syn = await synthAnswerFn({
+            data: {
+              systemInstruction: promptRef.current,
+              history: windowed,
+              userText: text,
+              toolResults,
+            },
+          });
+          finalText = syn.text;
+          finalHistory = syn.history;
+        }
+
+        pushLog("ai", finalText);
+        transcriptLinesRef.current.push(`AI: ${finalText}`);
+        persistTurn("model", finalText);
+        historyRef.current = sanitizeHistory(finalHistory);
+        setStatus("idle");
+      } catch (err) {
+        const msg = (err as Error).message;
+        pushLog("err", `text turn: ${msg}`);
+        setErrorMsg(msg);
+        setStatus("error");
+      } finally {
+        setTextBusy(false);
+      }
+    },
+    [
+      textBusy,
+      loadPromptIfNeeded,
+      planFn,
+      execToolFn,
+      synthAnswerFn,
+      pushLog,
+      persistTurn,
+    ],
+  );
 
   useEffect(() => {
     const isTyping = () => {
@@ -441,6 +556,9 @@ export function VoiceCompanion() {
     try {
       await unlockAudio();
     } catch { /* ignore */ }
+    // Warm the prompt at the same moment audio unlocks so the user's first
+    // real interaction has no cold-start latency.
+    void loadPromptIfNeeded();
     setShowSplash(false);
     try {
       const tts = await ttsFn({ data: { text: "你好！我喺度，撳個掣就可以同我傾偈。" } });
@@ -450,7 +568,7 @@ export function VoiceCompanion() {
     } finally {
       setGreeting(false);
     }
-  }, [ttsFn, pushLog]);
+  }, [ttsFn, pushLog, loadPromptIfNeeded]);
 
   return (
     <div className="relative flex min-h-[100dvh] w-full flex-col items-center overflow-hidden bg-[oklch(0.18_0.04_265)] px-6 py-6 text-white">
@@ -535,6 +653,36 @@ export function VoiceCompanion() {
             Clear chat
           </button>
         </div>
+      </div>
+
+      {/* Debug text-mode input — skips STT, fires plan→tools→synth directly. */}
+      <div className="mt-4 w-full max-w-xl">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            const t = textInput;
+            setTextInput("");
+            void sendTextTurn(t);
+          }}
+          className="flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-2"
+        >
+          <span className="text-xs text-white/40">💬 Text:</span>
+          <input
+            type="text"
+            value={textInput}
+            onChange={(e) => setTextInput(e.target.value)}
+            disabled={textBusy}
+            placeholder="Type a message to skip STT (debug)…"
+            className="flex-1 bg-transparent text-sm text-white placeholder-white/30 outline-none disabled:opacity-50"
+          />
+          <button
+            type="submit"
+            disabled={textBusy || !textInput.trim()}
+            className="rounded-full bg-amber-300 px-3 py-1 text-xs font-bold text-orange-950 disabled:opacity-40"
+          >
+            {textBusy ? "…" : "Send"}
+          </button>
+        </form>
       </div>
 
       <div className="flex-1" />

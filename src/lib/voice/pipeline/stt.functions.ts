@@ -1,22 +1,27 @@
-// Layer 1: Speech-to-Text. Provider: Deepgram (nova-2, zh-HK / Cantonese).
-// Pure REST. Swap by rewriting this one handler.
+// Layer 1: Speech-to-Text. Provider: Deepgram (nova-3, zh-HK / Cantonese).
+// Accepts a multipart/form-data upload with the audio blob attached as the
+// `audio` field and the original `mimeType` as a text field. This avoids the
+// triple base64 round-trip (client encode → server decode → upload) that was
+// adding noticeable CPU + 33% payload bloat on every turn.
 import { createServerFn } from "@tanstack/react-start";
 
-export type TranscribeInput = {
-  audioBase64: string;
-  mimeType: string; // e.g. "audio/webm;codecs=opus" | "audio/mp4"
-};
-
 export const transcribeAudio = createServerFn({ method: "POST" })
-  .inputValidator((d: TranscribeInput) => d)
+  .inputValidator((d: FormData) => {
+    if (!(d instanceof FormData)) {
+      throw new Error("transcribeAudio expects FormData");
+    }
+    return d;
+  })
   .handler(async ({ data }) => {
     const key = process.env.DEEPGRAM_API_KEY;
     if (!key) throw new Error("Missing DEEPGRAM_API_KEY on server");
 
-    const bin = Uint8Array.from(atob(data.audioBase64), (c) => c.charCodeAt(0));
+    const audio = data.get("audio");
+    const mimeType = (data.get("mimeType") as string) || "audio/webm";
+    if (!(audio instanceof Blob)) {
+      throw new Error("transcribeAudio: missing audio blob");
+    }
 
-    // nova-2 supports many languages incl. zh; zh-HK is the closest tag.
-    // smart_format + punctuate keep transcripts readable.
     const params = new URLSearchParams({
       model: "nova-3",
       language: "zh-HK",
@@ -29,9 +34,9 @@ export const transcribeAudio = createServerFn({ method: "POST" })
         method: "POST",
         headers: {
           Authorization: `Token ${key}`,
-          "Content-Type": data.mimeType || "audio/webm",
+          "Content-Type": mimeType,
         },
-        body: bin,
+        body: audio,
       },
     );
     if (!resp.ok) {

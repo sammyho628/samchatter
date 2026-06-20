@@ -27,9 +27,7 @@ export type TurnCallbacks = {
 };
 
 export type TurnDeps = {
-  transcribe: (input: {
-    data: { audioBase64: string; mimeType: string };
-  }) => Promise<{ transcript: string }>;
+  transcribe: (input: { data: FormData }) => Promise<{ transcript: string }>;
   plan: (input: {
     data: {
       systemInstruction: string;
@@ -53,7 +51,7 @@ export type TurnDeps = {
 };
 
 export type TurnInput = {
-  audioBase64: string;
+  audio: Blob;
   mimeType: string;
   systemInstruction: string;
   history: GeminiTurn[];
@@ -125,9 +123,10 @@ export async function runTurn(
 ): Promise<TurnOutput | null> {
   try {
     cbs.onTranscribing?.();
-    const { transcript } = await deps.transcribe({
-      data: { audioBase64: input.audioBase64, mimeType: input.mimeType },
-    });
+    const fd = new FormData();
+    fd.append("audio", input.audio, "recording");
+    fd.append("mimeType", input.mimeType);
+    const { transcript } = await deps.transcribe({ data: fd });
     if (!transcript) {
       cbs.onError?.("聽唔清楚，可唔可以講多次？");
       cbs.onDone?.();
