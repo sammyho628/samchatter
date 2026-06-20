@@ -1,108 +1,64 @@
+# Plan — v1.15.0 Pipeline Decoupling + ModelRouter
 
-## Goal
+Three coordinated tasks. Incorporates your corrections: orchestrator must be rewired, ModelRouter must cover `memory.functions.ts` + `session.functions.ts`, and Finance Guard stays as prompt injection (no separate LLM call).
 
-Replace the WebSocket realtime voice loop (Qwen / Gemini Live + raw PCM streaming) with a clean, decoupled REST pipeline driven by a push-to-talk button. Three swappable modules, one orchestrator, no manual PCM alignment.
+---
 
-```text
-[ Mic + PTT button ]
-        │ webm/opus blob
-        ▼
- Layer 1: transcribeAudio()  ── Deepgram (nova-2, zh-HK)
-        │ text
-        ▼
- Layer 2: generateAIResponse() ── Gemini 2.5 Flash (+ tools loop)
-        │ text
-        ▼
- Layer 3: synthesizeSpeech()   ── Google Cloud TTS (yue-HK Wavenet)
-        │ mp3 ArrayBuffer
-        ▼
- AudioContext.decodeAudioData() → play
-```
+## Task 1 — Decouple Planner from Synthesiser
 
-Each layer is a single async function with one input and one output, called from server functions so API keys stay server-side. Swapping a provider = rewrite one function.
+**`src/lib/voice/pipeline/llm.functions.ts`**
+- Split `generateAIResponse` into two exported server fns:
+  - `planQueries({ userText, history, systemInstruction })` → returns a structured `QueryPlan`: `{ toolCalls: Array<{name, args}>, analytical: boolean, rationale: string }`. Uses the LLM in **single-pass tool-declaration mode** (no execution), forced via a "PLANNER ROLE" system instruction override. For analytical queries the planner must emit ≥3 parallel tool calls.
+  - `synthesizeAnswer({ userText, history, systemInstruction, toolResults })` → no tools exposed; receives pre-fetched tool results as a structured `[TOOL RESULTS]` block in the prompt. Runs the existing critic refinement loop here.
+- Keep `runTool`, `refineQuery`, `evaluateDraft`, `sleep`, `aggregateToolData`, sports/finance guards intact — they're now called by the orchestrator (for tool execution) and `synthesizeAnswer` (for critic).
+- Preserve `generateAIResponse` as a thin back-compat wrapper that calls plan → execute → synthesise sequentially, so any other caller doesn't break.
 
-## Secrets needed (request via add_secret)
+**`src/lib/voice/pipeline/orchestrator.ts`**
+- Extend `TurnDeps` with `plan` and `synthesize` (rename existing `synthesize` for TTS to `synthesizeSpeech` to avoid the name collision — update all call sites).
+- New `runTurn` flow after STT:
+  1. `cbs.onThinking()` → `deps.plan(...)` to get `QueryPlan`.
+  2. Execute each `toolCall` directly via `runTool` (exported from llm.functions). Run in parallel with `Promise.all`. Emit `cbs.onToolCall` per result.
+  3. `deps.synthesizeAnswer({ ..., toolResults })` → final text + history.
+  4. Existing sentence-chunked TTS path unchanged.
+- Wire the new deps in the caller of `runTurn` (search for `runTurn(` to find injection site, likely `VoiceCompanion.tsx`).
 
-- `DEEPGRAM_API_KEY`
-- `GEMINI_API_KEY`
-- `GOOGLE_TTS_API_KEY` (Google Cloud API key with Text-to-Speech API enabled — can be the same key as Gemini if the project has both APIs enabled, but kept separate for clarity)
+---
 
-## File plan
+## Task 2 — ModelRouter (eliminate hard-coded model strings)
 
-### New — Layer modules (server functions, `createServerFn`)
+**New file `src/lib/voice/modelRouter.ts`**
+- Server-only helper extending `readProvidersServerSide()`.
+- Exports:
+  - `resolveLlmModel()` → `{ provider, model, apiUrl, apiKey, label }` for the currently selected provider (gemini / qwen / grok). Centralises every model id (`gemini-2.5-flash`, `qwen-plus`, `grok-4-latest`).
+  - `resolveCriticModel()` → returns the same provider as main LLM when possible (so the critic respects user choice); falls back to Gemini Flash only if the selected provider lacks an API key.
+  - `resolveUtilityModel()` → for non-conversational helpers (translation, summarisation). Routes through **Lovable AI Gateway** with `google/gemini-2.5-flash` as default. Exposes `callUtilityChat({ system, user, maxTokens })`.
 
-- `src/lib/voice/pipeline/stt.functions.ts` — `transcribeAudio(blob)` server fn. Accepts base64-encoded audio + mime type, POSTs to Deepgram `/v1/listen?model=nova-2&language=zh-HK&punctuate=true&smart_format=true`, returns `{ transcript: string }`.
-- `src/lib/voice/pipeline/llm.functions.ts` — `generateAIResponse({ history, userText })` server fn. Calls Gemini 2.5 Flash `generateContent` with the existing hard-wired system prompt (reused from `systemPrompt.ts`) + tool declarations (`web_search`, `search_places`). Runs the tool loop server-side: when Gemini returns a `functionCall`, invoke the existing `web-search` / `search-places` edge functions, append `functionResponse`, re-call Gemini, repeat until a plain text response or a max-step cap (6). Returns `{ text, updatedHistory, toolCalls[] }`.
-- `src/lib/voice/pipeline/tts.functions.ts` — `synthesizeSpeech(text)` server fn. POSTs to `https://texttospeech.googleapis.com/v1/text:synthesize?key=…` with `{ input:{text}, voice:{ languageCode:"yue-HK", name:"yue-HK-Standard-A" }, audioConfig:{ audioEncoding:"MP3", sampleRateHertz:24000 } }`. Returns `{ audioBase64, mimeType:"audio/mpeg" }`.
+**`src/lib/voice/pipeline/llm.functions.ts`**
+- Replace the hardcoded Gemini call inside `evaluateDraft()` with `resolveCriticModel()` + a generic chat helper.
+- Replace hardcoded model strings in `runGemini` / `runQwen` / `runGrok` with `resolveLlmModel()` values (keep the three runner shapes; they read model/url/key from the router).
 
-All three are pure REST, no streaming, no SSE — keeps the contract trivial and swappable.
+**`src/lib/voice/memory.functions.ts`**
+- Replace `model: "google/gemini-3-flash-preview"` (invalid id — model doesn't exist) with `resolveUtilityModel()` / `callUtilityChat`. Default lands on `google/gemini-2.5-flash`.
 
-### New — Client orchestrator
+**`src/lib/voice/session.functions.ts`**
+- Replace the hardcoded `model: "google/gemini-2.5-flash"` in `translateToTraditionalChinese()` with `callUtilityChat()` from the router.
 
-- `src/lib/voice/pipeline/orchestrator.ts` — `runTurn(blob, history, callbacks)` runs STT → LLM → TTS sequentially, firing UI callbacks: `onListening`, `onTranscript(text)`, `onThinking`, `onToolCall(name,args)`, `onSpeaking`, `onAssistantText(text)`, `onDone`. No retry/reconnect logic — failures bubble up as toasts.
-- `src/lib/voice/pipeline/recorder.ts` — thin `MediaRecorder` wrapper for push-to-talk: `start()` / `stop()` returns a Blob. Picks the best supported mime type (`audio/webm;codecs=opus` → `audio/mp4` fallback for Safari).
-- `src/lib/voice/pipeline/player.ts` — `playAudioBlob(arrayBuffer)`: a single shared `AudioContext`, `decodeAudioData`, `AudioBufferSourceNode.start(currentTime + 0.05)`. Stops any prior source first (kills overlap). No PCM math, no chunk scheduling.
+---
 
-### Updated
+## Task 3 — Critic + Finance Guard confirmation
 
-- `src/components/VoiceCompanion.tsx` — rip out `QwenLiveClient` / `AudioEngine` walkie-talkie wiring. Replace mic toggle with a **press-and-hold "Hold to Talk"** button (pointerdown/pointerup, plus pointercancel + space-bar). UI states: Idle → Listening → Transcribing → Thinking → Speaking → Idle. Keep existing prompt-debug panel, replay-last-buffer button (now replays last MP3 ArrayBuffer), memory/cache prefetch, version banner.
-- `src/lib/version.ts` — bump to `1.5.0` (architecture change).
-- `src/lib/voice/systemPrompt.ts` — reused as-is for Gemini. The tool-call "verbal trap" rules are no longer needed (Gemini's `functionCall` is structured, not text) but left in place — they don't hurt.
+- **Critic**: now provider-agnostic via `resolveCriticModel()` (Task 2 covers it). Critic still runs only after `synthesizeAnswer` produces a draft; refinement loop stays at max 2 passes.
+- **Finance Guard**: no change beyond Task 2. The dual-source Yahoo+Google fetch in `runTool` is plain code (no LLM); the `[FINANCE GUARD]` block is consumed by whatever main LLM the ModelRouter selects, so it becomes model-agnostic automatically.
+- Add a one-line comment in `runTool` documenting that Finance Guard is prompt-injection only, so future readers don't try to "fix" it.
 
-### Kept but unused (per user choice)
+---
 
-- `src/lib/voice/qwenLive.ts`
-- `src/lib/voice/geminiLive.ts`
-- `src/lib/voice/audioEngine.ts`
-- `src/lib/voice/pcm-worklet.ts`
-- `src/routes/api/public/qwen-proxy.ts`
-- `src/routes/testqwen.tsx`, `src/routes/test-gemini.tsx`
+## Version + verification
 
-No imports from `VoiceCompanion.tsx` will reference these after the refactor; tree-shaking handles the rest. A comment at the top of each notes "Deprecated — replaced by src/lib/voice/pipeline/* in v1.5.0".
-
-## Tool-calling loop (Layer 2 detail)
-
-```text
-loop (max 6 iterations):
-  call Gemini with contents=history
-  if response has functionCall:
-      run tool (web-search / search-places edge fn)
-      append { role: "model", parts: [{ functionCall }] }
-      append { role: "function", parts: [{ functionResponse:{ name, response:{ result } } }] }
-      continue
-  else:
-      return text + final history
-```
-
-Tool declarations re-use the same schemas already in `geminiLive.ts` (`web_search`, `search_places`) so behaviour and trusted-domain routing in the `web-search` edge function are unchanged.
-
-## Push-to-talk UX
-
-- Big circular "按住講嘢" button center-screen.
-- `pointerdown` → start recorder, label → "🎤 聽緊…"
-- `pointerup` / `pointercancel` → stop recorder, kick orchestrator.
-- Keyboard: hold Spacebar to talk (when not focused in an input).
-- During Thinking/Speaking the button is disabled (greyed). Tapping during Speaking stops playback and returns to Idle (barge-in lite).
-
-## What this fixes
-
-- **Audio jitter / stutter / overlapping voices** — gone. Single decoded MP3, played once via `AudioBufferSourceNode`.
-- **30s WebSocket idle timeout, heartbeat hacks, reconnect storms** — gone. Stateless HTTP.
-- **"Verbal trap" tool-call hesitation** — Gemini emits structured `functionCall`, not text.
-- **Race conditions between parallel tool calls and `response.create`** — orchestrator is strictly sequential.
-- **VAD hang on mute** — replaced by explicit push-to-talk.
+- Bump `src/lib/version.ts` → `1.15.0`.
+- After build: smoke-test in preview with (a) a sports query (planner must emit `web_search`), (b) `1357.HK 股價` (Finance Guard injection still appears), (c) provider toggle to Qwen on `/instruction` (critic + main both switch).
 
 ## Out of scope
 
-- Streaming TTS (Google REST returns a complete file; fine for short replies).
-- Barge-in mid-AI-speech beyond "tap to stop".
-- Migrating existing chat memory / daily cache schemas — they remain and feed the system prompt unchanged.
-
-## Verification
-
-1. `bun run build` clean.
-2. Push-to-talk: hold → speak Cantonese → release → transcript bubble appears → assistant text → audio plays once, no stutter.
-3. Ask "今日香港天氣？" → confirm `web_search` tool fires (console log) and answer cites it.
-4. Ask "邊度有好食嘅茶餐廳？" → confirm `search_places` fires.
-5. Hold-and-release with no speech → graceful "聽唔清楚" toast, no crash.
-6. Network throttle → STT/LLM/TTS errors surface as toasts, UI returns to Idle.
+- No changes to TTS pipeline, recorder, system prompt text, edge functions, or DB schema.
+- No new tables, no new env vars.

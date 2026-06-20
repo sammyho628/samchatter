@@ -10,7 +10,9 @@ import {
 } from "@/lib/voice/chatTurns.functions";
 import { transcribeAudio } from "@/lib/voice/pipeline/stt.functions";
 import {
-  generateAIResponse,
+  planQueries,
+  executeToolCall,
+  synthesizeAnswer,
   type GeminiTurn,
 } from "@/lib/voice/pipeline/llm.functions";
 import { synthesizeSpeech } from "@/lib/voice/pipeline/tts.functions";
@@ -106,7 +108,9 @@ export function VoiceCompanion() {
   const loadTurns = useServerFn(getTodayChatTurns);
   const saveTurn = useServerFn(appendChatTurn);
   const sttFn = useServerFn(transcribeAudio);
-  const llmFn = useServerFn(generateAIResponse);
+  const planFn = useServerFn(planQueries);
+  const execToolFn = useServerFn(executeToolCall);
+  const synthAnswerFn = useServerFn(synthesizeAnswer);
   const ttsFn = useServerFn(synthesizeSpeech);
   const fetchProviders = useServerFn(getProviderSettings);
 
@@ -280,8 +284,10 @@ export function VoiceCompanion() {
       },
       {
         transcribe: sttFn,
-        generate: llmFn,
-        synthesize: ttsFn,
+        plan: planFn,
+        executeTool: execToolFn,
+        synthesize: synthAnswerFn,
+        synthesizeSpeech: ttsFn,
         playAudio: (b64) => playBase64Audio(b64),
       },
       {
@@ -331,7 +337,7 @@ export function VoiceCompanion() {
         },
       },
     );
-  }, [sttFn, llmFn, ttsFn, pushLog, persistTurn]);
+  }, [sttFn, planFn, execToolFn, synthAnswerFn, ttsFn, pushLog, persistTurn]);
 
   const startTalking = useCallback(async () => {
     if (

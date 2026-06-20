@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { DEFAULT_SYSTEM_PROMPT_TEMPLATE } from "./systemPrompt";
+import { callUtilityChat } from "./modelRouter";
 
 const PROMPT_KEY = "voice.systemPromptTemplate.v1";
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
@@ -200,50 +201,16 @@ async function translateToTraditionalChinese(
   raw: string,
   topic: string,
 ): Promise<string> {
-  const key = process.env.LOVABLE_API_KEY;
-  if (!key) {
-    console.warn(
-      "[VoiceSession] LOVABLE_API_KEY missing — skipping translation, returning raw text.",
-    );
-    return raw;
-  }
   try {
-    const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${key}`,
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
-        messages: [
-          {
-            role: "system",
-            content:
-              "You are a Hong Kong news/weather editor. You MUST return the summary EXCLUSIVELY in Traditional Chinese (zh-HK / 繁體中文 香港用語). Do NOT use English, Simplified Chinese, or any other language. Keep it concise (under 400 字). No preamble, no markdown — plain prose only.",
-          },
-          {
-            role: "user",
-            content: `主題：${topic}\n\n原始資料：\n${raw}\n\n請用繁體中文（香港）總結成簡短播報稿。`,
-          },
-        ],
-      }),
+    const out = await callUtilityChat({
+      system:
+        "You are a Hong Kong news/weather editor. You MUST return the summary EXCLUSIVELY in Traditional Chinese (zh-HK / 繁體中文 香港用語). Do NOT use English, Simplified Chinese, or any other language. Keep it concise (under 400 字). No preamble, no markdown — plain prose only.",
+      user: `主題：${topic}\n\n原始資料：\n${raw}\n\n請用繁體中文（香港）總結成簡短播報稿。`,
+      maxTokens: 600,
     });
-    if (!r.ok) {
-      const body = await r.text().catch(() => "");
-      console.error(
-        `[VoiceSession] Translation ${topic} failed ${r.status}:`,
-        body.slice(0, 300),
-      );
-      return raw;
-    }
-    const j = (await r.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-    const out = j.choices?.[0]?.message?.content?.trim();
     return out && out.length > 0 ? out : raw;
   } catch (e) {
-    console.error("Cache refresh failed:", e);
+    console.error(`[VoiceSession] Translation ${topic} failed:`, e);
     return raw;
   }
 }
