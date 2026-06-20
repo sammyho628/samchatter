@@ -120,7 +120,11 @@ const NON_HK_HINTS = [
   "usa", "china", "taiwan", "japan", "korea", "tokyo", "beijing", "shanghai",
   "singapore", "uk", "london", "new york", "nasdaq", "s&p", "dow",
 ];
-const LOCAL_CATEGORIES = new Set(["news", "health", "finance", "shopping"]);
+// world_news + technology stay excluded — appending "香港" would bias them.
+const LOCAL_CATEGORIES = new Set([
+  "hk_news", "health", "stocks", "finance", "shopping",
+  "weather", "sports", "transport", "travel", "government",
+]);
 
 const SPORTS_RE =
   /(世界盃|世界杯|歐國盃|歐冠|英超|西甲|意甲|德甲|法甲|港超|nba|epl|mlb|nfl|ufc|世錦|奧運|溫網|美網|法網|澳網|f1|grand prix|決賽|準決賽|分組賽|vs |對|球賽|比分|賽果|score|match)/i;
