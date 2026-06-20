@@ -108,7 +108,9 @@ export function VoiceCompanion() {
   const loadTurns = useServerFn(getTodayChatTurns);
   const saveTurn = useServerFn(appendChatTurn);
   const sttFn = useServerFn(transcribeAudio);
-  const llmFn = useServerFn(generateAIResponse);
+  const planFn = useServerFn(planQueries);
+  const execToolFn = useServerFn(executeToolCall);
+  const synthAnswerFn = useServerFn(synthesizeAnswer);
   const ttsFn = useServerFn(synthesizeSpeech);
   const fetchProviders = useServerFn(getProviderSettings);
 
