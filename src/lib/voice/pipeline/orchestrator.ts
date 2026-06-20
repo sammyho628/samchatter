@@ -1,8 +1,16 @@
-// Master orchestrator. STT → LLM → (sentence-chunked TTS pipelined with playback).
-// Sentence chunking lets the first sentence's audio start playing while later
-// sentences are still being synthesized — eliminates "silent wait" before
-// long replies.
-import type { GeminiTurn, ToolCallTrace } from "./llm.functions";
+// Master orchestrator. STT → Planner → parallel tool execution → Synthesiser →
+// sentence-chunked TTS pipelined with playback.
+//
+// v1.15.0: decoupled the LLM brain into two phases (plan + synthesise) so the
+// orchestrator drives tool execution explicitly instead of letting the LLM
+// run a hidden multi-step tool loop. This makes tool calls observable, lets
+// us run them in parallel, and keeps the synthesiser strictly factual.
+import type {
+  GeminiTurn,
+  PlannedToolCall,
+  QueryPlan,
+  ToolCallTrace,
+} from "./llm.functions";
 
 export type TurnCallbacks = {
   onListening?: () => void;
@@ -22,18 +30,23 @@ export type TurnDeps = {
   transcribe: (input: {
     data: { audioBase64: string; mimeType: string };
   }) => Promise<{ transcript: string }>;
-  generate: (input: {
+  plan: (input: {
     data: {
       systemInstruction: string;
       history: GeminiTurn[];
       userText: string;
     };
-  }) => Promise<{
-    text: string;
-    history: GeminiTurn[];
-    toolCalls: ToolCallTrace[];
-  }>;
+  }) => Promise<QueryPlan>;
+  executeTool: (input: { data: PlannedToolCall }) => Promise<ToolCallTrace>;
   synthesize: (input: {
+    data: {
+      systemInstruction: string;
+      history: GeminiTurn[];
+      userText: string;
+      toolResults: ToolCallTrace[];
+    };
+  }) => Promise<{ text: string; history: GeminiTurn[] }>;
+  synthesizeSpeech: (input: {
     data: { text: string };
   }) => Promise<{ audioBase64: string; mimeType: string }>;
   playAudio: (b64: string) => Promise<void>;
@@ -53,9 +66,6 @@ export type TurnOutput = {
   toolCalls: ToolCallTrace[];
 };
 
-/** Split text into speakable chunks. First chunk = up to first sentence
- *  terminator (CJK or ASCII). Subsequent chunks keep accumulating sentences
- *  but cap each chunk to ~80 chars so TTS round-trips stay short. */
 function splitIntoSentences(text: string): string[] {
   const t = text.trim();
   if (!t) return [];
@@ -76,7 +86,6 @@ function splitIntoSentences(text: string): string[] {
   if (last < t.length) buf += t.slice(last);
   if (buf.trim()) pieces.push(buf.trim());
 
-  // Merge tiny pieces forward to avoid 1-char TTS calls.
   const out: string[] = [];
   for (const p of pieces) {
     if (out.length && out[out.length - 1].length < 8) {
@@ -88,9 +97,6 @@ function splitIntoSentences(text: string): string[] {
   return out;
 }
 
-/** Browser-native SpeechSynthesis fallback when remote TTS fails (e.g. MiniMax
- *  rate-limit or invalid voice id). Resolves when utterance ends or after a
- *  hard timeout so the turn never hangs. */
 function speakBrowserFallback(text: string): Promise<void> {
   return new Promise((resolve) => {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) {
@@ -99,14 +105,12 @@ function speakBrowserFallback(text: string): Promise<void> {
     }
     try {
       const u = new SpeechSynthesisUtterance(text);
-      // Cantonese first; browser picks closest available if missing.
       u.lang = "zh-HK";
       const done = () => resolve();
       u.onend = done;
       u.onerror = done;
       window.speechSynthesis.cancel();
       window.speechSynthesis.speak(u);
-      // Safety timeout: ~150ms/char, min 3s, max 20s.
       setTimeout(done, Math.min(20000, Math.max(3000, text.length * 150)));
     } catch {
       resolve();
@@ -132,33 +136,83 @@ export async function runTurn(
     cbs.onTranscript?.(transcript);
 
     cbs.onThinking?.();
-    const result = await deps.generate({
+
+    // PHASE 1 — PLAN
+    const plan = await deps.plan({
       data: {
         systemInstruction: input.systemInstruction,
         history: input.history,
         userText: transcript,
       },
     });
-    for (const tc of result.toolCalls) cbs.onToolCall?.(tc);
-    cbs.onAssistantText?.(result.text);
-    cbs.onHistory?.(result.history);
+    cbs.onLog?.(
+      `🧭 plan · tools=${plan.toolCalls.length}` +
+        (plan.analytical ? " · analytical" : "") +
+        (plan.directAnswer ? " · directAnswer" : ""),
+    );
 
-    // Sentence-chunked TTS: dispatch all in parallel, play in order.
-    const sentences = splitIntoSentences(result.text);
+    // PHASE 2 — EXECUTE TOOLS (parallel)
+    let toolResults: ToolCallTrace[] = [];
+    if (plan.toolCalls.length > 0) {
+      toolResults = await Promise.all(
+        plan.toolCalls.map((c) =>
+          deps
+            .executeTool({ data: c })
+            .catch(
+              (err: Error): ToolCallTrace => ({
+                name: c.name,
+                args: c.args,
+                summary: `Error: ${err.message}`,
+              }),
+            ),
+        ),
+      );
+      for (const tc of toolResults) cbs.onToolCall?.(tc);
+    }
+
+    // PHASE 3 — SYNTHESISE
+    // If the planner already produced a direct answer AND no tools were
+    // needed, skip the second LLM round-trip and reuse the planner's text.
+    let finalText: string;
+    let finalHistory: GeminiTurn[];
+    if (plan.toolCalls.length === 0 && plan.directAnswer) {
+      finalText = plan.directAnswer;
+      finalHistory = [
+        ...input.history,
+        { role: "user", parts: [{ text: transcript }] },
+        { role: "model", parts: [{ text: finalText }] },
+      ];
+    } else {
+      const syn = await deps.synthesize({
+        data: {
+          systemInstruction: input.systemInstruction,
+          history: input.history,
+          userText: transcript,
+          toolResults,
+        },
+      });
+      finalText = syn.text;
+      finalHistory = syn.history;
+    }
+
+    cbs.onAssistantText?.(finalText);
+    cbs.onHistory?.(finalHistory);
+
+    const sentences = splitIntoSentences(finalText);
     if (sentences.length === 0) {
       cbs.onDone?.();
       return {
         transcript,
-        assistantText: result.text,
-        history: result.history,
-        toolCalls: result.toolCalls,
+        assistantText: finalText,
+        history: finalHistory,
+        toolCalls: toolResults,
       };
     }
     cbs.onLog?.(`🔊 TTS chunks: ${sentences.length}`);
     const ttsPromises = sentences.map((s) =>
-      deps.synthesize({ data: { text: s } }).catch((err: Error) => ({
-        __error: err.message,
-      })),
+      deps
+        .synthesizeSpeech({ data: { text: s } })
+        .catch((err: Error) => ({ __error: err.message })),
     );
     cbs.onSpeaking?.();
     for (let i = 0; i < ttsPromises.length; i++) {
@@ -181,9 +235,9 @@ export async function runTurn(
 
     return {
       transcript,
-      assistantText: result.text,
-      history: result.history,
-      toolCalls: result.toolCalls,
+      assistantText: finalText,
+      history: finalHistory,
+      toolCalls: toolResults,
     };
   } catch (e) {
     cbs.onError?.((e as Error).message);
