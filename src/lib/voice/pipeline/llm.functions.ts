@@ -62,14 +62,15 @@ const TOOL_DECLS = [
   {
     name: "web_search",
     description:
-      "Search the web for current events, news, prices, finance, weather, health facts. Optional category: 'health' | 'finance' | 'news' | 'shopping' picks a curated trusted-domain filter.",
+      "Search the web for current events, news, prices, finance, weather, health, sports, transport, travel, government info, technology. Pick a category so we apply the curated trusted-domain tier filter.",
     parameters: {
       type: "object",
       properties: {
         query: { type: "string", description: "What to look up on the web." },
         category: {
           type: "string",
-          description: "Optional. health | finance | news | shopping",
+          description:
+            "Optional. health | stocks | finance | hk_news | world_news | shopping | weather | sports | transport | travel | government | technology",
         },
       },
       required: ["query"],
@@ -119,7 +120,11 @@ const NON_HK_HINTS = [
   "usa", "china", "taiwan", "japan", "korea", "tokyo", "beijing", "shanghai",
   "singapore", "uk", "london", "new york", "nasdaq", "s&p", "dow",
 ];
-const LOCAL_CATEGORIES = new Set(["news", "health", "finance", "shopping"]);
+// world_news + technology stay excluded — appending "香港" would bias them.
+const LOCAL_CATEGORIES = new Set([
+  "hk_news", "health", "stocks", "finance", "shopping",
+  "weather", "sports", "transport", "travel", "government",
+]);
 
 const SPORTS_RE =
   /(世界盃|世界杯|歐國盃|歐冠|英超|西甲|意甲|德甲|法甲|港超|nba|epl|mlb|nfl|ufc|世錦|奧運|溫網|美網|法網|澳網|f1|grand prix|決賽|準決賽|分組賽|vs |對|球賽|比分|賽果|score|match)/i;
@@ -153,7 +158,7 @@ function refineQuery(rawQuery: string, category: string): string {
   if (SPORTS_RE.test(q) && !/live score|比分|賽果|score/i.test(q)) {
     q = `${q} live score 比分`;
   }
-  if (isFinanceQuery(q) && !/yahoo finance|google finance/i.test(q)) {
+  if ((category === "stocks" || isFinanceQuery(q)) && !/yahoo finance|google finance/i.test(q)) {
     const ticker = extractTicker(q);
     q = ticker ? `${ticker} ${q} Yahoo Finance quote` : `${q} Yahoo Finance quote`;
   }
@@ -193,7 +198,7 @@ async function fetchWithTimeout(
 
 async function callEdgeSearch(
   fn: string,
-  body: Record<string, string>,
+  body: Record<string, string | number>,
 ): Promise<string> {
   const supabaseUrl = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
   const anon =
@@ -251,28 +256,46 @@ async function runTool(
 
   const category = String(args.category ?? "");
   query = refineQuery(query, category);
-  const body: Record<string, string> = { query };
-  if (category) body.category = category;
+  const body: Record<string, string | number> = { query };
+  if (category) {
+    body.category = category;
+    // Soft Preference Tier 1 — authoritative sources first.
+    body.priority = 1;
+  }
   let summary = await callEdgeSearch(fn, body);
 
-  const isSports = SPORTS_RE.test(query);
+  // Sports self-healing loop — if no score in snippet, retry against Tier 2
+  // domains (livescore/reuters) with a "match report" hint that prefers text
+  // recaps over JS-rendered scoreboards.
+  const isSports = SPORTS_RE.test(query) || category === "sports";
   if (isSports && !snippetHasScore(summary)) {
     await sleep(2000);
-    const retryQuery = `${query.replace(/\s*(live score|比分|賽果)\s*/gi, " ").trim()} match result official score`;
-    const retry = await callEdgeSearch(fn, { query: retryQuery, category: category || "news" });
+    const retryQuery = `${query.replace(/\s*(live score|比分|賽果)\s*/gi, " ").trim()} match report result summary`;
+    const retry = await callEdgeSearch(fn, {
+      query: retryQuery,
+      category: "sports",
+      priority: 2,
+    });
     if (snippetHasScore(retry) || retry.length > summary.length) {
       summary = `${retry}\n\n[fallback from first pass]\n${summary}`;
     }
   }
 
-  if (isFinanceQuery(query)) {
+  // Finance Guard — ONLY for explicit stock-quote queries (category=stocks or
+  // ticker/stock keywords). General finance topics (MPF, insurance, HKMA
+  // rules) must NOT trigger Yahoo+Google dual-source comparison.
+  if (category === "stocks" || (isFinanceQuery(query) && category !== "finance")) {
     const ticker = extractTicker(query);
     const tickerLabel = ticker ?? "(no ticker)";
     const googleQ = ticker
       ? `${ticker} Google Finance price change`
       : `${query.replace(/yahoo finance/gi, "").trim()} Google Finance price change`;
     await sleep(2000);
-    const google = await callEdgeSearch(fn, { query: googleQ, category: "finance" });
+    const google = await callEdgeSearch(fn, {
+      query: googleQ,
+      category: "stocks",
+      priority: 2,
+    });
     summary =
       `[FINANCE GUARD — ticker=${tickerLabel}]\n` +
       `規則: 只可引用緊貼「${tickerLabel}」或公司全名後面嘅數字。其他 ticker 旁邊嘅數字當噪音、唔好用。\n` +

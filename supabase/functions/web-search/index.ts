@@ -22,13 +22,18 @@ function extractSiteDomains(raw: string): { cleaned: string; domains: string[] }
   return { cleaned, domains: Array.from(new Set(domains)) };
 }
 
-async function lookupCategoryDomains(category: string): Promise<string[]> {
+async function lookupCategoryDomains(
+  category: string,
+  priority?: number,
+): Promise<string[]> {
   const url = Deno.env.get("SUPABASE_URL");
   const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
   if (!url || !key) return [];
   try {
+    const priFilter =
+      typeof priority === "number" ? `&priority=eq.${priority}` : "";
     const r = await fetch(
-      `${url}/rest/v1/trusted_domains?category=eq.${encodeURIComponent(category)}&select=domain_query_string`,
+      `${url}/rest/v1/trusted_domains?category=eq.${encodeURIComponent(category)}${priFilter}&select=domain_query_string`,
       { headers: { apikey: key, Authorization: `Bearer ${key}` } },
     );
     if (!r.ok) return [];
@@ -57,9 +62,10 @@ Deno.serve(async (req) => {
       );
     }
 
-    const { query, category } = (await req.json().catch(() => ({}))) as {
+    const { query, category, priority } = (await req.json().catch(() => ({}))) as {
       query?: string;
       category?: string;
+      priority?: number;
     };
     if (!query || typeof query !== "string") {
       return new Response(
@@ -71,7 +77,7 @@ Deno.serve(async (req) => {
     const { cleaned, domains } = extractSiteDomains(query);
     let allDomains = [...domains];
     if (category) {
-      const catDomains = await lookupCategoryDomains(category);
+      const catDomains = await lookupCategoryDomains(category, priority);
       allDomains = Array.from(new Set([...allDomains, ...catDomains]));
     }
 
