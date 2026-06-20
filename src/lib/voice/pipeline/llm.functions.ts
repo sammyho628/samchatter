@@ -256,28 +256,46 @@ async function runTool(
 
   const category = String(args.category ?? "");
   query = refineQuery(query, category);
-  const body: Record<string, string> = { query };
-  if (category) body.category = category;
+  const body: Record<string, string | number> = { query };
+  if (category) {
+    body.category = category;
+    // Soft Preference Tier 1 — authoritative sources first.
+    body.priority = 1;
+  }
   let summary = await callEdgeSearch(fn, body);
 
-  const isSports = SPORTS_RE.test(query);
+  // Sports self-healing loop — if no score in snippet, retry against Tier 2
+  // domains (livescore/reuters) with a "match report" hint that prefers text
+  // recaps over JS-rendered scoreboards.
+  const isSports = SPORTS_RE.test(query) || category === "sports";
   if (isSports && !snippetHasScore(summary)) {
     await sleep(2000);
-    const retryQuery = `${query.replace(/\s*(live score|比分|賽果)\s*/gi, " ").trim()} match result official score`;
-    const retry = await callEdgeSearch(fn, { query: retryQuery, category: category || "news" });
+    const retryQuery = `${query.replace(/\s*(live score|比分|賽果)\s*/gi, " ").trim()} match report result summary`;
+    const retry = await callEdgeSearch(fn, {
+      query: retryQuery,
+      category: "sports",
+      priority: 2,
+    });
     if (snippetHasScore(retry) || retry.length > summary.length) {
       summary = `${retry}\n\n[fallback from first pass]\n${summary}`;
     }
   }
 
-  if (isFinanceQuery(query)) {
+  // Finance Guard — ONLY for explicit stock-quote queries (category=stocks or
+  // ticker/stock keywords). General finance topics (MPF, insurance, HKMA
+  // rules) must NOT trigger Yahoo+Google dual-source comparison.
+  if (category === "stocks" || (isFinanceQuery(query) && category !== "finance")) {
     const ticker = extractTicker(query);
     const tickerLabel = ticker ?? "(no ticker)";
     const googleQ = ticker
       ? `${ticker} Google Finance price change`
       : `${query.replace(/yahoo finance/gi, "").trim()} Google Finance price change`;
     await sleep(2000);
-    const google = await callEdgeSearch(fn, { query: googleQ, category: "finance" });
+    const google = await callEdgeSearch(fn, {
+      query: googleQ,
+      category: "stocks",
+      priority: 2,
+    });
     summary =
       `[FINANCE GUARD — ticker=${tickerLabel}]\n` +
       `規則: 只可引用緊貼「${tickerLabel}」或公司全名後面嘅數字。其他 ticker 旁邊嘅數字當噪音、唔好用。\n` +
