@@ -99,8 +99,9 @@ export function VoiceCompanion() {
   const sessionIdRef = useRef<string>("");
   const transcriptLinesRef = useRef<string[]>([]);
   const executedSearchesRef = useRef<string[]>([]);
-  const promptLoadedRef = useRef(false);
+  const promptLoadedAtRef = useRef<number>(0);
   const promptLoadingRef = useRef(false);
+  const PROMPT_TTL_MS = 30 * 60 * 1000; // 30 min — refetch knowledge/memory/daily cache
 
   const fetchSession = useServerFn(getVoiceSession);
   const saveMemory = useServerFn(summarizeAndSaveSession);
