@@ -381,6 +381,111 @@ export function VoiceCompanion() {
     void loadPromptIfNeeded();
   }, [loadPromptIfNeeded]);
 
+  // Text-mode debug: skips STT entirely. plan → tools (parallel) →
+  // synthesize → TTS, mirroring runTurn but feeding the LLM raw text.
+  const sendTextTurn = useCallback(
+    async (rawText: string) => {
+      const text = rawText.trim();
+      if (!text || textBusy) return;
+      setTextBusy(true);
+      setErrorMsg("");
+      try {
+        await loadPromptIfNeeded();
+        const windowed = historyRef.current.slice(-HISTORY_WINDOW);
+        pushLog("user", `(text) ${text}`);
+        transcriptLinesRef.current.push(`USER: ${text}`);
+        persistTurn("user", text);
+
+        setStatus("thinking");
+        setSearching(false);
+        const plan = await planFn({
+          data: {
+            systemInstruction: promptRef.current,
+            history: windowed,
+            userText: text,
+          },
+        });
+        pushLog(
+          "evt",
+          `🧭 plan · tools=${plan.toolCalls.length}` +
+            (plan.analytical ? " · analytical" : "") +
+            (plan.directAnswer ? " · directAnswer" : ""),
+        );
+
+        let toolResults: ToolCallTrace[] = [];
+        if (plan.toolCalls.length > 0) {
+          setSearching(true);
+          toolResults = await Promise.all(
+            plan.toolCalls.map((c) =>
+              execToolFn({ data: c }).catch(
+                (err: Error): ToolCallTrace => ({
+                  name: c.name,
+                  args: c.args,
+                  summary: `Error: ${err.message}`,
+                }),
+              ),
+            ),
+          );
+          for (const tc of toolResults) {
+            pushLog(
+              "tool",
+              `${tc.name}(${JSON.stringify(tc.args)}) → ${tc.summary.length > 200 ? tc.summary.slice(0, 200) + "…" : tc.summary}`,
+            );
+            const q = tc.args.query;
+            if (typeof q === "string") {
+              executedSearchesRef.current.push(`${tc.name}: ${q}`);
+            }
+          }
+          setSearching(false);
+        }
+
+        let finalText: string;
+        let finalHistory: GeminiTurn[];
+        if (plan.toolCalls.length === 0 && plan.directAnswer) {
+          finalText = plan.directAnswer;
+          finalHistory = [
+            ...windowed,
+            { role: "user", parts: [{ text }] },
+            { role: "model", parts: [{ text: finalText }] },
+          ];
+        } else {
+          const syn = await synthAnswerFn({
+            data: {
+              systemInstruction: promptRef.current,
+              history: windowed,
+              userText: text,
+              toolResults,
+            },
+          });
+          finalText = syn.text;
+          finalHistory = syn.history;
+        }
+
+        pushLog("ai", finalText);
+        transcriptLinesRef.current.push(`AI: ${finalText}`);
+        persistTurn("model", finalText);
+        historyRef.current = sanitizeHistory(finalHistory);
+        setStatus("idle");
+      } catch (err) {
+        const msg = (err as Error).message;
+        pushLog("err", `text turn: ${msg}`);
+        setErrorMsg(msg);
+        setStatus("error");
+      } finally {
+        setTextBusy(false);
+      }
+    },
+    [
+      textBusy,
+      loadPromptIfNeeded,
+      planFn,
+      execToolFn,
+      synthAnswerFn,
+      pushLog,
+      persistTurn,
+    ],
+  );
+
   useEffect(() => {
     const isTyping = () => {
       const el = document.activeElement as HTMLElement | null;
