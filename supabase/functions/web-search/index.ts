@@ -77,7 +77,7 @@ Deno.serve(async (req) => {
     const { cleaned, domains } = extractSiteDomains(query);
     let allDomains = [...domains];
     if (category) {
-      const catDomains = await lookupCategoryDomains(category);
+      const catDomains = await lookupCategoryDomains(category, priority);
       allDomains = Array.from(new Set([...allDomains, ...catDomains]));
     }
 
