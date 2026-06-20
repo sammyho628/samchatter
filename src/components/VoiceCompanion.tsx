@@ -284,8 +284,10 @@ export function VoiceCompanion() {
       },
       {
         transcribe: sttFn,
-        generate: llmFn,
-        synthesize: ttsFn,
+        plan: planFn,
+        executeTool: execToolFn,
+        synthesize: synthAnswerFn,
+        synthesizeSpeech: ttsFn,
         playAudio: (b64) => playBase64Audio(b64),
       },
       {
