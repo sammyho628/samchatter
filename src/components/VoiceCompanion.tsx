@@ -337,7 +337,7 @@ export function VoiceCompanion() {
         },
       },
     );
-  }, [sttFn, llmFn, ttsFn, pushLog, persistTurn]);
+  }, [sttFn, planFn, execToolFn, synthAnswerFn, ttsFn, pushLog, persistTurn]);
 
   const startTalking = useCallback(async () => {
     if (
