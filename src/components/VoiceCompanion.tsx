@@ -19,7 +19,6 @@ import { synthesizeSpeech } from "@/lib/voice/pipeline/tts.functions";
 import { runTurn } from "@/lib/voice/pipeline/orchestrator";
 import {
   startRecording,
-  blobToBase64,
   type RecorderHandle,
 } from "@/lib/voice/pipeline/recorder";
 import {
