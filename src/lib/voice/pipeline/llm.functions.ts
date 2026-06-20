@@ -174,6 +174,13 @@ function snippetHasScore(summary: string): boolean {
   return /\b\d{1,3}\s*[:\-–vs比]\s*\d{1,3}\b/i.test(summary);
 }
 
+// Structured retry delay — used between failed tool call + refined retry.
+// (a) respects upstream search API rate limits ("Too Many Requests")
+// (b) gives the search provider a beat to index fresh content / hit cache
+async function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function fetchWithTimeout(
   url: string,
   init: RequestInit,
