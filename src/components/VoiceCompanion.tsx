@@ -356,7 +356,6 @@ export function VoiceCompanion() {
     setErrorMsg("");
     try {
       await unlockAudio();
-      await loadPromptIfNeeded();
       const handle = await startRecording({
         maxDurationMs: 60_000,
         onAutoStop: () => {
