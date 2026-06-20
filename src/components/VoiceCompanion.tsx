@@ -14,6 +14,7 @@ import {
   executeToolCall,
   synthesizeAnswer,
   type GeminiTurn,
+  type ToolCallTrace,
 } from "@/lib/voice/pipeline/llm.functions";
 import { synthesizeSpeech } from "@/lib/voice/pipeline/tts.functions";
 import { runTurn } from "@/lib/voice/pipeline/orchestrator";
