@@ -132,6 +132,7 @@ export type Database = {
           description: string | null
           domain_query_string: string
           id: number
+          priority: number
         }
         Insert: {
           category: string
@@ -139,6 +140,7 @@ export type Database = {
           description?: string | null
           domain_query_string: string
           id?: number
+          priority?: number
         }
         Update: {
           category?: string
@@ -146,6 +148,7 @@ export type Database = {
           description?: string | null
           domain_query_string?: string
           id?: number
+          priority?: number
         }
         Relationships: []
       }
