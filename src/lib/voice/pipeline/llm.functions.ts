@@ -1,9 +1,14 @@
 // Layer 2: LLM Brain. Routes to Gemini 2.5 Flash, Qwen (DashScope), or
-// xAI Grok based on the voice.llmProvider app_setting. Tool calls
-// (web_search / search_places) run server-side and hit the existing
-// Supabase Edge Functions.
+// xAI Grok via the ModelRouter. Tool calls (web_search / search_places) run
+// server-side and hit the existing Supabase Edge Functions.
+//
+// v1.15.0 split:
+//   - planQueries        → single-pass plan (returns tool calls OR direct answer)
+//   - executeToolCall    → orchestrator runs each planned tool here
+//   - synthesizeAnswer   → final answer from pre-fetched tool results + critic loop
+//   - generateAIResponse → back-compat wrapper around the three above
 import { createServerFn } from "@tanstack/react-start";
-import { readProvidersServerSide } from "../providerSettings.functions";
+import { resolveCriticCaller, resolveLlmModel } from "../modelRouter";
 
 export type GeminiPart =
   | { text: string }
@@ -30,6 +35,13 @@ export type GenerateInput = {
   systemInstruction: string;
   history: GeminiTurn[];
   userText: string;
+};
+
+export type PlannedToolCall = { name: string; args: Record<string, string> };
+export type QueryPlan = {
+  toolCalls: PlannedToolCall[];
+  directAnswer: string;
+  analytical: boolean;
 };
 
 // ---------- shared tool catalog ----------
@@ -65,7 +77,6 @@ const TOOL_DECLS = [
   },
 ];
 
-// Gemini uses uppercase JSONSchema types under functionDeclarations.
 const GEMINI_TOOLS = [
   {
     functionDeclarations: TOOL_DECLS.map((t) => ({
@@ -85,7 +96,6 @@ const GEMINI_TOOLS = [
   },
 ];
 
-// OpenAI-style tool definitions for Qwen + Grok.
 const OPENAI_TOOLS = TOOL_DECLS.map((t) => ({
   type: "function" as const,
   function: {
@@ -95,9 +105,8 @@ const OPENAI_TOOLS = TOOL_DECLS.map((t) => ({
   },
 }));
 
-// Geo-anchoring: if the query is local-intent (news/weather/finance/places/
-// shopping or a generic factual ask) and contains no explicit geography,
-// append "香港" so Tavily returns Hong Kong–relevant results.
+// ---------- query refinement helpers ----------
+
 const HK_HINTS = [
   "香港", "hong kong", "hk", "九龍", "新界", "港島",
   "中環", "尖沙咀", "旺角", "銅鑼灣", "深水埗", "觀塘", "荃灣",
@@ -112,12 +121,9 @@ const NON_HK_HINTS = [
 ];
 const LOCAL_CATEGORIES = new Set(["news", "health", "finance", "shopping"]);
 
-// Sports-intent hint: forces "live score" suffix + enables retry verification.
 const SPORTS_RE =
   /(世界盃|世界杯|歐國盃|歐冠|英超|西甲|意甲|德甲|法甲|港超|nba|epl|mlb|nfl|ufc|世錦|奧運|溫網|美網|法網|澳網|f1|grand prix|決賽|準決賽|分組賽|vs |對|球賽|比分|賽果|score|match)/i;
 
-// Finance-intent hint: ticker symbols (e.g. 1357.HK, 0700.HK, ^HSI, AAPL) or
-// keywords. Triggers Yahoo Finance source-locking + sanity check + dual-source.
 const TICKER_RE = /\b\d{3,5}\.HK\b|\^[A-Z]{2,5}\b|\b[A-Z]{1,5}(?:\.[A-Z]{1,3})?\b\s*(?:stock|股價|股票|報價|quote)/i;
 const FINANCE_RE =
   /(股價|股票|報價|收市|開市|恆指|恆生|港股|美股|a股|日經|納指|道指|nasdaq|s&p|dow|stock|ticker|quote|exchange rate|匯率|加密幣|btc|eth|bitcoin|ethereum)/i;
@@ -129,8 +135,6 @@ function extractTicker(q: string): string | null {
   return m ? m[0].toUpperCase() : null;
 }
 
-// Strip conversational filler so the search engine sees keywords only.
-// Examples removed: 你好/唔該/我想/睇下/同我/幫我/可唔可以/最新情況/啦/呀/喎/嘅/?/？
 const CONVERSATIONAL_RE =
   /(你好|哈囉|hello|hi|唔該|請問|我想|我要|可唔可以|可以唔可以|幫我|同我|搵下|睇下|睇吓|查下|查吓|了解一下|最新情況|情況|啦|呀|喎|啊|㗎|喺度|而家|宜家|依家|^\s*嗯+|嗯+\s*$)/gi;
 
@@ -146,11 +150,9 @@ function refineQuery(rawQuery: string, category: string): string {
   let q = sanitizeQuery(rawQuery);
   if (!q) q = rawQuery.trim();
   if (!q) return q;
-  // Sports → force precision keywords.
   if (SPORTS_RE.test(q) && !/live score|比分|賽果|score/i.test(q)) {
     q = `${q} live score 比分`;
   }
-  // Finance → force Yahoo Finance source + preserve ticker symbol verbatim.
   if (isFinanceQuery(q) && !/yahoo finance|google finance/i.test(q)) {
     const ticker = extractTicker(q);
     q = ticker ? `${ticker} ${q} Yahoo Finance quote` : `${q} Yahoo Finance quote`;
@@ -167,16 +169,10 @@ function refineQuery(rawQuery: string, category: string): string {
   return `${q} 香港`;
 }
 
-// Verification: does snippet actually contain a numeric score? Required
-// for sports queries — generic news pages without digits trigger retry.
 function snippetHasScore(summary: string): boolean {
-  // Look for patterns like "2:1", "2-1", "2 - 1", "贏 3 比 0", "3比2"
   return /\b\d{1,3}\s*[:\-–vs比]\s*\d{1,3}\b/i.test(summary);
 }
 
-// Structured retry delay — used between failed tool call + refined retry.
-// (a) respects upstream search API rate limits ("Too Many Requests")
-// (b) gives the search provider a beat to index fresh content / hit cache
 async function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -229,6 +225,11 @@ async function callEdgeSearch(
   }
 }
 
+// runTool — single tool call. The Finance Guard appended for finance queries
+// is PROMPT INJECTION ONLY (no separate LLM call): the dual-source Yahoo +
+// Google fetch is plain code, results are stitched into a [FINANCE GUARD]
+// text block, and the main LLM (whichever provider ModelRouter selects) does
+// the comparison reasoning. Future readers: do not "fix" this into an LLM call.
 async function runTool(
   name: string,
   args: Record<string, string>,
@@ -248,18 +249,12 @@ async function runTool(
     return callEdgeSearch(fn, { query: cleaned });
   }
 
-  // web_search
   const category = String(args.category ?? "");
   query = refineQuery(query, category);
   const body: Record<string, string> = { query };
   if (category) body.category = category;
   let summary = await callEdgeSearch(fn, body);
 
-  // RESULT VERIFICATION LOOP — sports queries must contain a numeric score.
-  // If first pass returned a generic page, retry once with an aggressive
-  // "official score" / "match result" refinement before giving up.
-  // 2s sleep between attempts: (a) avoids upstream 429 rate limits,
-  // (b) gives the search provider time to surface fresh/cached results.
   const isSports = SPORTS_RE.test(query);
   if (isSports && !snippetHasScore(summary)) {
     await sleep(2000);
@@ -270,10 +265,6 @@ async function runTool(
     }
   }
 
-  // FINANCE VERIFICATION — for stock/index queries, also fetch Google Finance
-  // as a cross-source. Append a [FINANCE GUARD] block instructing the LLM to
-  // DATA-LOCK on numbers adjacent to the ticker, run sanity check, and trigger
-  // the safety phrase if Yahoo/Google numbers disagree or price/change conflict.
   if (isFinanceQuery(query)) {
     const ticker = extractTicker(query);
     const tickerLabel = ticker ?? "(no ticker)";
@@ -292,25 +283,28 @@ async function runTool(
   return summary;
 }
 
-// ---------- Gemini path ----------
+// ---------- LLM callers (ModelRouter-driven) ----------
 
 async function callGemini(
   key: string,
+  model: string,
   systemInstruction: string,
   contents: GeminiTurn[],
+  withTools: boolean,
 ): Promise<{ parts: GeminiPart[] }> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(key)}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
+  const body: Record<string, unknown> = {
+    systemInstruction: { parts: [{ text: systemInstruction }] },
+    contents,
+    generationConfig: { temperature: 0.8, maxOutputTokens: 400 },
+  };
+  if (withTools) body.tools = GEMINI_TOOLS;
   const resp = await fetchWithTimeout(
     url,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: systemInstruction }] },
-        contents,
-        tools: GEMINI_TOOLS,
-        generationConfig: { temperature: 0.8, maxOutputTokens: 400 },
-      }),
+      body: JSON.stringify(body),
     },
     15000,
   );
@@ -323,50 +317,6 @@ async function callGemini(
   };
   return { parts: json.candidates?.[0]?.content?.parts ?? [] };
 }
-
-async function runGemini(
-  data: GenerateInput,
-): Promise<{ text: string; history: GeminiTurn[]; toolCalls: ToolCallTrace[] }> {
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) throw new Error("Missing GEMINI_API_KEY on server");
-
-  const contents: GeminiTurn[] = [
-    ...data.history,
-    { role: "user", parts: [{ text: data.userText }] },
-  ];
-  const toolCalls: ToolCallTrace[] = [];
-
-  for (let step = 0; step < 6; step++) {
-    const { parts } = await callGemini(key, data.systemInstruction, contents);
-    const fnCalls = parts.filter(
-      (p): p is { functionCall: { name: string; args: Record<string, string> } } =>
-        "functionCall" in p,
-    );
-    if (fnCalls.length === 0) {
-      const text = parts
-        .map((p) => ("text" in p ? p.text : ""))
-        .join("")
-        .trim();
-      contents.push({ role: "model", parts });
-      return { text, history: contents, toolCalls };
-    }
-    contents.push({ role: "model", parts });
-    const responses = await Promise.all(
-      fnCalls.map(async (p) => {
-        const { name, args } = p.functionCall;
-        const summary = await runTool(name, args);
-        toolCalls.push({ name, args, summary });
-        return {
-          functionResponse: { name, response: { output: summary } },
-        } as GeminiPart;
-      }),
-    );
-    contents.push({ role: "function", parts: responses });
-  }
-  return { text: "", history: contents, toolCalls };
-}
-
-// ---------- OpenAI-compatible path (Qwen + Grok) ----------
 
 type OAMessage =
   | { role: "system"; content: string }
@@ -381,7 +331,6 @@ type OAToolCall = {
 };
 
 function historyToOpenAI(history: GeminiTurn[]): OAMessage[] {
-  // sanitize: only plain text user/model turns survive client-side already
   const out: OAMessage[] = [];
   for (const t of history) {
     const text = t.parts
@@ -395,128 +344,217 @@ function historyToOpenAI(history: GeminiTurn[]): OAMessage[] {
   return out;
 }
 
-async function runOpenAIChat(
-  data: GenerateInput,
-  cfg: { url: string; model: string; key: string; label: string },
-): Promise<{ text: string; history: GeminiTurn[]; toolCalls: ToolCallTrace[] }> {
-  const messages: OAMessage[] = [
-    { role: "system", content: data.systemInstruction },
-    ...historyToOpenAI(data.history),
-    { role: "user", content: data.userText },
-  ];
-  const toolCalls: ToolCallTrace[] = [];
-
-  for (let step = 0; step < 6; step++) {
-    const resp = await fetchWithTimeout(
-      cfg.url,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${cfg.key}`,
-        },
-        body: JSON.stringify({
-          model: cfg.model,
-          messages,
-          tools: OPENAI_TOOLS,
-          temperature: 0.8,
-          max_tokens: 400,
-        }),
+async function callOpenAIChat(
+  apiUrl: string,
+  model: string,
+  apiKey: string,
+  messages: OAMessage[],
+  withTools: boolean,
+): Promise<{
+  content: string;
+  toolCalls: OAToolCall[];
+}> {
+  const body: Record<string, unknown> = {
+    model,
+    messages,
+    temperature: 0.8,
+    max_tokens: 400,
+  };
+  if (withTools) body.tools = OPENAI_TOOLS;
+  const resp = await fetchWithTimeout(
+    apiUrl,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`,
       },
-      15000,
-    );
-    if (!resp.ok) {
-      const t = await resp.text().catch(() => "");
-      throw new Error(`${cfg.label} ${resp.status}: ${t.slice(0, 500)}`);
-    }
-    const json = (await resp.json()) as {
-      choices?: Array<{
-        message?: {
-          role: "assistant";
-          content?: string | null;
-          tool_calls?: OAToolCall[];
-        };
-      }>;
-    };
-    const msg = json.choices?.[0]?.message;
-    const calls = msg?.tool_calls ?? [];
-    if (calls.length === 0) {
-      const text = (msg?.content ?? "").trim();
-      messages.push({ role: "assistant", content: text });
-      // Convert back to Gemini-shaped history so the client store stays uniform.
-      const history: GeminiTurn[] = [
-        ...data.history,
-        { role: "user", parts: [{ text: data.userText }] },
-        { role: "model", parts: [{ text }] },
-      ];
-      return { text, history, toolCalls };
-    }
-    messages.push({
-      role: "assistant",
-      content: msg?.content ?? null,
-      tool_calls: calls,
-    });
-    for (const c of calls) {
-      let args: Record<string, string> = {};
-      try {
-        args = JSON.parse(c.function.arguments) as Record<string, string>;
-      } catch {
-        args = {};
-      }
-      const summary = await runTool(c.function.name, args);
-      toolCalls.push({ name: c.function.name, args, summary });
-      messages.push({ role: "tool", tool_call_id: c.id, content: summary });
-    }
+      body: JSON.stringify(body),
+    },
+    15000,
+  );
+  if (!resp.ok) {
+    const t = await resp.text().catch(() => "");
+    throw new Error(`${model} ${resp.status}: ${t.slice(0, 500)}`);
   }
-  const history: GeminiTurn[] = [
+  const json = (await resp.json()) as {
+    choices?: Array<{
+      message?: {
+        role: "assistant";
+        content?: string | null;
+        tool_calls?: OAToolCall[];
+      };
+    }>;
+  };
+  const msg = json.choices?.[0]?.message;
+  return {
+    content: (msg?.content ?? "").trim(),
+    toolCalls: msg?.tool_calls ?? [],
+  };
+}
+
+// ---------- PLANNER ----------
+
+const PLANNER_DIRECTIVE = `\n\n[PLANNER ROLE]
+You are in PLANNING phase. Decide which tool calls (web_search / search_places) are needed to answer the user. If multiple facets matter (analytical query: 分析/analyse/summary/總結/報告/詳細/深入), emit at least 3 parallel tool calls covering distinct angles. If no tool is needed (greeting, chit-chat, opinion already in context), reply directly with a short Cantonese answer. Do NOT fabricate facts. Tool args should be concise keyword queries, not the user's raw sentence.`;
+
+const ANALYTICAL_RE =
+  /(分析|analyse|analyze|summary|總結|報告|報導|詳細|深入|全面|comprehensive|review|breakdown|睇下整體|完整|綜合)/i;
+
+async function runPlannerGemini(
+  data: GenerateInput,
+  key: string,
+  model: string,
+): Promise<QueryPlan> {
+  const contents: GeminiTurn[] = [
     ...data.history,
     { role: "user", parts: [{ text: data.userText }] },
   ];
-  return { text: "", history, toolCalls };
-}
-
-async function runQwen(data: GenerateInput) {
-  const key = process.env.DASHSCOPE_API_KEY;
-  if (!key)
-    throw new Error(
-      "Missing DASHSCOPE_API_KEY on server (required for Qwen provider).",
-    );
-  return runOpenAIChat(data, {
-    url: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
-    model: "qwen-plus",
+  const { parts } = await callGemini(
     key,
-    label: "Qwen",
-  });
+    model,
+    data.systemInstruction + PLANNER_DIRECTIVE,
+    contents,
+    true,
+  );
+  const toolCalls: PlannedToolCall[] = [];
+  let directAnswer = "";
+  for (const p of parts) {
+    if ("functionCall" in p) {
+      toolCalls.push({ name: p.functionCall.name, args: p.functionCall.args });
+    } else if ("text" in p) {
+      directAnswer += p.text;
+    }
+  }
+  return {
+    toolCalls,
+    directAnswer: directAnswer.trim(),
+    analytical: ANALYTICAL_RE.test(data.userText),
+  };
 }
 
-async function runGrok(data: GenerateInput) {
-  const key = process.env.XAI_API_KEY;
-  if (!key)
-    throw new Error(
-      "Missing XAI_API_KEY on server (required for Grok provider). Add it under project secrets.",
+async function runPlannerOpenAI(
+  data: GenerateInput,
+  cfg: { apiUrl: string; model: string; apiKey: string },
+): Promise<QueryPlan> {
+  const messages: OAMessage[] = [
+    { role: "system", content: data.systemInstruction + PLANNER_DIRECTIVE },
+    ...historyToOpenAI(data.history),
+    { role: "user", content: data.userText },
+  ];
+  const { content, toolCalls: oaCalls } = await callOpenAIChat(
+    cfg.apiUrl,
+    cfg.model,
+    cfg.apiKey,
+    messages,
+    true,
+  );
+  const toolCalls: PlannedToolCall[] = oaCalls.map((c) => {
+    let args: Record<string, string> = {};
+    try {
+      args = JSON.parse(c.function.arguments) as Record<string, string>;
+    } catch {
+      args = {};
+    }
+    return { name: c.function.name, args };
+  });
+  return {
+    toolCalls,
+    directAnswer: content,
+    analytical: ANALYTICAL_RE.test(data.userText),
+  };
+}
+
+export const planQueries = createServerFn({ method: "POST" })
+  .inputValidator((d: GenerateInput) => d)
+  .handler(async ({ data }): Promise<QueryPlan> => {
+    const m = await resolveLlmModel();
+    if (m.provider === "gemini") return runPlannerGemini(data, m.apiKey, m.model);
+    return runPlannerOpenAI(data, {
+      apiUrl: m.apiUrl,
+      model: m.model,
+      apiKey: m.apiKey,
+    });
+  });
+
+// ---------- EXECUTE TOOL ----------
+
+export const executeToolCall = createServerFn({ method: "POST" })
+  .inputValidator((d: PlannedToolCall) => d)
+  .handler(async ({ data }): Promise<ToolCallTrace> => {
+    const summary = await runTool(data.name, data.args);
+    return { name: data.name, args: data.args, summary };
+  });
+
+// ---------- SYNTHESISER ----------
+
+export type SynthesizeInput = GenerateInput & {
+  toolResults: ToolCallTrace[];
+};
+
+function buildToolResultsBlock(toolResults: ToolCallTrace[]): string {
+  if (toolResults.length === 0) return "";
+  const body = toolResults
+    .map(
+      (t) =>
+        `### ${t.name}(${JSON.stringify(t.args)})\n${t.summary}`,
+    )
+    .join("\n\n");
+  return `\n\n[TOOL RESULTS — use these as the sole source of factual claims]\n${body}\n[/TOOL RESULTS]`;
+}
+
+async function callSynthesiser(
+  systemInstruction: string,
+  history: GeminiTurn[],
+  userText: string,
+): Promise<{ text: string; history: GeminiTurn[] }> {
+  const m = await resolveLlmModel();
+  if (m.provider === "gemini") {
+    const contents: GeminiTurn[] = [
+      ...history,
+      { role: "user", parts: [{ text: userText }] },
+    ];
+    const { parts } = await callGemini(
+      m.apiKey,
+      m.model,
+      systemInstruction,
+      contents,
+      false,
     );
-  return runOpenAIChat(data, {
-    url: "https://api.x.ai/v1/chat/completions",
-    model: "grok-4-latest",
-    key,
-    label: "Grok",
-  });
+    const text = parts
+      .map((p) => ("text" in p ? p.text : ""))
+      .join("")
+      .trim();
+    contents.push({ role: "model", parts: [{ text }] });
+    return { text, history: contents };
+  }
+  const messages: OAMessage[] = [
+    { role: "system", content: systemInstruction },
+    ...historyToOpenAI(history),
+    { role: "user", content: userText },
+  ];
+  const { content } = await callOpenAIChat(
+    m.apiUrl,
+    m.model,
+    m.apiKey,
+    messages,
+    false,
+  );
+  const nextHistory: GeminiTurn[] = [
+    ...history,
+    { role: "user", parts: [{ text: userText }] },
+    { role: "model", parts: [{ text: content }] },
+  ];
+  return { text: content, history: nextHistory };
 }
 
-// ---------- entrypoint ----------
-
-// ---------- Research Agent: Critic layer + Refinement loop ----------
-
-// Detect analytical queries that warrant decomposition + critic review.
-const ANALYTICAL_RE =
-  /(分析|analyse|analyze|summary|總結|報告|報導|詳細|深入|全面|comprehensive|review|breakdown|睇下整體|完整|綜合)/i;
+// ---------- Critic ----------
 
 type CriticVerdict = {
   status: "OK" | "INCOMPLETE" | "LACKS_DEPTH";
   feedback: string;
 };
 
-// Critic prompt — runs a hidden LLM pass to check draft quality.
 function buildCriticPrompt(toolData: string, draft: string): string {
   return `You are a strict QA critic. Review the assistant's DRAFT against the TOOL_DATA gathered from searches.
 
@@ -541,35 +579,18 @@ async function evaluateDraft(
   draft: string,
 ): Promise<CriticVerdict> {
   if (!draft.trim() || !toolData.trim()) return { status: "OK", feedback: "" };
-  const key = process.env.GEMINI_API_KEY;
-  if (!key) return { status: "OK", feedback: "" };
+  const caller = await resolveCriticCaller();
+  if (!caller) return { status: "OK", feedback: "" };
   try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(key)}`;
-    const resp = await fetchWithTimeout(
-      url,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [
-            { role: "user", parts: [{ text: buildCriticPrompt(toolData, draft) }] },
-          ],
-          generationConfig: { temperature: 0.1, maxOutputTokens: 150 },
-        }),
-      },
-      8000,
-    );
-    if (!resp.ok) return { status: "OK", feedback: "" };
-    const json = (await resp.json()) as {
-      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
-    };
-    const raw =
-      json.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
+    const raw = await caller(buildCriticPrompt(toolData, draft));
     const m = raw.match(/\{[\s\S]*\}/);
     if (!m) return { status: "OK", feedback: "" };
     const parsed = JSON.parse(m[0]) as CriticVerdict;
     if (parsed.status === "INCOMPLETE" || parsed.status === "LACKS_DEPTH") {
-      return { status: parsed.status, feedback: String(parsed.feedback ?? "").slice(0, 200) };
+      return {
+        status: parsed.status,
+        feedback: String(parsed.feedback ?? "").slice(0, 200),
+      };
     }
     return { status: "OK", feedback: "" };
   } catch {
@@ -583,56 +604,111 @@ function aggregateToolData(toolCalls: ToolCallTrace[]): string {
     .join("\n\n---\n\n");
 }
 
-export const generateAIResponse = createServerFn({ method: "POST" })
-  .inputValidator((d: GenerateInput) => d)
+export const synthesizeAnswer = createServerFn({ method: "POST" })
+  .inputValidator((d: SynthesizeInput) => d)
   .handler(async ({ data }) => {
-    const { llm } = await readProvidersServerSide();
-    const runner =
-      llm === "qwen" ? runQwen : llm === "grok" ? runGrok : runGemini;
-
     const isAnalytical = ANALYTICAL_RE.test(data.userText);
+    const toolsBlock = buildToolResultsBlock(data.toolResults);
+    let systemInstruction = data.systemInstruction + toolsBlock;
+    let history = data.history;
+    let userText = data.userText;
 
-    let currentInput: GenerateInput = data;
-    let result = await runner(currentInput);
-    const allToolCalls: ToolCallTrace[] = [...result.toolCalls];
+    let result = await callSynthesiser(systemInstruction, history, userText);
 
-    // Refinement loop: max 2 critic-driven retries. Only runs when we have
-    // tool data to verify against (otherwise the critic has nothing to check).
     const MAX_REFINEMENTS = 2;
     for (let loop = 0; loop < MAX_REFINEMENTS; loop++) {
-      if (allToolCalls.length === 0) break;
-      const toolData = aggregateToolData(allToolCalls);
-      const verdict = await evaluateDraft(toolData, result.text);
+      if (data.toolResults.length === 0) break;
+      const verdict = await evaluateDraft(
+        aggregateToolData(data.toolResults),
+        result.text,
+      );
       if (verdict.status === "OK") break;
-
-      // Append critic feedback as a correction instruction for the next pass.
-      const correction = `[CRITIC FEEDBACK — ${verdict.status}]\n${verdict.feedback}\n請根據以上指示，再 call tool 補資料，然後重新回答（唔好淨係 paraphrase 舊答案）。`;
-      currentInput = {
-        systemInstruction: data.systemInstruction + "\n\n" + correction,
-        history: result.history,
-        userText: correction,
-      };
+      const correction = `[CRITIC FEEDBACK — ${verdict.status}]\n${verdict.feedback}\n請根據以上指示，重新整理答案（唔好淨係 paraphrase 舊答案；引用 TOOL RESULTS 入面嘅具體事實）。`;
+      systemInstruction = data.systemInstruction + toolsBlock + "\n\n" + correction;
+      history = result.history;
+      userText = correction;
       try {
-        const refined = await runner(currentInput);
-        allToolCalls.push(...refined.toolCalls);
-        result = {
-          text: refined.text || result.text,
-          history: refined.history,
-          toolCalls: allToolCalls,
-        };
+        result = await callSynthesiser(systemInstruction, history, userText);
       } catch {
         break;
       }
     }
 
-    const text = result.text.trim();
-
     return {
-      text: text || "（系統處理緊有啲慢，請稍後再試吓啦）",
+      text: result.text.trim() || "（系統處理緊有啲慢，請稍後再試吓啦）",
       history: result.history,
-      toolCalls: allToolCalls,
-      provider: llm,
       analytical: isAnalytical,
     };
   });
 
+// ---------- Back-compat wrapper ----------
+// generateAIResponse still exists for any caller using the single-call API.
+// Internally it now runs plan → execute → synthesise sequentially.
+
+export const generateAIResponse = createServerFn({ method: "POST" })
+  .inputValidator((d: GenerateInput) => d)
+  .handler(async ({ data }) => {
+    const m = await resolveLlmModel();
+    const plan =
+      m.provider === "gemini"
+        ? await runPlannerGemini(data, m.apiKey, m.model)
+        : await runPlannerOpenAI(data, {
+            apiUrl: m.apiUrl,
+            model: m.model,
+            apiKey: m.apiKey,
+          });
+
+    // If the planner produced a direct answer and no tools, return it as-is.
+    if (plan.toolCalls.length === 0 && plan.directAnswer) {
+      const nextHistory: GeminiTurn[] = [
+        ...data.history,
+        { role: "user", parts: [{ text: data.userText }] },
+        { role: "model", parts: [{ text: plan.directAnswer }] },
+      ];
+      return {
+        text: plan.directAnswer,
+        history: nextHistory,
+        toolCalls: [] as ToolCallTrace[],
+        provider: m.provider,
+        analytical: plan.analytical,
+      };
+    }
+
+    const toolResults: ToolCallTrace[] = await Promise.all(
+      plan.toolCalls.map(async (c) => ({
+        name: c.name,
+        args: c.args,
+        summary: await runTool(c.name, c.args),
+      })),
+    );
+
+    const toolsBlock = buildToolResultsBlock(toolResults);
+    let systemInstruction = data.systemInstruction + toolsBlock;
+    let history = data.history;
+    let userText = data.userText;
+    let result = await callSynthesiser(systemInstruction, history, userText);
+
+    const MAX_REFINEMENTS = 2;
+    for (let loop = 0; loop < MAX_REFINEMENTS; loop++) {
+      if (toolResults.length === 0) break;
+      const verdict = await evaluateDraft(aggregateToolData(toolResults), result.text);
+      if (verdict.status === "OK") break;
+      const correction = `[CRITIC FEEDBACK — ${verdict.status}]\n${verdict.feedback}\n請根據以上指示，重新整理答案。`;
+      systemInstruction = data.systemInstruction + toolsBlock + "\n\n" + correction;
+      history = result.history;
+      userText = correction;
+      try {
+        result = await callSynthesiser(systemInstruction, history, userText);
+      } catch {
+        break;
+      }
+    }
+
+    return {
+      text: result.text.trim() || "（系統處理緊有啲慢，請稍後再試吓啦）",
+      history: result.history,
+      toolCalls: toolResults,
+      provider: m.provider,
+      analytical: plan.analytical,
+    };
+  });
