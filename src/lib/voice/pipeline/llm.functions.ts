@@ -129,16 +129,6 @@ const LOCAL_CATEGORIES = new Set([
 const SPORTS_RE =
   /(世界盃|世界杯|歐國盃|歐冠|英超|西甲|意甲|德甲|法甲|港超|nba|epl|mlb|nfl|ufc|世錦|奧運|溫網|美網|法網|澳網|f1|grand prix|決賽|準決賽|分組賽|vs |對|球賽|比分|賽果|score|match)/i;
 
-const TICKER_RE = /\b\d{3,5}\.HK\b|\^[A-Z]{2,5}\b|\b[A-Z]{1,5}(?:\.[A-Z]{1,3})?\b\s*(?:stock|股價|股票|報價|quote)/i;
-const FINANCE_RE =
-  /(股價|股票|報價|收市|開市|恆指|恆生|港股|美股|a股|日經|納指|道指|nasdaq|s&p|dow|stock|ticker|quote|exchange rate|匯率|加密幣|btc|eth|bitcoin|ethereum)/i;
-function isFinanceQuery(q: string): boolean {
-  return FINANCE_RE.test(q) || TICKER_RE.test(q);
-}
-function extractTicker(q: string): string | null {
-  const m = q.match(/\b\d{3,5}\.HK\b|\^[A-Z]{2,5}\b/i);
-  return m ? m[0].toUpperCase() : null;
-}
 
 const CONVERSATIONAL_RE =
   /(你好|哈囉|hello|hi|唔該|請問|我想|我要|可唔可以|可以唔可以|幫我|同我|搵下|睇下|睇吓|查下|查吓|了解一下|最新情況|情況|啦|呀|喎|啊|㗎|喺度|而家|宜家|依家|^\s*嗯+|嗯+\s*$)/gi;
@@ -157,10 +147,6 @@ function refineQuery(rawQuery: string, category: string): string {
   if (!q) return q;
   if (SPORTS_RE.test(q) && !/live score|比分|賽果|score/i.test(q)) {
     q = `${q} live score 比分`;
-  }
-  if ((category === "stocks" || isFinanceQuery(q)) && !/yahoo finance|google finance/i.test(q)) {
-    const ticker = extractTicker(q);
-    q = ticker ? `${ticker} ${q} Yahoo Finance quote` : `${q} Yahoo Finance quote`;
   }
   const lower = q.toLowerCase();
   if (HK_HINTS.some((h) => lower.includes(h.toLowerCase()))) return q;
@@ -230,11 +216,10 @@ async function callEdgeSearch(
   }
 }
 
-// runTool — single tool call. The Finance Guard appended for finance queries
-// is PROMPT INJECTION ONLY (no separate LLM call): the dual-source Yahoo +
-// Google fetch is plain code, results are stitched into a [FINANCE GUARD]
-// text block, and the main LLM (whichever provider ModelRouter selects) does
-// the comparison reasoning. Future readers: do not "fix" this into an LLM call.
+// runTool — single tool call. No hardcoded finance handling: ticker
+// extraction, Yahoo/Google dual-source fetch, and Finance Guard prompt
+// injection have been removed. The main LLM (selected by ModelRouter) is
+// responsible for any finance-specific reasoning via the system prompt.
 async function runTool(
   name: string,
   args: Record<string, string>,
@@ -281,28 +266,6 @@ async function runTool(
     }
   }
 
-  // Finance Guard — ONLY for explicit stock-quote queries (category=stocks or
-  // ticker/stock keywords). General finance topics (MPF, insurance, HKMA
-  // rules) must NOT trigger Yahoo+Google dual-source comparison.
-  if (category === "stocks" || (isFinanceQuery(query) && category !== "finance")) {
-    const ticker = extractTicker(query);
-    const tickerLabel = ticker ?? "(no ticker)";
-    const googleQ = ticker
-      ? `${ticker} Google Finance price change`
-      : `${query.replace(/yahoo finance/gi, "").trim()} Google Finance price change`;
-    await sleep(2000);
-    const google = await callEdgeSearch(fn, {
-      query: googleQ,
-      category: "stocks",
-      priority: 2,
-    });
-    summary =
-      `[FINANCE GUARD — ticker=${tickerLabel}]\n` +
-      `規則: 只可引用緊貼「${tickerLabel}」或公司全名後面嘅數字。其他 ticker 旁邊嘅數字當噪音、唔好用。\n` +
-      `Sanity: Price < Prev Close → 必須跌；Price > Prev Close → 必須升。如果唔夾，必須講「數據顯示有衝突，我重新幫你查一次。」然後重新 search。\n` +
-      `如果 Yahoo 同 Google 兩邊主數字差超過 1%，亦觸發 SAFETY TRIGGER。\n\n` +
-      `[YAHOO FINANCE SOURCE]\n${summary}\n\n[GOOGLE FINANCE SOURCE]\n${google}`;
-  }
   return summary;
 }
 
@@ -591,7 +554,7 @@ Rules:
 - If DRAFT says "data not found / 搵唔到 / 暫時冇" BUT TOOL_DATA contains concrete facts (scores, names, dates, numbers) → status=INCOMPLETE
 - If DRAFT lacks concrete facts/scores/numbers that TOOL_DATA provides → status=INCOMPLETE
 - If DRAFT is a shallow one-liner for an analytical query → status=LACKS_DEPTH
-- FINANCE: If TOOL_DATA has [FINANCE GUARD] block and DRAFT's price/change direction conflict (price down but says rise, or vice versa), OR draft uses a number from a different ticker than the one requested, OR Yahoo vs Google numbers in TOOL_DATA differ >1% and draft picks one without flagging → status=INCOMPLETE, feedback must instruct: 講「數據顯示有衝突，我重新幫你查一次。」然後重 search Yahoo Finance + 完整 ticker。
+- If DRAFT contradicts itself on direction (e.g. price down but says "rise") or uses numbers not present in TOOL_DATA → status=INCOMPLETE
 - Otherwise → status=OK
 
 Respond ONLY as compact JSON: {"status":"OK|INCOMPLETE|LACKS_DEPTH","feedback":"specific missing fact or what to search next, in Cantonese, <=80 chars"}`;
