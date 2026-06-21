@@ -276,28 +276,6 @@ async function runTool(
     }
   }
 
-  // Finance Guard — ONLY for explicit stock-quote queries (category=stocks or
-  // ticker/stock keywords). General finance topics (MPF, insurance, HKMA
-  // rules) must NOT trigger Yahoo+Google dual-source comparison.
-  if (category === "stocks" || (isFinanceQuery(query) && category !== "finance")) {
-    const ticker = extractTicker(query);
-    const tickerLabel = ticker ?? "(no ticker)";
-    const googleQ = ticker
-      ? `${ticker} Google Finance price change`
-      : `${query.replace(/yahoo finance/gi, "").trim()} Google Finance price change`;
-    await sleep(2000);
-    const google = await callEdgeSearch(fn, {
-      query: googleQ,
-      category: "stocks",
-      priority: 2,
-    });
-    summary =
-      `[FINANCE GUARD — ticker=${tickerLabel}]\n` +
-      `規則: 只可引用緊貼「${tickerLabel}」或公司全名後面嘅數字。其他 ticker 旁邊嘅數字當噪音、唔好用。\n` +
-      `Sanity: Price < Prev Close → 必須跌；Price > Prev Close → 必須升。如果唔夾，必須講「數據顯示有衝突，我重新幫你查一次。」然後重新 search。\n` +
-      `如果 Yahoo 同 Google 兩邊主數字差超過 1%，亦觸發 SAFETY TRIGGER。\n\n` +
-      `[YAHOO FINANCE SOURCE]\n${summary}\n\n[GOOGLE FINANCE SOURCE]\n${google}`;
-  }
   return summary;
 }
 
