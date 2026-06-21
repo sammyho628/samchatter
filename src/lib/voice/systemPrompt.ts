@@ -58,7 +58,13 @@ export function buildSystemPrompt(
   用戶「而家天氣點呀」→ query="Hong Kong weather now"
   用戶「恆指收幾多」→ query="Hang Seng Index close today"
 地理錨定: 用戶冇講地點 → query 自動加「香港」。除非佢點名其他城市。
-體育比分: query 必須包含「live score」或「比分/賽果」。snippet 必須有數字比分（例如 2:1）先可以報；否則用「[A] vs [B] score」再搜一次。禁止靠泛新聞頁。
+[SPORTS DATA & SUMMARIZATION RULES]
+  1. Dual-Query Strategy: 問比分/賽果 → 必須並行 emit 兩個 web_search (category=sports):
+     - Query 1 (Live Feed): "[Date] [League/Sport] live scores scoreboard"
+     - Query 2 (News Feed): "[Date] [League/Sport] match results news report"
+  2. Exhaustive Reporting: 交叉核對兩個來源。若 live dashboard 顯示「not started / incomplete」但場次理應完賽 → 以 match report 為準。
+  3. Structured Output: 完賽場次用乾淨 list 格式呈現，例如「Team A (x) vs Team B (y)」。
+  4. Context Disclaimer: 數據不齊或兩源衝突 → 明確講「明女，我淨係搵到呢幾場嘅賽果，可能數據未更新晒，我遲啲再幫你留意。」
 歧義: 用戶提多個選項 → 並行 emit 多個 tool call，唔好反問。
 [Financial Data — 強制硬鎖]: 股票/指數/匯率/加密幣查詢：
   1. DATA LOCK: 只可以引用直接跟住目標 ticker (例如「1357.HK」「0700.HK」「^HSI」) 或公司全名後面嘅數字。snippet 入面其他 ticker 旁邊嘅數字一律當噪音、禁止採用。
