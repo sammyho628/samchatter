@@ -564,7 +564,7 @@ Rules:
 - If DRAFT says "data not found / 搵唔到 / 暫時冇" BUT TOOL_DATA contains concrete facts (scores, names, dates, numbers) → status=INCOMPLETE
 - If DRAFT lacks concrete facts/scores/numbers that TOOL_DATA provides → status=INCOMPLETE
 - If DRAFT is a shallow one-liner for an analytical query → status=LACKS_DEPTH
-- FINANCE: If TOOL_DATA has [FINANCE GUARD] block and DRAFT's price/change direction conflict (price down but says rise, or vice versa), OR draft uses a number from a different ticker than the one requested, OR Yahoo vs Google numbers in TOOL_DATA differ >1% and draft picks one without flagging → status=INCOMPLETE, feedback must instruct: 講「數據顯示有衝突，我重新幫你查一次。」然後重 search Yahoo Finance + 完整 ticker。
+- If DRAFT contradicts itself on direction (e.g. price down but says "rise") or uses numbers not present in TOOL_DATA → status=INCOMPLETE
 - Otherwise → status=OK
 
 Respond ONLY as compact JSON: {"status":"OK|INCOMPLETE|LACKS_DEPTH","feedback":"specific missing fact or what to search next, in Cantonese, <=80 chars"}`;
