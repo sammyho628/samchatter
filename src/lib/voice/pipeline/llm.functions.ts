@@ -226,11 +226,10 @@ async function callEdgeSearch(
   }
 }
 
-// runTool — single tool call. The Finance Guard appended for finance queries
-// is PROMPT INJECTION ONLY (no separate LLM call): the dual-source Yahoo +
-// Google fetch is plain code, results are stitched into a [FINANCE GUARD]
-// text block, and the main LLM (whichever provider ModelRouter selects) does
-// the comparison reasoning. Future readers: do not "fix" this into an LLM call.
+// runTool — single tool call. No hardcoded finance handling: ticker
+// extraction, Yahoo/Google dual-source fetch, and Finance Guard prompt
+// injection have been removed. The main LLM (selected by ModelRouter) is
+// responsible for any finance-specific reasoning via the system prompt.
 async function runTool(
   name: string,
   args: Record<string, string>,
