@@ -158,10 +158,6 @@ function refineQuery(rawQuery: string, category: string): string {
   if (SPORTS_RE.test(q) && !/live score|比分|賽果|score/i.test(q)) {
     q = `${q} live score 比分`;
   }
-  if ((category === "stocks" || isFinanceQuery(q)) && !/yahoo finance|google finance/i.test(q)) {
-    const ticker = extractTicker(q);
-    q = ticker ? `${ticker} ${q} Yahoo Finance quote` : `${q} Yahoo Finance quote`;
-  }
   const lower = q.toLowerCase();
   if (HK_HINTS.some((h) => lower.includes(h.toLowerCase()))) return q;
   if (NON_HK_HINTS.some((h) => lower.includes(h.toLowerCase()))) return q;
