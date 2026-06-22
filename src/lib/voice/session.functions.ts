@@ -18,7 +18,7 @@ export const getVoiceSession = createServerFn({ method: "GET" }).handler(
       "@/integrations/supabase/client.server"
     );
 
-    const [ctxRes, promptRes, cacheRes, memRes] = await Promise.all([
+    const [ctxRes, promptRes, personaRes, cacheRes, memRes] = await Promise.all([
       supabaseAdmin
         .from("knowledge_base")
         .select("content_text")
@@ -27,6 +27,11 @@ export const getVoiceSession = createServerFn({ method: "GET" }).handler(
         .from("app_settings")
         .select("value")
         .eq("key", PROMPT_KEY)
+        .maybeSingle(),
+      supabaseAdmin
+        .from("app_settings")
+        .select("value")
+        .eq("key", PERSONA_KEY)
         .maybeSingle(),
       supabaseAdmin
         .from("daily_cache")
