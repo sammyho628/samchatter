@@ -251,7 +251,7 @@ async function runTool(
   // recaps over JS-rendered scoreboards.
   const isSports = SPORTS_RE.test(query) || category === "sports";
   if (isSports && !snippetHasScore(summary)) {
-    await sleep(2000);
+    // No artificial sleep — retry immediately when the first pass returns no score.
     const retryQuery = `${query.replace(/\s*(live score|比分|賽果)\s*/gi, " ").trim()} match report result summary`;
     const retry = await callEdgeSearch(fn, {
       query: retryQuery,
