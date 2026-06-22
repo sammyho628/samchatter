@@ -164,9 +164,6 @@ function snippetHasScore(summary: string): boolean {
   return /\b\d{1,3}\s*[:\-–vs比]\s*\d{1,3}\b/i.test(summary);
 }
 
-async function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 async function fetchWithTimeout(
   url: string,
