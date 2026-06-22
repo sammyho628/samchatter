@@ -51,10 +51,13 @@ export type TurnDeps = {
 };
 
 export type TurnInput = {
-  audio: Blob;
-  mimeType: string;
+  // Either provide raw audio (voice mode) or pre-supplied text (text-mode debug).
+  audio?: Blob;
+  mimeType?: string;
+  text?: string;
   systemInstruction: string;
   history: GeminiTurn[];
+  skipTTS?: boolean;
 };
 
 export type TurnOutput = {
