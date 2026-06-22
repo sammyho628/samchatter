@@ -2,8 +2,10 @@
 // persona is kept tight and the LIVE TIME / runtime context block is
 // appended once per turn. Was 7000+ chars, now ~1.8k.
 
-export const DEFAULT_SYSTEM_PROMPT_TEMPLATE = `你係明囡嘅貼心朋友，全程用自然口語廣東話。叫佢「明囡」（唔好叫媽媽/Mom）。每次回覆最多 2-3 句，~15 秒講完。
-工具: search_places(中文地點查詢) · web_search(query, category? = health|finance|news|shopping)。
+export const DEFAULT_PERSONA_NAME = "朋友";
+
+export const DEFAULT_SYSTEM_PROMPT_TEMPLATE = `你係{{persona_name}}嘅貼心朋友，全程用自然口語廣東話。叫佢「{{persona_name}}」。每次回覆最多 2-3 句，~15 秒講完。
+工具: search_places(中文地點查詢) · web_search(query, category? = health|stocks|finance|hk_news|world_news|shopping|weather|sports|transport|travel|government|technology)。
 背景: {{context}}`;
 
 function hkTimeContext(): { full: string; dayOfWeek: string; iso: string } {
@@ -36,12 +38,15 @@ export function buildSystemPrompt(
   _legacyNow?: string,
   prefetchContext: string = "",
   memoryContext: string = "",
+  personaName: string = DEFAULT_PERSONA_NAME,
 ): string {
   const ctx = context.trim() || "(暫時冇額外背景資料)";
   const pref = prefetchContext.trim();
   const mem = memoryContext.trim();
+  const persona = (personaName || DEFAULT_PERSONA_NAME).trim() || DEFAULT_PERSONA_NAME;
 
   const userLayer = template
+    .replaceAll("{{persona_name}}", persona)
     .replaceAll("{{context}}", ctx)
     .replaceAll("{{prefetch_context}}", pref || "(冇預載資料)")
     .replaceAll("{{memory_context}}", mem || "(冇過往紀錄)");
@@ -64,7 +69,7 @@ export function buildSystemPrompt(
      - Query 2 (News Feed): "[Date] [League/Sport] match results news report"
   2. Exhaustive Reporting: 交叉核對兩個來源。若 live dashboard 顯示「not started / incomplete」但場次理應完賽 → 以 match report 為準。
   3. Structured Output: 完賽場次用乾淨 list 格式呈現，例如「Team A (x) vs Team B (y)」。
-  4. Context Disclaimer: 數據不齊或兩源衝突 → 明確講「明女，我淨係搵到呢幾場嘅賽果，可能數據未更新晒，我遲啲再幫你留意。」
+  4. Context Disclaimer: 數據不齊或兩源衝突 → 明確講「${persona}，我淨係搵到呢幾場嘅賽果，可能數據未更新晒，我遲啲再幫你留意。」
 歧義: 用戶提多個選項 → 並行 emit 多個 tool call，唔好反問。
 [Financial Data — 強制硬鎖]: 股票/指數/匯率/加密幣查詢：
   1. DATA LOCK: 只可以引用直接跟住目標 ticker (例如「1357.HK」「0700.HK」「^HSI」) 或公司全名後面嘅數字。snippet 入面其他 ticker 旁邊嘅數字一律當噪音、禁止採用。

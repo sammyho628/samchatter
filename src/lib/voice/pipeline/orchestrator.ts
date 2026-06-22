@@ -51,10 +51,13 @@ export type TurnDeps = {
 };
 
 export type TurnInput = {
-  audio: Blob;
-  mimeType: string;
+  // Either provide raw audio (voice mode) or pre-supplied text (text-mode debug).
+  audio?: Blob;
+  mimeType?: string;
+  text?: string;
   systemInstruction: string;
   history: GeminiTurn[];
+  skipTTS?: boolean;
 };
 
 export type TurnOutput = {
@@ -122,11 +125,23 @@ export async function runTurn(
   cbs: TurnCallbacks = {},
 ): Promise<TurnOutput | null> {
   try {
-    cbs.onTranscribing?.();
-    const fd = new FormData();
-    fd.append("audio", input.audio, "recording");
-    fd.append("mimeType", input.mimeType);
-    const { transcript } = await deps.transcribe({ data: fd });
+    let transcript: string;
+    if (input.text !== undefined) {
+      // Text-mode debug path — skip STT entirely.
+      transcript = input.text.trim();
+    } else {
+      if (!input.audio || !input.mimeType) {
+        cbs.onError?.("缺少音訊輸入。");
+        cbs.onDone?.();
+        return null;
+      }
+      cbs.onTranscribing?.();
+      const fd = new FormData();
+      fd.append("audio", input.audio, "recording");
+      fd.append("mimeType", input.mimeType);
+      const stt = await deps.transcribe({ data: fd });
+      transcript = stt.transcript;
+    }
     if (!transcript) {
       cbs.onError?.("聽唔清楚，可唔可以講多次？");
       cbs.onDone?.();
@@ -198,7 +213,7 @@ export async function runTurn(
     cbs.onHistory?.(finalHistory);
 
     const sentences = splitIntoSentences(finalText);
-    if (sentences.length === 0) {
+    if (input.skipTTS || sentences.length === 0) {
       cbs.onDone?.();
       return {
         transcript,

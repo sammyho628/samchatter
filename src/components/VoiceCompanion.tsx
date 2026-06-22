@@ -14,7 +14,6 @@ import {
   executeToolCall,
   synthesizeAnswer,
   type GeminiTurn,
-  type ToolCallTrace,
 } from "@/lib/voice/pipeline/llm.functions";
 import { synthesizeSpeech } from "@/lib/voice/pipeline/tts.functions";
 import { runTurn } from "@/lib/voice/pipeline/orchestrator";
@@ -173,17 +172,20 @@ export function VoiceCompanion() {
         timeZone: "Asia/Hong_Kong",
         hour12: false,
       });
+      const personaName =
+        (session as unknown as { personaName?: string }).personaName ?? "朋友";
       const prompt = buildSystemPrompt(
         session.promptTemplate,
         session.contextText,
         nowHK,
         session.prefetchContext,
         session.memoryContext,
+        personaName,
       );
       promptRef.current = prompt;
       promptLoadedAtRef.current = Date.now();
       sessionIdRef.current = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      pushLog("evt", `🕒 HK now: ${nowHK}`);
+      pushLog("evt", `🕒 HK now: ${nowHK} · persona=${personaName}`);
       pushLog(
         "db",
         `✓ session loaded · ctx:${session.contextText.length} prefetch:${session.prefetchContext.length} memory:${session.memoryContext.length}`,
@@ -357,6 +359,10 @@ export function VoiceCompanion() {
       return;
     }
     setErrorMsg("");
+    // Refresh the system prompt if its TTL has expired — guarantees voice
+    // mode never uses a stale prompt even after a long idle session. The
+    // guard inside loadPromptIfNeeded keeps this a no-op when still fresh.
+    void loadPromptIfNeeded();
     try {
       await unlockAudio();
       const handle = await startRecording({
@@ -373,7 +379,7 @@ export function VoiceCompanion() {
       setStatus("error");
       pushLog("err", `mic: ${(err as Error).message}`);
     }
-  }, [status, pushLog, stopTalkingAndSend]);
+  }, [status, pushLog, stopTalkingAndSend, loadPromptIfNeeded]);
 
   // Eager warm-up: fetch session/knowledge/memory/daily cache as soon as the
   // component mounts so the very first tap doesn't pay for it. The guard
@@ -382,8 +388,9 @@ export function VoiceCompanion() {
     void loadPromptIfNeeded();
   }, [loadPromptIfNeeded]);
 
-  // Text-mode debug: skips STT entirely. plan → tools (parallel) →
-  // synthesize → TTS, mirroring runTurn but feeding the LLM raw text.
+  // Text-mode debug: shares the orchestrator's runTurn flow so the plan →
+  // tools → synthesise pipeline can never drift between voice and text. STT
+  // is skipped (input.text supplied) and TTS is skipped (skipTTS=true).
   const sendTextTurn = useCallback(
     async (rawText: string) => {
       const text = rawText.trim();
@@ -393,85 +400,67 @@ export function VoiceCompanion() {
       try {
         await loadPromptIfNeeded();
         const windowed = historyRef.current.slice(-HISTORY_WINDOW);
-        pushLog("user", `(text) ${text}`);
-        transcriptLinesRef.current.push(`USER: ${text}`);
-        persistTurn("user", text);
-
-        setStatus("thinking");
-        setSearching(false);
-        const plan = await planFn({
-          data: {
-            systemInstruction: promptRef.current,
-            history: windowed,
-            userText: text,
-          },
-        });
         pushLog(
           "evt",
-          `🧭 plan · tools=${plan.toolCalls.length}` +
-            (plan.analytical ? " · analytical" : "") +
-            (plan.directAnswer ? " · directAnswer" : ""),
+          `🧠 LLM history window: ${windowed.length}/${historyRef.current.length} turns (text mode)`,
         );
 
-        let toolResults: ToolCallTrace[] = [];
-        if (plan.toolCalls.length > 0) {
-          setSearching(true);
-          toolResults = await Promise.all(
-            plan.toolCalls.map((c) =>
-              execToolFn({ data: c }).catch(
-                (err: Error): ToolCallTrace => ({
-                  name: c.name,
-                  args: c.args,
-                  summary: `Error: ${err.message}`,
-                }),
-              ),
-            ),
-          );
-          for (const tc of toolResults) {
-            pushLog(
-              "tool",
-              `${tc.name}(${JSON.stringify(tc.args)}) → ${tc.summary.length > 200 ? tc.summary.slice(0, 200) + "…" : tc.summary}`,
-            );
-            const q = tc.args.query;
-            if (typeof q === "string") {
-              executedSearchesRef.current.push(`${tc.name}: ${q}`);
-            }
-          }
-          setSearching(false);
-        }
-
-        let finalText: string;
-        let finalHistory: GeminiTurn[];
-        if (plan.toolCalls.length === 0 && plan.directAnswer) {
-          finalText = plan.directAnswer;
-          finalHistory = [
-            ...windowed,
-            { role: "user", parts: [{ text }] },
-            { role: "model", parts: [{ text: finalText }] },
-          ];
-        } else {
-          const syn = await synthAnswerFn({
-            data: {
-              systemInstruction: promptRef.current,
-              history: windowed,
-              userText: text,
-              toolResults,
+        await runTurn(
+          {
+            text,
+            systemInstruction: promptRef.current,
+            history: windowed,
+            skipTTS: true,
+          },
+          {
+            transcribe: sttFn,
+            plan: planFn,
+            executeTool: execToolFn,
+            synthesize: synthAnswerFn,
+            synthesizeSpeech: ttsFn,
+            playAudio: (b64) => playBase64Audio(b64),
+          },
+          {
+            onTranscript: (t) => {
+              pushLog("user", `(text) ${t}`);
+              transcriptLinesRef.current.push(`USER: ${t}`);
+              persistTurn("user", t);
             },
-          });
-          finalText = syn.text;
-          finalHistory = syn.history;
-        }
-
-        pushLog("ai", finalText);
-        transcriptLinesRef.current.push(`AI: ${finalText}`);
-        persistTurn("model", finalText);
-        historyRef.current = sanitizeHistory(finalHistory);
-        setStatus("idle");
-      } catch (err) {
-        const msg = (err as Error).message;
-        pushLog("err", `text turn: ${msg}`);
-        setErrorMsg(msg);
-        setStatus("error");
+            onThinking: () => {
+              setStatus("thinking");
+              setSearching(false);
+            },
+            onToolCall: (t) => {
+              setSearching(true);
+              pushLog(
+                "tool",
+                `${t.name}(${JSON.stringify(t.args)}) → ${t.summary.length > 200 ? t.summary.slice(0, 200) + "…" : t.summary}`,
+              );
+              const q = t.args.query;
+              if (typeof q === "string") {
+                executedSearchesRef.current.push(`${t.name}: ${q}`);
+              }
+            },
+            onAssistantText: (t) => {
+              pushLog("ai", t);
+              transcriptLinesRef.current.push(`AI: ${t}`);
+              persistTurn("model", t);
+            },
+            onHistory: (h) => {
+              historyRef.current = sanitizeHistory(h);
+            },
+            onLog: (m) => pushLog("evt", m),
+            onDone: () => {
+              setSearching(false);
+              setStatus((s) => (s === "error" ? s : "idle"));
+            },
+            onError: (msg) => {
+              pushLog("err", msg);
+              setErrorMsg(msg);
+              setStatus("error");
+            },
+          },
+        );
       } finally {
         setTextBusy(false);
       }
@@ -479,9 +468,11 @@ export function VoiceCompanion() {
     [
       textBusy,
       loadPromptIfNeeded,
+      sttFn,
       planFn,
       execToolFn,
       synthAnswerFn,
+      ttsFn,
       pushLog,
       persistTurn,
     ],

@@ -164,9 +164,6 @@ function snippetHasScore(summary: string): boolean {
   return /\b\d{1,3}\s*[:\-–vs比]\s*\d{1,3}\b/i.test(summary);
 }
 
-async function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
 
 async function fetchWithTimeout(
   url: string,
@@ -254,7 +251,7 @@ async function runTool(
   // recaps over JS-rendered scoreboards.
   const isSports = SPORTS_RE.test(query) || category === "sports";
   if (isSports && !snippetHasScore(summary)) {
-    await sleep(2000);
+    // No artificial sleep — retry immediately when the first pass returns no score.
     const retryQuery = `${query.replace(/\s*(live score|比分|賽果)\s*/gi, " ").trim()} match report result summary`;
     const retry = await callEdgeSearch(fn, {
       query: retryQuery,

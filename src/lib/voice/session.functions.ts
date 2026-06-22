@@ -1,8 +1,12 @@
 import { createServerFn } from "@tanstack/react-start";
-import { DEFAULT_SYSTEM_PROMPT_TEMPLATE } from "./systemPrompt";
+import {
+  DEFAULT_SYSTEM_PROMPT_TEMPLATE,
+  DEFAULT_PERSONA_NAME,
+} from "./systemPrompt";
 import { callUtilityChat } from "./modelRouter";
 
 const PROMPT_KEY = "voice.systemPromptTemplate.v1";
+const PERSONA_KEY = "voice.personaName.v1";
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 const CACHE_TOPICS = ["hk_weather", "hk_news"];
 
@@ -14,7 +18,7 @@ export const getVoiceSession = createServerFn({ method: "GET" }).handler(
       "@/integrations/supabase/client.server"
     );
 
-    const [ctxRes, promptRes, cacheRes, memRes] = await Promise.all([
+    const [ctxRes, promptRes, personaRes, cacheRes, memRes] = await Promise.all([
       supabaseAdmin
         .from("knowledge_base")
         .select("content_text")
@@ -23,6 +27,11 @@ export const getVoiceSession = createServerFn({ method: "GET" }).handler(
         .from("app_settings")
         .select("value")
         .eq("key", PROMPT_KEY)
+        .maybeSingle(),
+      supabaseAdmin
+        .from("app_settings")
+        .select("value")
+        .eq("key", PERSONA_KEY)
         .maybeSingle(),
       supabaseAdmin
         .from("daily_cache")
@@ -48,6 +57,10 @@ export const getVoiceSession = createServerFn({ method: "GET" }).handler(
     const promptTemplate =
       (promptRes.data?.value as string | undefined) ??
       DEFAULT_SYSTEM_PROMPT_TEMPLATE;
+
+    const personaName =
+      ((personaRes.data?.value as string | undefined) ?? "").trim() ||
+      DEFAULT_PERSONA_NAME;
 
     // Build prefetch_context from daily_cache. If ANY topic is stale or
     // missing we AWAIT the refresh (accept latency for accuracy), then
@@ -92,7 +105,7 @@ export const getVoiceSession = createServerFn({ method: "GET" }).handler(
     }));
 
 
-    // Build memory_context
+    // Build memory_context (Cantonese label — persona-agnostic).
     const memRows = (memRes.data ?? []) as Array<{
       summary_date: string;
       conversation_summary: string;
@@ -100,13 +113,14 @@ export const getVoiceSession = createServerFn({ method: "GET" }).handler(
     const memoryContext = memRows
       .map(
         (m) =>
-          `【Past Memory】 On ${m.summary_date}: ${m.conversation_summary}`,
+          `【往績】${m.summary_date}：${m.conversation_summary}`,
       )
       .join("\n");
 
     return {
       contextText,
       promptTemplate,
+      personaName,
       prefetchContext,
       memoryContext,
       cacheMeta,
