@@ -1,8 +1,12 @@
 import { createServerFn } from "@tanstack/react-start";
-import { DEFAULT_SYSTEM_PROMPT_TEMPLATE } from "./systemPrompt";
+import {
+  DEFAULT_SYSTEM_PROMPT_TEMPLATE,
+  DEFAULT_PERSONA_NAME,
+} from "./systemPrompt";
 import { callUtilityChat } from "./modelRouter";
 
 const PROMPT_KEY = "voice.systemPromptTemplate.v1";
+const PERSONA_KEY = "voice.personaName.v1";
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 const CACHE_TOPICS = ["hk_weather", "hk_news"];
 
