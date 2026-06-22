@@ -360,6 +360,10 @@ export function VoiceCompanion() {
       return;
     }
     setErrorMsg("");
+    // Refresh the system prompt if its TTL has expired — guarantees voice
+    // mode never uses a stale prompt even after a long idle session. The
+    // guard inside loadPromptIfNeeded keeps this a no-op when still fresh.
+    void loadPromptIfNeeded();
     try {
       await unlockAudio();
       const handle = await startRecording({
@@ -376,7 +380,7 @@ export function VoiceCompanion() {
       setStatus("error");
       pushLog("err", `mic: ${(err as Error).message}`);
     }
-  }, [status, pushLog, stopTalkingAndSend]);
+  }, [status, pushLog, stopTalkingAndSend, loadPromptIfNeeded]);
 
   // Eager warm-up: fetch session/knowledge/memory/daily cache as soon as the
   // component mounts so the very first tap doesn't pay for it. The guard
