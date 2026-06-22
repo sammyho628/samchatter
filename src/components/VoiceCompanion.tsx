@@ -173,17 +173,20 @@ export function VoiceCompanion() {
         timeZone: "Asia/Hong_Kong",
         hour12: false,
       });
+      const personaName =
+        (session as unknown as { personaName?: string }).personaName ?? "朋友";
       const prompt = buildSystemPrompt(
         session.promptTemplate,
         session.contextText,
         nowHK,
         session.prefetchContext,
         session.memoryContext,
+        personaName,
       );
       promptRef.current = prompt;
       promptLoadedAtRef.current = Date.now();
       sessionIdRef.current = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      pushLog("evt", `🕒 HK now: ${nowHK}`);
+      pushLog("evt", `🕒 HK now: ${nowHK} · persona=${personaName}`);
       pushLog(
         "db",
         `✓ session loaded · ctx:${session.contextText.length} prefetch:${session.prefetchContext.length} memory:${session.memoryContext.length}`,
