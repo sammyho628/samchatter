@@ -213,7 +213,7 @@ export async function runTurn(
     cbs.onHistory?.(finalHistory);
 
     const sentences = splitIntoSentences(finalText);
-    if (sentences.length === 0) {
+    if (input.skipTTS || sentences.length === 0) {
       cbs.onDone?.();
       return {
         transcript,
