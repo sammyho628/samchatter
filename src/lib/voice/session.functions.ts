@@ -58,6 +58,10 @@ export const getVoiceSession = createServerFn({ method: "GET" }).handler(
       (promptRes.data?.value as string | undefined) ??
       DEFAULT_SYSTEM_PROMPT_TEMPLATE;
 
+    const personaName =
+      ((personaRes.data?.value as string | undefined) ?? "").trim() ||
+      DEFAULT_PERSONA_NAME;
+
     // Build prefetch_context from daily_cache. If ANY topic is stale or
     // missing we AWAIT the refresh (accept latency for accuracy), then
     // re-read the cache so the LLM always gets fresh data.
@@ -101,7 +105,7 @@ export const getVoiceSession = createServerFn({ method: "GET" }).handler(
     }));
 
 
-    // Build memory_context
+    // Build memory_context (Cantonese label — persona-agnostic).
     const memRows = (memRes.data ?? []) as Array<{
       summary_date: string;
       conversation_summary: string;
@@ -109,13 +113,14 @@ export const getVoiceSession = createServerFn({ method: "GET" }).handler(
     const memoryContext = memRows
       .map(
         (m) =>
-          `【Past Memory】 On ${m.summary_date}: ${m.conversation_summary}`,
+          `【往績】${m.summary_date}：${m.conversation_summary}`,
       )
       .join("\n");
 
     return {
       contextText,
       promptTemplate,
+      personaName,
       prefetchContext,
       memoryContext,
       cacheMeta,
