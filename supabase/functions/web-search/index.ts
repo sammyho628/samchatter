@@ -70,10 +70,10 @@ function localeForCategory(category?: string): { lang: string; country: string }
     return { lang: "en", country: "us" };
   }
   if (category && HK_CATEGORIES.has(category)) {
-    return { lang: "zh", country: "hk" };
+    return { lang: "zh-hant", country: "hk" };
   }
   // Default: HK-local
-  return { lang: "zh", country: "hk" };
+  return { lang: "zh-hant", country: "hk" };
 }
 
 Deno.serve(async (req) => {
