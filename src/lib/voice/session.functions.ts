@@ -7,16 +7,35 @@ import { callUtilityChat } from "./modelRouter";
 
 const PROMPT_KEY = "voice.systemPromptTemplate.v1";
 const PERSONA_KEY = "voice.personaName.v1";
-const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
-const CACHE_TOPICS = ["hk_weather", "hk_news"];
+const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour for weather + news
+const US_MARKET_TTL_MS = 3 * 60 * 60 * 1000; // 3 hours for US market
+const CACHE_TOPICS = ["hk_weather", "hk_news", "us_market_morning"];
+
+function isHKMorning(): boolean {
+  const hkHour = parseInt(
+    new Date().toLocaleString("en-CA", {
+      timeZone: "Asia/Hong_Kong",
+      hour: "numeric",
+      hour12: false,
+    }),
+    10,
+  );
+  return hkHour >= 6 && hkHour < 11;
+}
+
+function ttlForTopic(topic: string): number {
+  return topic === "us_market_morning" ? US_MARKET_TTL_MS : CACHE_TTL_MS;
+}
 
 export const getVoiceSession = createServerFn({ method: "GET" }).handler(
   async () => {
-    // NOTE: do not return GEMINI_API_KEY — Layer 2 (llm.functions.ts) calls
-    // Gemini server-side; the key must never reach the browser.
     const { supabaseAdmin } = await import(
       "@/integrations/supabase/client.server"
     );
+
+    const activeTopics = isHKMorning()
+      ? ["hk_weather", "hk_news", "us_market_morning"]
+      : ["hk_weather", "hk_news"];
 
     const [ctxRes, promptRes, personaRes, cacheRes, memRes] = await Promise.all([
       supabaseAdmin
@@ -36,7 +55,7 @@ export const getVoiceSession = createServerFn({ method: "GET" }).handler(
       supabaseAdmin
         .from("daily_cache")
         .select("topic, content, updated_at")
-        .in("topic", CACHE_TOPICS),
+        .in("topic", activeTopics),
       supabaseAdmin
         .from("chat_memory")
         .select("summary_date, conversation_summary")
@@ -62,9 +81,6 @@ export const getVoiceSession = createServerFn({ method: "GET" }).handler(
       ((personaRes.data?.value as string | undefined) ?? "").trim() ||
       DEFAULT_PERSONA_NAME;
 
-    // Build prefetch_context from daily_cache. If ANY topic is stale or
-    // missing we AWAIT the refresh (accept latency for accuracy), then
-    // re-read the cache so the LLM always gets fresh data.
     const now = Date.now();
     let cacheRows = (cacheRes.data ?? []) as Array<{
       topic: string;
@@ -72,9 +88,9 @@ export const getVoiceSession = createServerFn({ method: "GET" }).handler(
       updated_at: string;
     }>;
     const staleTopics: string[] = [];
-    for (const t of CACHE_TOPICS) {
+    for (const t of activeTopics) {
       const row = cacheRows.find((r) => r.topic === t);
-      if (!row || now - new Date(row.updated_at).getTime() > CACHE_TTL_MS) {
+      if (!row || now - new Date(row.updated_at).getTime() > ttlForTopic(t)) {
         staleTopics.push(t);
       }
     }
@@ -90,7 +106,7 @@ export const getVoiceSession = createServerFn({ method: "GET" }).handler(
       const reread = await supabaseAdmin
         .from("daily_cache")
         .select("topic, content, updated_at")
-        .in("topic", CACHE_TOPICS);
+        .in("topic", activeTopics);
       cacheRows = (reread.data ?? []) as typeof cacheRows;
     }
 
@@ -104,17 +120,12 @@ export const getVoiceSession = createServerFn({ method: "GET" }).handler(
       chars: r.content.length,
     }));
 
-
-    // Build memory_context (Cantonese label — persona-agnostic).
     const memRows = (memRes.data ?? []) as Array<{
       summary_date: string;
       conversation_summary: string;
     }>;
     const memoryContext = memRows
-      .map(
-        (m) =>
-          `【往績】${m.summary_date}：${m.conversation_summary}`,
-      )
+      .map((m) => `【往績】${m.summary_date}：${m.conversation_summary}`)
       .join("\n");
 
     return {
@@ -129,65 +140,33 @@ export const getVoiceSession = createServerFn({ method: "GET" }).handler(
 );
 
 async function refreshTopicsBackground(topics: string[]) {
-  const tavilyKey = process.env.TAVILY_API_KEY;
-  if (!tavilyKey) {
-    console.warn(
-      "[VoiceSession] TAVILY_API_KEY missing — cannot refresh daily_cache. Skipping.",
-    );
-    return;
-  }
   const { supabaseAdmin } = await import(
     "@/integrations/supabase/client.server"
   );
-  const queries: Record<string, string> = {
-    hk_weather:
-      "香港今日天氣預報 氣溫 降雨 (請以繁體中文 zh-HK 回答，不要使用英文)",
-    hk_news:
-      "香港今日頭條新聞 (請以繁體中文 zh-HK 回答，不要使用英文) site:rthk.hk OR site:hk01.com OR site:mingpao.com",
-  };
+
   await Promise.all(
     topics.map(async (topic) => {
-      const q = queries[topic];
-      if (!q) return;
       try {
-        const resp = await fetch("https://api.tavily.com/search", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${tavilyKey}`,
-          },
-          body: JSON.stringify({
-            query: q,
-            search_depth: "basic",
-            include_answer: true,
-            max_results: 3,
-          }),
-        });
-        if (!resp.ok) {
-          const body = await resp.text().catch(() => "");
-          console.error(
-            `[VoiceSession] Tavily ${topic} failed ${resp.status}:`,
-            body.slice(0, 300),
-          );
-          return;
+        let rawContent = "";
+        if (topic === "hk_weather") {
+          rawContent = await fetchHKOWeather();
+        } else if (topic === "hk_news") {
+          rawContent = await scrapeViaEdge([
+            "https://news.rthk.hk/rthk/ch/latest-news.htm",
+            "https://hk.yahoo.com/",
+          ]);
+        } else if (topic === "us_market_morning") {
+          rawContent = await scrapeViaEdge([
+            "https://tradingeconomics.com/united-states/stock-market",
+          ]);
         }
-        const data = (await resp.json()) as {
-          answer?: string;
-          results?: Array<{ title?: string; content?: string }>;
-        };
-        const parts: string[] = [];
-        if (data.answer) parts.push(data.answer);
-        (data.results ?? []).slice(0, 3).forEach((r) => {
-          const t = r.title ?? "";
-          const c = (r.content ?? "").replace(/\s+/g, " ").trim().slice(0, 300);
-          if (t || c) parts.push(`${t}: ${c}`);
-        });
-        const rawContent = parts.join("\n").slice(0, 2000);
+
         if (!rawContent) {
-          console.warn(`[VoiceSession] Tavily ${topic} returned empty content`);
+          console.warn(`[VoiceSession] ${topic} returned empty content`);
           return;
         }
-        const content = await translateToTraditionalChinese(rawContent, topic);
+
+        const content = await summariseTopic(rawContent, topic);
         const { error } = await supabaseAdmin
           .from("daily_cache")
           .upsert(
@@ -205,26 +184,143 @@ async function refreshTopicsBackground(topics: string[]) {
           );
         }
       } catch (e) {
-        console.error("Cache refresh failed:", e);
+        console.error(`[VoiceSession] refresh ${topic} failed:`, e);
       }
     }),
   );
 }
 
-async function translateToTraditionalChinese(
-  raw: string,
-  topic: string,
-): Promise<string> {
+async function fetchHKOWeather(): Promise<string> {
+  const BASE = "https://data.weather.gov.hk/weatherAPI/opendata/weather.php";
+  const [flwResp, fndResp, rhrResp] = await Promise.all([
+    fetch(`${BASE}?dataType=flw&lang=tc`),
+    fetch(`${BASE}?dataType=fnd&lang=tc`),
+    fetch(`${BASE}?dataType=rhrread&lang=tc`),
+  ]);
+
+  const TARGET_DISTRICTS = ["東區", "赤柱", "沙田", "西貢", "中西區"];
+  const parts: string[] = [];
+
+  if (flwResp.ok) {
+    const flw = (await flwResp.json()) as {
+      generalSituation?: string;
+      forecastPeriod?: string;
+      forecastDesc?: string;
+      outlook?: string;
+    };
+    parts.push(
+      `[本港天氣預報]\n${flw.generalSituation ?? ""}\n${flw.forecastPeriod ?? ""}: ${flw.forecastDesc ?? ""}\n展望: ${flw.outlook ?? ""}`,
+    );
+  }
+
+  if (fndResp.ok) {
+    const fnd = (await fndResp.json()) as {
+      weatherForecast?: Array<{
+        forecastDate?: string;
+        week?: string;
+        forecastWeather?: string;
+        forecastMaxtemp?: { value?: number };
+        forecastMintemp?: { value?: number };
+        PSR?: string;
+      }>;
+    };
+    const days = (fnd.weatherForecast ?? [])
+      .slice(0, 4)
+      .map(
+        (d) =>
+          `${d.forecastDate} (${d.week}): ${d.forecastWeather} 最高${d.forecastMaxtemp?.value}°C 最低${d.forecastMintemp?.value}°C 降雨概率:${d.PSR}`,
+      );
+    parts.push(`[九天預報(首4天)]\n${days.join("\n")}`);
+  }
+
+  if (rhrResp.ok) {
+    const rhr = (await rhrResp.json()) as {
+      temperature?: { data?: Array<{ place?: string; value?: number }> };
+      humidity?: { data?: Array<{ place?: string; value?: number }> };
+    };
+    const tempArr = rhr.temperature?.data ?? [];
+    const humArr = rhr.humidity?.data ?? [];
+    const temps = tempArr
+      .filter((t) => TARGET_DISTRICTS.some((d) => t.place?.includes(d)))
+      .map((t) => `${t.place}: ${t.value}°C`);
+    const hums = humArr
+      .filter((h) => TARGET_DISTRICTS.some((d) => h.place?.includes(d)))
+      .map((h) => `${h.place}: ${h.value}%`);
+    if (temps.length > 0) parts.push(`[各區氣溫]\n${temps.join(", ")}`);
+    if (hums.length > 0) parts.push(`[各區濕度]\n${hums.join(", ")}`);
+  }
+
+  return parts.join("\n\n");
+}
+
+async function scrapeViaEdge(urls: string[]): Promise<string> {
+  const supabaseUrl = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
+  const anon =
+    process.env.SUPABASE_PUBLISHABLE_KEY ??
+    process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+  if (!supabaseUrl || !anon) return "";
+
+  const results = await Promise.all(
+    urls.map(async (url) => {
+      try {
+        const r = await fetch(`${supabaseUrl}/functions/v1/web-scrape`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: anon,
+            Authorization: `Bearer ${anon}`,
+          },
+          body: JSON.stringify({ url }),
+        });
+        if (!r.ok) return "";
+        const j = (await r.json()) as { summary?: string };
+        return j.summary ?? "";
+      } catch {
+        return "";
+      }
+    }),
+  );
+
+  return results.filter(Boolean).join("\n\n---\n\n").slice(0, 4000);
+}
+
+async function summariseTopic(raw: string, topic: string): Promise<string> {
+  const now = new Date();
+  const hkDateFull = now.toLocaleString("zh-HK", {
+    timeZone: "Asia/Hong_Kong",
+    dateStyle: "full",
+    timeStyle: "short",
+  });
+  const hkDateISO = now.toLocaleString("en-CA", {
+    timeZone: "Asia/Hong_Kong",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const dateContext = `今日日期時間（香港）：${hkDateFull}（${hkDateISO}）。所有「今日」「明日」「後日」「本週」必須以此日期為基準計算。`;
+
+  const topicInstructions: Record<string, string> = {
+    hk_weather: `${dateContext}\n\n你係香港天氣播報員。根據以下 HKO 天文台 API 數據，用繁體中文（香港口語）寫一段簡短天氣播報（200字內）。重點：今日天氣概況、各區氣溫（東區、赤柱、沙田、西貢、中西區）、明日展望。要有點個人色彩，例如「今日出街記得帶遮」呢類貼心提示。唔好用 markdown，純文字。`,
+    hk_news: `${dateContext}\n\n你係香港新聞編輯。根據以下網頁內容，用繁體中文（香港）總結今日 3-5 條最重要新聞頭條，每條一句。唔好用 markdown，純文字。`,
+    us_market_morning: `${dateContext}\n\n你係財經播報員。根據以下數據，用繁體中文（香港）簡短總結美國股市昨晚表現（道指、標普500、納指方向及幅度），並點出主要原因（如有）。100字內。唔好用 markdown，純文字。`,
+  };
+
+  const systemPrompt =
+    topicInstructions[topic] ??
+    `${dateContext}\n\n請用繁體中文（香港）將以下內容總結成簡短播報稿（200字內）。唔好用 markdown，純文字。`;
+
   try {
     const out = await callUtilityChat({
-      system:
-        "You are a Hong Kong news/weather editor. You MUST return the summary EXCLUSIVELY in Traditional Chinese (zh-HK / 繁體中文 香港用語). Do NOT use English, Simplified Chinese, or any other language. Keep it concise (under 400 字). No preamble, no markdown — plain prose only.",
-      user: `主題：${topic}\n\n原始資料：\n${raw}\n\n請用繁體中文（香港）總結成簡短播報稿。`,
+      system: systemPrompt,
+      user: `原始資料：\n${raw.slice(0, 3000)}`,
       maxTokens: 600,
     });
-    return out && out.length > 0 ? out : raw;
+    return out && out.length > 0 ? out : raw.slice(0, 1000);
   } catch (e) {
-    console.error(`[VoiceSession] Translation ${topic} failed:`, e);
-    return raw;
+    console.error(`[VoiceSession] summarise ${topic} failed:`, e);
+    return raw.slice(0, 1000);
   }
 }
+
+// Keep CACHE_TOPICS exported reference avoidance — referenced for documentation.
+void CACHE_TOPICS;
