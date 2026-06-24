@@ -76,6 +76,25 @@ const TOOL_DECLS = [
       required: ["query"],
     },
   },
+  {
+    name: "scrape_page",
+    description:
+      "Scrape a specific known URL to get live page content. Use this when you know the exact URL — e.g. a Yahoo Finance quote page for a specific stock ticker, a sports match page, or a TradingEconomics market page. Returns cleaned markdown content from the live page.",
+    parameters: {
+      type: "object",
+      properties: {
+        url: {
+          type: "string",
+          description: "The exact URL to scrape. Must be a complete URL starting with https://.",
+        },
+        reason: {
+          type: "string",
+          description: "Brief explanation of what you expect to find at this URL.",
+        },
+      },
+      required: ["url"],
+    },
+  },
 ];
 
 const GEMINI_TOOLS = [
