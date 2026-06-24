@@ -570,12 +570,23 @@ async function callSynthesiser(
       contents,
       false,
     );
-    const text = parts
-      .map((p) => ("text" in p ? p.text : ""))
-      .join("")
-      .trim();
+    let text = "";
+    try {
+      text =
+        parts
+          ?.map((p) =>
+            "text" in p && typeof (p as { text?: string }).text === "string"
+              ? (p as { text: string }).text
+              : "",
+          )
+          .join("")
+          .trim() ?? "";
+    } catch {
+      text = "";
+    }
     contents.push({ role: "model", parts: [{ text }] });
     return { text, history: contents };
+
   }
   const messages: OAMessage[] = [
     { role: "system", content: systemInstruction },
