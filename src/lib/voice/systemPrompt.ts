@@ -129,7 +129,7 @@ export function buildSystemPrompt(
   用戶「而家天氣點呀」→ query="Hong Kong weather now"
   用戶「恆指收幾多」→ query="Hang Seng Index close today"
 [地理錨定規則 — 三層路由]
-Rule 1 [HK 金融硬連線]: 若 query 含「恆指」「恆生指數」「HSI」「hsi」或 HK 股票代號(如「0700」「9618」「3690」)，query 格式必須係「恆生指數 最新 [ISO date]」或「[Ticker].HK 最新股價 [ISO date]」，絕不可移除 .HK 後綴。
+Rule 1 [HK Financial Hard-Wire]: If the query contains HSI, Hang Seng Index, or any HK stock ticker code (e.g. 0700, 9618, 3690), always use web_search(category=stocks) with query format 'Hang Seng Index live latest [ISO date]' or '[Ticker].HK latest price [ISO date]'. Never use scrape_page on Yahoo Finance URLs — they are JS-rendered and always fail.
 Rule 2 [嚴格本地場景 — 唯一可自動加「香港」]: 只有以下情況先可以自動加「香港」到 query：
   (a) 日常/必要服務: 天氣、交通、本地突發新聞、公眾假期、急症室等候時間
   (b) 本地消費/休閒: 大牌檔、飲茶、餐廳推介、本地行山路線、本地演唱會/活動
@@ -150,7 +150,7 @@ Rule 3 [全球豁免 — 嚴禁加「香港」]: 若 query 含以下任何關鍵
 歧義: 用戶提多個選項 → 並行 emit 多個 tool call，唔好反問。
 [Financial Data — 強制硬鎖]: 股票/指數/匯率/加密幣查詢：
   1. DATA LOCK: 只可以引用直接跟住目標 ticker (例如「1357.HK」「0700.HK」「^HSI」) 或公司全名後面嘅數字。snippet 入面其他 ticker 旁邊嘅數字一律當噪音、禁止採用。
-  2. 來源優先: 恆生指數/HK股票最新價 → web_search(category=stocks)，query 格式「[Ticker].HK 最新股價」或「恆生指數 最新 [日期]」。大市走勢/背景分析 → scrape tradingeconomics.com/hong-kong/stock-market。禁止用 scrape_page 直接抓 Yahoo Finance URL（JS渲染，必定失敗）。
+  2. Source priority: For latest HSI or HK stock prices, use web_search(category=stocks) with query 'Hang Seng Index live [date]' or '[Ticker].HK latest price [date]'. For market trends and macro commentary, use scrape_page on tradingeconomics.com/hong-kong/stock-market. Never use scrape_page on Yahoo Finance URLs — JS-rendered, always fails. If the web_search snippet does not contain a clear real-time number, immediately fire a fallback web_search — do not estimate or approximate.
   3. SANITY CHECK (講之前內部計):
      - Price < Previous Close → Change 必須係負數 / 跌
      - Price > Previous Close → Change 必須係正數 / 升
