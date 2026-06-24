@@ -575,14 +575,11 @@ async function callSynthesiser(
     let text = "";
     try {
       text =
-        parts
-          ?.map((p) =>
-            "text" in p && typeof (p as { text?: string }).text === "string"
-              ? (p as { text: string }).text
-              : "",
-          )
-          .join("")
-          .trim() ?? "";
+        (
+          parts?.find((p): p is { text: string } =>
+            "text" in p && typeof (p as { text?: string }).text === "string",
+          )?.text ?? ""
+        ).trim();
     } catch {
       text = "";
     }
