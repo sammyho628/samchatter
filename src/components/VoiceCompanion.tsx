@@ -28,6 +28,7 @@ import {
   unlockAudio,
   hasLastBuffer,
   subscribeLastBuffer,
+  subscribePlayerDiagnostics,
 } from "@/lib/voice/pipeline/player";
 import { APP_VERSION } from "@/lib/version";
 import { getProviderSettings } from "@/lib/voice/providerSettings.functions";
