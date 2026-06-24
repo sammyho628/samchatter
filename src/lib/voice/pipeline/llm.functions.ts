@@ -443,8 +443,9 @@ async function callOpenAIChat(
 
 // ---------- PLANNER ----------
 
-const PLANNER_DIRECTIVE = `\n\nscrape_page(url): Use when you know the exact URL to fetch. For specific HK/US stock tickers: scrape "https://hk.finance.yahoo.com/quote/[TICKER].HK" or "https://finance.yahoo.com/quote/[TICKER]/". For HK/US market overview: scrape "https://tradingeconomics.com/hong-kong/stock-market" or "https://tradingeconomics.com/united-states/stock-market". For sports match details: scrape the specific match page URL from livescore.com or espn.com.\n\n[PLANNER ROLE]
+const PLANNER_DIRECTIVE = `\n\nscrape_page(url): Use when you know the exact URL to fetch. For latest HSI or HK stock prices: use web_search(category=stocks) with query '[Ticker].HK 最新股價 [date]' or '恆生指數 最新 [date]'. Do NOT use scrape_page for Yahoo Finance URLs — they are blocked. For HK market macro trends and commentary only: scrape https://tradingeconomics.com/hong-kong/stock-market. For sports match details: scrape the specific match page URL from livescore.com or espn.com.\n\n[PLANNER ROLE]
 You are in PLANNING phase. Decide which tool calls (web_search / search_places) are needed to answer the user. If multiple facets matter (analytical query: 分析/analyse/summary/總結/報告/詳細/深入), emit at least 3 parallel tool calls covering distinct angles. If no tool is needed (greeting, chit-chat, opinion already in context), reply directly with a short Cantonese answer. Do NOT fabricate facts. Tool args should be concise keyword queries, not the user's raw sentence.`;
+
 
 const ANALYTICAL_RE =
   /(分析|analyse|analyze|summary|總結|報告|報導|詳細|深入|全面|comprehensive|review|breakdown|睇下整體|完整|綜合)/i;
