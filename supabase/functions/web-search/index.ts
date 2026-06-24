@@ -67,13 +67,13 @@ async function lookupCategoryDomains(
 
 function localeForCategory(category?: string): { lang: string; country: string } {
   if (category && GLOBAL_CATEGORIES.has(category)) {
-    return { lang: "en", country: "US" };
+    return { lang: "en", country: "us" };
   }
   if (category && HK_CATEGORIES.has(category)) {
-    return { lang: "zh-Hant", country: "HK" };
+    return { lang: "zh", country: "hk" };
   }
   // Default: HK-local
-  return { lang: "zh-Hant", country: "HK" };
+  return { lang: "zh", country: "hk" };
 }
 
 Deno.serve(async (req) => {
