@@ -64,6 +64,29 @@ function sanitizeHistory(turns: GeminiTurn[]): GeminiTurn[] {
     .filter((t) => t.parts.length > 0);
 }
 
+function getTimeGreeting(personaName: string): string {
+  const hkHour = parseInt(
+    new Date().toLocaleString("en-CA", {
+      timeZone: "Asia/Hong_Kong",
+      hour: "numeric",
+      hour12: false,
+    }),
+    10,
+  );
+  const name = personaName && personaName !== "朋友" ? `，${personaName}` : "";
+
+  if (hkHour >= 5 && hkHour < 12)
+    return `早晨${name}！我喺度，撳個掣就可以同我傾偈。`;
+  if (hkHour >= 12 && hkHour < 14)
+    return `${name}，食咗飯未？有咩想問就問我啦。`;
+  if (hkHour >= 14 && hkHour < 18)
+    return `下午好${name}！有咩可以幫到你？`;
+  if (hkHour >= 18 && hkHour < 21)
+    return `夜晚喇${name}，有咩想傾？`;
+  return `咁夜喇${name}，有咩事呀？`;
+}
+
+
 export function VoiceCompanion() {
   const [status, setStatus] = useState<Status>("idle");
   const [errorMsg, setErrorMsg] = useState<string>("");
