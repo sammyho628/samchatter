@@ -435,7 +435,7 @@ export function VoiceCompanion() {
             text,
             systemInstruction: promptRef.current,
             history: windowed,
-            skipTTS: true,
+            // skipTTS removed — text-mode replies still speak aloud.
           },
           {
             transcribe: sttFn,
