@@ -197,15 +197,13 @@ export async function runTurn(
     if (plan.toolCalls.length > 0) {
       toolResults = await Promise.all(
         plan.toolCalls.map((c) =>
-          deps
-            .executeTool({ data: c })
-            .catch(
-              (err: Error): ToolCallTrace => ({
-                name: c.name,
-                args: c.args,
-                summary: `Error: ${err.message}`,
-              }),
-            ),
+          retryOnce(`tool:${c.name}`, () => deps.executeTool({ data: c }), cbs.onLog).catch(
+            (err: Error): ToolCallTrace => ({
+              name: c.name,
+              args: c.args,
+              summary: `Error: ${err.message}`,
+            }),
+          ),
         ),
       );
       for (const tc of toolResults) cbs.onToolCall?.(tc);
