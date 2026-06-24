@@ -121,7 +121,7 @@ export async function playBase64Audio(audioBase64: string): Promise<void> {
         diag(`⚠️ resume failed at play time: ${e.message}`);
       }
     }
-    if (c.state !== "running") {
+    if ((c.state as string) !== "running") {
       diag(`⚠️ context still ${c.state} after resume — playback will likely be silent.`);
     }
   }
