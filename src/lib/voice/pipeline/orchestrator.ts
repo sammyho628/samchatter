@@ -174,13 +174,18 @@ export async function runTurn(
     cbs.onThinking?.();
 
     // PHASE 1 — PLAN
-    const plan = await deps.plan({
-      data: {
-        systemInstruction: input.systemInstruction,
-        history: input.history,
-        userText: transcript,
-      },
-    });
+    const plan = await retryOnce(
+      "plan",
+      () =>
+        deps.plan({
+          data: {
+            systemInstruction: input.systemInstruction,
+            history: input.history,
+            userText: transcript,
+          },
+        }),
+      cbs.onLog,
+    );
     cbs.onLog?.(
       `🧭 plan · tools=${plan.toolCalls.length}` +
         (plan.analytical ? " · analytical" : "") +
