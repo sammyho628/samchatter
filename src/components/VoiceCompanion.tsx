@@ -577,7 +577,8 @@ export function VoiceCompanion() {
     void loadPromptIfNeeded();
     setShowSplash(false);
     try {
-      const tts = await ttsFn({ data: { text: "你好！我喺度，撳個掣就可以同我傾偈。" } });
+      const greetingText = getTimeGreeting(personaNameRef.current ?? "朋友");
+      const tts = await ttsFn({ data: { text: greetingText } });
       await playBase64Audio(tts.audioBase64);
     } catch (err) {
       pushLog("err", `greeting: ${(err as Error).message}`);
