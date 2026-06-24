@@ -79,7 +79,7 @@ const TOOL_DECLS = [
   {
     name: "scrape_page",
     description:
-      "Scrape a specific known URL to get live page content. Use this when you know the exact URL — e.g. a TradingEconomics market page or a sports match page. Returns cleaned markdown content from the live page. Do NOT use for Yahoo Finance pages (JS-rendered, always fail).",
+      "Scrape a specific known URL to get live page content. Use this when you know the exact URL — e.g. a TradingEconomics market page or a sports match page. Returns cleaned markdown content from the live page. Do NOT use for Yahoo Finance or other JS-heavy finance pages — they are blocked by anti-scraping protection and will always return an error page. Only use for static or markdown-friendly pages such as tradingeconomics.com.",
     parameters: {
       type: "object",
       properties: {
