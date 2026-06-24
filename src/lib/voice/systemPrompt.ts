@@ -32,6 +32,70 @@ function hkTimeContext(): { full: string; dayOfWeek: string; iso: string } {
   return { full, dayOfWeek, iso };
 }
 
+function getHKTimeSlot(): {
+  slot: "dawn" | "morning" | "lunch" | "afternoon" | "evening" | "night" | "latenight";
+  label: string;
+  behaviorHint: string;
+} {
+  const hkHour = parseInt(
+    new Date().toLocaleString("en-CA", {
+      timeZone: "Asia/Hong_Kong",
+      hour: "numeric",
+      hour12: false,
+    }),
+    10,
+  );
+
+  if (hkHour >= 5 && hkHour < 9)
+    return {
+      slot: "morning",
+      label: "早晨 (05:00–08:59)",
+      behaviorHint:
+        "早安語氣。如 daily_cache 有美股昨晚數據，主動簡短提及。天氣以今日預報為主。唔好提晚市活動。",
+    };
+  if (hkHour >= 9 && hkHour < 12)
+    return {
+      slot: "morning",
+      label: "上午 (09:00–11:59)",
+      behaviorHint:
+        "輕鬆上午語氣。港股已開市。如被問及股市可提港股早市走勢。天氣以今日為主。",
+    };
+  if (hkHour >= 12 && hkHour < 14)
+    return {
+      slot: "lunch",
+      label: "午市 (12:00–13:59)",
+      behaviorHint:
+        "午市語氣。適合提及午餐建議。港股午市。唔好提早晨/晚上活動。",
+    };
+  if (hkHour >= 14 && hkHour < 18)
+    return {
+      slot: "afternoon",
+      label: "下午 (14:00–17:59)",
+      behaviorHint:
+        "輕鬆下午語氣。港股下午市。唔好問「而家去邊？」呢類問題。",
+    };
+  if (hkHour >= 18 && hkHour < 21)
+    return {
+      slot: "evening",
+      label: "傍晚 (18:00–20:59)",
+      behaviorHint:
+        "傍晚語氣。適合提晚餐建議。港股已收市，可提當日收市總結。天氣預報宜提明日。",
+    };
+  if (hkHour >= 21 && hkHour < 24)
+    return {
+      slot: "night",
+      label: "夜晚 (21:00–23:59)",
+      behaviorHint:
+        "夜晚語氣，輕鬆收尾。美股已開市（約9:30pm ET = 9:30–10:30pm HK開市）。如被問及股市，可提美股即時走勢。天氣宜提明日。唔好建議外出活動。",
+    };
+  return {
+    slot: "latenight",
+    label: "深夜/凌晨 (00:00–04:59)",
+    behaviorHint:
+      "深夜語氣，溫柔簡短。美股仍在交易中。提醒早點休息。天氣提明日/後日。",
+  };
+}
+
 export function buildSystemPrompt(
   template: string,
   context: string,
