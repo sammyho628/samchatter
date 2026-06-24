@@ -129,7 +129,7 @@ export function buildSystemPrompt(
   用戶「而家天氣點呀」→ query="Hong Kong weather now"
   用戶「恆指收幾多」→ query="Hang Seng Index close today"
 [地理錨定規則 — 三層路由]
-Rule 1 [HK 金融硬連線]: 若 query 含「恆指」「恆生指數」「HSI」「hsi」或 HK 股票代號(如「0700」「9618」「3690」)，query 格式必須係「^HSI Yahoo Finance quote」或「[Ticker].HK Yahoo Finance quote」，絕不可移除 .HK 後綴。
+Rule 1 [HK 金融硬連線]: 若 query 含「恆指」「恆生指數」「HSI」「hsi」或 HK 股票代號(如「0700」「9618」「3690」)，query 格式必須係「恆生指數 最新 [ISO date]」或「[Ticker].HK 最新股價 [ISO date]」，絕不可移除 .HK 後綴。
 Rule 2 [嚴格本地場景 — 唯一可自動加「香港」]: 只有以下情況先可以自動加「香港」到 query：
   (a) 日常/必要服務: 天氣、交通、本地突發新聞、公眾假期、急症室等候時間
   (b) 本地消費/休閒: 大牌檔、飲茶、餐廳推介、本地行山路線、本地演唱會/活動
