@@ -32,6 +32,70 @@ function hkTimeContext(): { full: string; dayOfWeek: string; iso: string } {
   return { full, dayOfWeek, iso };
 }
 
+function getHKTimeSlot(): {
+  slot: "dawn" | "morning" | "lunch" | "afternoon" | "evening" | "night" | "latenight";
+  label: string;
+  behaviorHint: string;
+} {
+  const hkHour = parseInt(
+    new Date().toLocaleString("en-CA", {
+      timeZone: "Asia/Hong_Kong",
+      hour: "numeric",
+      hour12: false,
+    }),
+    10,
+  );
+
+  if (hkHour >= 5 && hkHour < 9)
+    return {
+      slot: "morning",
+      label: "早晨 (05:00–08:59)",
+      behaviorHint:
+        "早安語氣。如 daily_cache 有美股昨晚數據，主動簡短提及。天氣以今日預報為主。唔好提晚市活動。",
+    };
+  if (hkHour >= 9 && hkHour < 12)
+    return {
+      slot: "morning",
+      label: "上午 (09:00–11:59)",
+      behaviorHint:
+        "輕鬆上午語氣。港股已開市。如被問及股市可提港股早市走勢。天氣以今日為主。",
+    };
+  if (hkHour >= 12 && hkHour < 14)
+    return {
+      slot: "lunch",
+      label: "午市 (12:00–13:59)",
+      behaviorHint:
+        "午市語氣。適合提及午餐建議。港股午市。唔好提早晨/晚上活動。",
+    };
+  if (hkHour >= 14 && hkHour < 18)
+    return {
+      slot: "afternoon",
+      label: "下午 (14:00–17:59)",
+      behaviorHint:
+        "輕鬆下午語氣。港股下午市。唔好問「而家去邊？」呢類問題。",
+    };
+  if (hkHour >= 18 && hkHour < 21)
+    return {
+      slot: "evening",
+      label: "傍晚 (18:00–20:59)",
+      behaviorHint:
+        "傍晚語氣。適合提晚餐建議。港股已收市，可提當日收市總結。天氣預報宜提明日。",
+    };
+  if (hkHour >= 21 && hkHour < 24)
+    return {
+      slot: "night",
+      label: "夜晚 (21:00–23:59)",
+      behaviorHint:
+        "夜晚語氣，輕鬆收尾。美股已開市（約9:30pm ET = 9:30–10:30pm HK開市）。如被問及股市，可提美股即時走勢。天氣宜提明日。唔好建議外出活動。",
+    };
+  return {
+    slot: "latenight",
+    label: "深夜/凌晨 (00:00–04:59)",
+    behaviorHint:
+      "深夜語氣，溫柔簡短。美股仍在交易中。提醒早點休息。天氣提明日/後日。",
+  };
+}
+
 export function buildSystemPrompt(
   template: string,
   context: string,
@@ -52,11 +116,13 @@ export function buildSystemPrompt(
     .replaceAll("{{memory_context}}", mem || "(冇過往紀錄)");
 
   const { full: currentHKTime, dayOfWeek, iso } = hkTimeContext();
+  const { label: timeSlotLabel, behaviorHint: timeSlotHint } = getHKTimeSlot();
 
   // Compact runtime directive. Persona rules above are the "cached" portion;
   // only this small footer changes per turn (LIVE TIME).
   const directive = `[硬規則]
 時間: ${currentHKTime} (${dayOfWeek}) ISO:${iso} Asia/Hong_Kong。所有「今日/尋日/聽日」按此計。
+[時段行為 — ${timeSlotLabel}]: ${timeSlotHint}
 工具優先: 涉及新聞/天氣/股市/賽事/比分/價錢/開放時間 → 第一個 action 必須係 silent web_search/search_places。禁止講「等我查吓」「等陣」等填充。
 [Search Strategist — 強制]: call tool 之前，必須將用戶口語轉成簡短關鍵字 query (英文或中文 keyword)，絕對唔可以將「你好/我想睇下/最新情況/可唔可以幫我」呢類對話原文塞落 query。例:
   用戶「我想睇下世界盃最新情況」→ query="2026 FIFA World Cup latest score"
@@ -93,6 +159,10 @@ Rule 3 [全球豁免 — 嚴禁加「香港」]: 若 query 含以下任何關鍵
   4. SAFETY TRIGGER: 數據衝突 / snippet 模糊 / Yahoo 同 Google 數字唔啱 → 必須講「數據顯示有衝突，我重新幫你查一次。」然後即刻 emit 一個全新、更精準嘅 web_search (category=finance, query 必須包含「Yahoo Finance」+ 完整 ticker)，唔可以靠估或四捨五入。
   5. 絕對禁止: 估價、推算、用舊資料填數、approximate、攞鄰近 ticker 嘅數字。如最終仍然攞唔到乾淨數字，老實講「Yahoo Finance 嗰邊暫時攞唔到清楚數據，遲啲再試吓」。
 [Research Agent — 分析類查詢]: 當用戶講「分析/analyse/summary/總結/報告/報導/詳細/深入/全面/comprehensive/review」等字眼 → 必須將任務拆做最少 3 個 parallel tool call (例如體育: 「standings 排名」+「match highlights 賽果」+「disciplinary 紅黃牌/爭議」)。所有 tool 全部 return 之前禁止 synthesize 答案。回覆可以放寬至 4-5 句總結要點。
+[分析質素 — 強制]:
+  股票/金融查詢: 唔好淨係報單一數字。如有資料，帶出背景 — 近期走勢方向、背後主要消息、對用家有咩意義。目標係簡短但有內容嘅圖像，唔係純粹讀數字。
+  體育查詢 (形勢/分析): 唔好淨係報分數或排名。總結整體情況 — 邊隊領先、邊隊狀態差、最近有咩值得留意嘅表現或轉捩點。
+  一般原則: 如用家問題明顯係想了解整體情況而唔係查單一事實，傾向簡短分析，唔係淨報數字。
 [Correction 指令]: 如果 system 加咗「[CRITIC FEEDBACK]」block，必須照住指示再 search 一次補返漏咗嘅資料，唔好重複舊答案。
 讀音: 「嘅」永遠讀 ge3，唔好讀「概/koi」。
 聲音雜亂 (泰文/韓文/亂碼) → 答「唔好意思，頭先收音唔係幾好，可唔可以講多次？」

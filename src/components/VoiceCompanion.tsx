@@ -64,6 +64,29 @@ function sanitizeHistory(turns: GeminiTurn[]): GeminiTurn[] {
     .filter((t) => t.parts.length > 0);
 }
 
+function getTimeGreeting(personaName: string): string {
+  const hkHour = parseInt(
+    new Date().toLocaleString("en-CA", {
+      timeZone: "Asia/Hong_Kong",
+      hour: "numeric",
+      hour12: false,
+    }),
+    10,
+  );
+  const name = personaName && personaName !== "朋友" ? `，${personaName}` : "";
+
+  if (hkHour >= 5 && hkHour < 12)
+    return `早晨${name}！我喺度，撳個掣就可以同我傾偈。`;
+  if (hkHour >= 12 && hkHour < 14)
+    return `${name}，食咗飯未？有咩想問就問我啦。`;
+  if (hkHour >= 14 && hkHour < 18)
+    return `下午好${name}！有咩可以幫到你？`;
+  if (hkHour >= 18 && hkHour < 21)
+    return `夜晚喇${name}，有咩想傾？`;
+  return `咁夜喇${name}，有咩事呀？`;
+}
+
+
 export function VoiceCompanion() {
   const [status, setStatus] = useState<Status>("idle");
   const [errorMsg, setErrorMsg] = useState<string>("");
@@ -103,6 +126,7 @@ export function VoiceCompanion() {
   const executedSearchesRef = useRef<string[]>([]);
   const promptLoadedAtRef = useRef<number>(0);
   const promptLoadingRef = useRef(false);
+  const personaNameRef = useRef<string>("朋友");
   const PROMPT_TTL_MS = 30 * 60 * 1000; // 30 min — refetch knowledge/memory/daily cache
 
   const fetchSession = useServerFn(getVoiceSession);
@@ -183,6 +207,7 @@ export function VoiceCompanion() {
         personaName,
       );
       promptRef.current = prompt;
+      personaNameRef.current = personaName;
       promptLoadedAtRef.current = Date.now();
       sessionIdRef.current = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       pushLog("evt", `🕒 HK now: ${nowHK} · persona=${personaName}`);
@@ -552,7 +577,8 @@ export function VoiceCompanion() {
     void loadPromptIfNeeded();
     setShowSplash(false);
     try {
-      const tts = await ttsFn({ data: { text: "你好！我喺度，撳個掣就可以同我傾偈。" } });
+      const greetingText = getTimeGreeting(personaNameRef.current ?? "朋友");
+      const tts = await ttsFn({ data: { text: greetingText } });
       await playBase64Audio(tts.audioBase64);
     } catch (err) {
       pushLog("err", `greeting: ${(err as Error).message}`);
