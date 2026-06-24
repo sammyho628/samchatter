@@ -474,6 +474,10 @@ export function VoiceCompanion() {
             onHistory: (h) => {
               historyRef.current = sanitizeHistory(h);
             },
+            onSpeaking: () => {
+              setSearching(false);
+              setStatus("speaking");
+            },
             onLog: (m) => pushLog("evt", m),
             onDone: () => {
               setSearching(false);
