@@ -107,6 +107,24 @@ function speakBrowserFallback(text: string): Promise<void> {
     try {
       const u = new SpeechSynthesisUtterance(text);
       u.lang = "zh-HK";
+
+// Retry a transient fetch failure exactly once. Targets the Safari/WebKit
+// "TypeError: Load failed" and generic network errors that bubble up from
+// `useServerFn` calls when the edge connection blips.
+function isTransientNetworkError(err: unknown): boolean {
+  const msg = (err as Error)?.message ?? "";
+  return /load failed|network|failed to fetch|fetch failed|networkerror/i.test(msg);
+}
+
+async function retryOnce<T>(label: string, fn: () => Promise<T>, onLog?: (m: string) => void): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    if (!isTransientNetworkError(err)) throw err;
+    onLog?.(`🔁 ${label} failed (${(err as Error).message}) — retrying once`);
+    return await fn();
+  }
+}
       const done = () => resolve();
       u.onend = done;
       u.onerror = done;
