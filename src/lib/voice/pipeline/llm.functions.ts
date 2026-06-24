@@ -134,15 +134,27 @@ const HK_HINTS = [
   "恆指", "恆生", "港股", "港元", "港幣",
 ];
 const NON_HK_HINTS = [
+  // Countries & cities
   "美國", "中國", "內地", "大陸", "台灣", "日本", "韓國", "東京", "北京", "上海", "新加坡",
-  "英國", "倫敦", "紐約", "美股", "a股", "日經",
+  "英國", "倫敦", "紐約", "歐洲", "澳洲", "加拿大", "法國", "德國",
   "usa", "china", "taiwan", "japan", "korea", "tokyo", "beijing", "shanghai",
-  "singapore", "uk", "london", "new york", "nasdaq", "s&p", "dow",
+  "singapore", "uk", "london", "new york", "europe", "australia",
+  // Global finance
+  "美股", "歐股", "a股", "日經", "國際股市", "歐洲股市", "美聯儲", "聯儲局",
+  "nasdaq", "s&p", "dow", "ftse", "dax", "nikkei", "bitcoin", "btc", "ethereum",
+  "加密貨幣", "crypto", "nvidia", "nvda", "openai", "chatgpt", "tesla", "apple", "google", "meta",
+  "g7", "g20", "imf", "世界銀行",
+  // Global sports
+  "世界盃", "world cup", "歐聯", "歐冠", "champions league", "英超", "premier league",
+  "fifa", "nba", "mlb", "nfl", "ufc", "奧運", "olympics", "f1", "grand prix",
+  "溫網", "美網", "法網", "澳網", "wimbledon",
 ];
 // world_news + technology stay excluded — appending "香港" would bias them.
 const LOCAL_CATEGORIES = new Set([
   "hk_news", "health", "stocks", "finance", "shopping",
-  "weather", "sports", "transport", "travel", "government",
+  "weather", "transport", "travel", "government",
+  // NOTE: "sports" removed — global sports must NOT get "香港" appended.
+  // HK-specific sports (港超/香港隊) already caught by HK_HINTS.
 ]);
 
 const SPORTS_RE =
