@@ -103,6 +103,7 @@ export function VoiceCompanion() {
   const executedSearchesRef = useRef<string[]>([]);
   const promptLoadedAtRef = useRef<number>(0);
   const promptLoadingRef = useRef(false);
+  const personaNameRef = useRef<string>("朋友");
   const PROMPT_TTL_MS = 30 * 60 * 1000; // 30 min — refetch knowledge/memory/daily cache
 
   const fetchSession = useServerFn(getVoiceSession);
