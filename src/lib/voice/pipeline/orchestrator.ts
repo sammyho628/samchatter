@@ -254,9 +254,9 @@ export async function runTurn(
     }
     cbs.onLog?.(`🔊 TTS chunks: ${sentences.length}`);
     const ttsPromises = sentences.map((s) =>
-      deps
-        .synthesizeSpeech({ data: { text: s } })
-        .catch((err: Error) => ({ __error: err.message })),
+      retryOnce("TTS", () => deps.synthesizeSpeech({ data: { text: s } }), cbs.onLog).catch(
+        (err: Error) => ({ __error: err.message }),
+      ),
     );
     cbs.onSpeaking?.();
     for (let i = 0; i < ttsPromises.length; i++) {
