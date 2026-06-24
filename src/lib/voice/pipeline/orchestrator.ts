@@ -161,7 +161,7 @@ export async function runTurn(
       const fd = new FormData();
       fd.append("audio", input.audio, "recording");
       fd.append("mimeType", input.mimeType);
-      const stt = await deps.transcribe({ data: fd });
+      const stt = await retryOnce("STT", () => deps.transcribe({ data: fd }), cbs.onLog);
       transcript = stt.transcript;
     }
     if (!transcript) {
