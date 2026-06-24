@@ -222,14 +222,19 @@ export async function runTurn(
         { role: "model", parts: [{ text: finalText }] },
       ];
     } else {
-      const syn = await deps.synthesize({
-        data: {
-          systemInstruction: input.systemInstruction,
-          history: input.history,
-          userText: transcript,
-          toolResults,
-        },
-      });
+      const syn = await retryOnce(
+        "synthesize",
+        () =>
+          deps.synthesize({
+            data: {
+              systemInstruction: input.systemInstruction,
+              history: input.history,
+              userText: transcript,
+              toolResults,
+            },
+          }),
+        cbs.onLog,
+      );
       finalText = syn.text;
       finalHistory = syn.history;
     }
