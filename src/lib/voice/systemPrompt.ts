@@ -62,7 +62,18 @@ export function buildSystemPrompt(
   用戶「我想睇下世界盃最新情況」→ query="2026 FIFA World Cup latest score"
   用戶「而家天氣點呀」→ query="Hong Kong weather now"
   用戶「恆指收幾多」→ query="Hang Seng Index close today"
-地理錨定: 用戶冇講地點 → query 自動加「香港」。除非佢點名其他城市。
+[地理錨定規則 — 三層路由]
+Rule 1 [HK 金融硬連線]: 若 query 含「恆指」「恆生指數」「HSI」「hsi」或 HK 股票代號(如「0700」「9618」「3690」)，query 格式必須係「^HSI Yahoo Finance quote」或「[Ticker].HK Yahoo Finance quote」，絕不可移除 .HK 後綴。
+Rule 2 [嚴格本地場景 — 唯一可自動加「香港」]: 只有以下情況先可以自動加「香港」到 query：
+  (a) 日常/必要服務: 天氣、交通、本地突發新聞、公眾假期、急症室等候時間
+  (b) 本地消費/休閒: 大牌檔、飲茶、餐廳推介、本地行山路線、本地演唱會/活動
+  (c) 本地公共機構: 天文台、醫管局、運輸署、馬會、港交所、政府部門
+  (d) 本地購物: HKTVMall、屈臣氏、萬寧、百佳、惠康等本港零售
+  (e) 本地體育: 港超聯、香港隊、本港運動員
+Rule 3 [全球豁免 — 嚴禁加「香港」]: 若 query 含以下任何關鍵字，絕對禁止加「香港」:
+  體育: 世界盃、world cup、歐聯、歐冠、champions league、英超、premier league、fifa、nba、mlb、nfl、f1、奧運、olympics
+  環球金融: 美股、歐股、國際股市、美聯儲、聯儲局、g7、g20、bitcoin、btc、加密貨幣、crypto、nvidia、nvda、openai、chatgpt、tesla
+  國際地理: 任何提及香港以外國家/城市/地區
 [SPORTS DATA & SUMMARIZATION RULES]
   1. Dual-Query Strategy: 問比分/賽果 → 必須並行 emit 兩個 web_search (category=sports):
      - Query 1 (Live Feed): "[Date] [League/Sport] live scores scoreboard"
