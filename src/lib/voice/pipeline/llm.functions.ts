@@ -184,7 +184,7 @@ function refineQuery(rawQuery: string, category: string): string {
   if (NON_HK_HINTS.some((h) => lower.includes(h.toLowerCase()))) return q;
   const localHint =
     LOCAL_CATEGORIES.has(category.toLowerCase()) ||
-    /(天氣|氣溫|溫度|落雨|打風|新聞|頭條|交通|塞車|股市|股價|匯率|油價|樓價|地震|颱風|空氣|aqi|weather|temperature|news|traffic|stock)/i.test(
+    /(天氣|氣溫|溫度|落雨|打風|新聞|頭條|交通|塞車|港股|股市|股價|匯率|油價|樓價|地震|颱風|空氣|aqi|weather|temperature)/i.test(
       q,
     );
   if (!localHint) return q;
