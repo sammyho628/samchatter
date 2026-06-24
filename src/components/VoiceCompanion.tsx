@@ -423,6 +423,7 @@ export function VoiceCompanion() {
       setTextBusy(true);
       setErrorMsg("");
       try {
+        await unlockAudio();
         await loadPromptIfNeeded();
         const windowed = historyRef.current.slice(-HISTORY_WINDOW);
         pushLog(
@@ -435,7 +436,7 @@ export function VoiceCompanion() {
             text,
             systemInstruction: promptRef.current,
             history: windowed,
-            skipTTS: true,
+            // skipTTS removed — text-mode replies still speak aloud.
           },
           {
             transcribe: sttFn,
@@ -473,6 +474,10 @@ export function VoiceCompanion() {
             },
             onHistory: (h) => {
               historyRef.current = sanitizeHistory(h);
+            },
+            onSpeaking: () => {
+              setSearching(false);
+              setStatus("speaking");
             },
             onLog: (m) => pushLog("evt", m),
             onDone: () => {

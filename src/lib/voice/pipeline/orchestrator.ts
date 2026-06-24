@@ -119,6 +119,28 @@ function speakBrowserFallback(text: string): Promise<void> {
   });
 }
 
+// Retry a transient fetch failure exactly once. Targets the Safari/WebKit
+// "TypeError: Load failed" and generic network errors that bubble up from
+// `useServerFn` calls when the edge connection blips.
+function isTransientNetworkError(err: unknown): boolean {
+  const msg = (err as Error)?.message ?? "";
+  return /load failed|network|failed to fetch|fetch failed|networkerror/i.test(msg);
+}
+
+async function retryOnce<T>(
+  label: string,
+  fn: () => Promise<T>,
+  onLog?: (m: string) => void,
+): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    if (!isTransientNetworkError(err)) throw err;
+    onLog?.(`🔁 ${label} failed (${(err as Error).message}) — retrying once`);
+    return await fn();
+  }
+}
+
 export async function runTurn(
   input: TurnInput,
   deps: TurnDeps,
@@ -139,7 +161,7 @@ export async function runTurn(
       const fd = new FormData();
       fd.append("audio", input.audio, "recording");
       fd.append("mimeType", input.mimeType);
-      const stt = await deps.transcribe({ data: fd });
+      const stt = await retryOnce("STT", () => deps.transcribe({ data: fd }), cbs.onLog);
       transcript = stt.transcript;
     }
     if (!transcript) {
@@ -152,13 +174,18 @@ export async function runTurn(
     cbs.onThinking?.();
 
     // PHASE 1 — PLAN
-    const plan = await deps.plan({
-      data: {
-        systemInstruction: input.systemInstruction,
-        history: input.history,
-        userText: transcript,
-      },
-    });
+    const plan = await retryOnce(
+      "plan",
+      () =>
+        deps.plan({
+          data: {
+            systemInstruction: input.systemInstruction,
+            history: input.history,
+            userText: transcript,
+          },
+        }),
+      cbs.onLog,
+    );
     cbs.onLog?.(
       `🧭 plan · tools=${plan.toolCalls.length}` +
         (plan.analytical ? " · analytical" : "") +
@@ -170,15 +197,13 @@ export async function runTurn(
     if (plan.toolCalls.length > 0) {
       toolResults = await Promise.all(
         plan.toolCalls.map((c) =>
-          deps
-            .executeTool({ data: c })
-            .catch(
-              (err: Error): ToolCallTrace => ({
-                name: c.name,
-                args: c.args,
-                summary: `Error: ${err.message}`,
-              }),
-            ),
+          retryOnce(`tool:${c.name}`, () => deps.executeTool({ data: c }), cbs.onLog).catch(
+            (err: Error): ToolCallTrace => ({
+              name: c.name,
+              args: c.args,
+              summary: `Error: ${err.message}`,
+            }),
+          ),
         ),
       );
       for (const tc of toolResults) cbs.onToolCall?.(tc);
@@ -197,14 +222,19 @@ export async function runTurn(
         { role: "model", parts: [{ text: finalText }] },
       ];
     } else {
-      const syn = await deps.synthesize({
-        data: {
-          systemInstruction: input.systemInstruction,
-          history: input.history,
-          userText: transcript,
-          toolResults,
-        },
-      });
+      const syn = await retryOnce(
+        "synthesize",
+        () =>
+          deps.synthesize({
+            data: {
+              systemInstruction: input.systemInstruction,
+              history: input.history,
+              userText: transcript,
+              toolResults,
+            },
+          }),
+        cbs.onLog,
+      );
       finalText = syn.text;
       finalHistory = syn.history;
     }
@@ -224,9 +254,9 @@ export async function runTurn(
     }
     cbs.onLog?.(`🔊 TTS chunks: ${sentences.length}`);
     const ttsPromises = sentences.map((s) =>
-      deps
-        .synthesizeSpeech({ data: { text: s } })
-        .catch((err: Error) => ({ __error: err.message })),
+      retryOnce("TTS", () => deps.synthesizeSpeech({ data: { text: s } }), cbs.onLog).catch(
+        (err: Error) => ({ __error: err.message }),
+      ),
     );
     cbs.onSpeaking?.();
     for (let i = 0; i < ttsPromises.length; i++) {
