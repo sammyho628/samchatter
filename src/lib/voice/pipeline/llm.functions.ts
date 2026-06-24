@@ -76,6 +76,25 @@ const TOOL_DECLS = [
       required: ["query"],
     },
   },
+  {
+    name: "scrape_page",
+    description:
+      "Scrape a specific known URL to get live page content. Use this when you know the exact URL — e.g. a Yahoo Finance quote page for a specific stock ticker, a sports match page, or a TradingEconomics market page. Returns cleaned markdown content from the live page.",
+    parameters: {
+      type: "object",
+      properties: {
+        url: {
+          type: "string",
+          description: "The exact URL to scrape. Must be a complete URL starting with https://.",
+        },
+        reason: {
+          type: "string",
+          description: "Brief explanation of what you expect to find at this URL.",
+        },
+      },
+      required: ["url"],
+    },
+  },
 ];
 
 const GEMINI_TOOLS = [
@@ -222,6 +241,39 @@ async function runTool(
   args: Record<string, string>,
 ): Promise<string> {
   let query = String(args.query ?? "").trim();
+
+  if (name === "scrape_page") {
+    const url = String(args.url ?? "").trim();
+    if (!url || !url.startsWith("https://")) {
+      return `Error: scrape_page requires a valid https:// URL.`;
+    }
+    const supabaseUrl = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
+    const anon =
+      process.env.SUPABASE_PUBLISHABLE_KEY ??
+      process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+    if (!supabaseUrl || !anon) return "Error: scrape backend not configured.";
+    try {
+      const r = await fetchWithTimeout(
+        `${supabaseUrl}/functions/v1/web-scrape`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: anon,
+            Authorization: `Bearer ${anon}`,
+          },
+          body: JSON.stringify({ url }),
+        },
+        15000,
+      );
+      const j = (await r.json().catch(() => ({}))) as { summary?: string; error?: string };
+      if (!r.ok) return `HTTP ${r.status}: ${j.error ?? ""}`;
+      return j.summary ?? "No content returned.";
+    } catch (e) {
+      return `scrape_page threw: ${(e as Error).message}`;
+    }
+  }
+
   if (!query) return `Error: missing 'query' for ${name}.`;
   const fn =
     name === "search_places"
@@ -378,7 +430,7 @@ async function callOpenAIChat(
 
 // ---------- PLANNER ----------
 
-const PLANNER_DIRECTIVE = `\n\n[PLANNER ROLE]
+const PLANNER_DIRECTIVE = `\n\nscrape_page(url): Use when you know the exact URL to fetch. For specific HK/US stock tickers: scrape "https://hk.finance.yahoo.com/quote/[TICKER].HK" or "https://finance.yahoo.com/quote/[TICKER]/". For HK/US market overview: scrape "https://tradingeconomics.com/hong-kong/stock-market" or "https://tradingeconomics.com/united-states/stock-market". For sports match details: scrape the specific match page URL from livescore.com or espn.com.\n\n[PLANNER ROLE]
 You are in PLANNING phase. Decide which tool calls (web_search / search_places) are needed to answer the user. If multiple facets matter (analytical query: 分析/analyse/summary/總結/報告/詳細/深入), emit at least 3 parallel tool calls covering distinct angles. If no tool is needed (greeting, chit-chat, opinion already in context), reply directly with a short Cantonese answer. Do NOT fabricate facts. Tool args should be concise keyword queries, not the user's raw sentence.`;
 
 const ANALYTICAL_RE =
