@@ -423,6 +423,7 @@ export function VoiceCompanion() {
       setTextBusy(true);
       setErrorMsg("");
       try {
+        await unlockAudio();
         await loadPromptIfNeeded();
         const windowed = historyRef.current.slice(-HISTORY_WINDOW);
         pushLog(
