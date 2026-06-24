@@ -79,7 +79,7 @@ const TOOL_DECLS = [
   {
     name: "scrape_page",
     description:
-      "Scrape a specific known URL to get live page content. Use this when you know the exact URL — e.g. a Yahoo Finance quote page for a specific stock ticker, a sports match page, or a TradingEconomics market page. Returns cleaned markdown content from the live page.",
+      "Scrape a specific known URL to get live page content. Use this when you know the exact URL — e.g. a TradingEconomics market page or a sports match page. Returns cleaned markdown content from the live page. Do NOT use for Yahoo Finance pages (JS-rendered, always fail).",
     parameters: {
       type: "object",
       properties: {
@@ -95,6 +95,7 @@ const TOOL_DECLS = [
       required: ["url"],
     },
   },
+
 ];
 
 const GEMINI_TOOLS = [
