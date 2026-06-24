@@ -360,10 +360,12 @@ async function callGemini(
     const t = await resp.text().catch(() => "");
     throw new Error(`Gemini ${resp.status}: ${t.slice(0, 500)}`);
   }
-  const json = (await resp.json()) as {
+  const json = (await resp.json().catch(() => ({}))) as {
     candidates?: Array<{ content?: { parts?: GeminiPart[] } }>;
   };
-  return { parts: json.candidates?.[0]?.content?.parts ?? [] };
+  const parts = json.candidates?.[0]?.content?.parts ?? [];
+  return { parts };
+
 }
 
 type OAMessage =
