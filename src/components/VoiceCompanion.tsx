@@ -28,6 +28,7 @@ import {
   unlockAudio,
   hasLastBuffer,
   subscribeLastBuffer,
+  subscribePlayerDiagnostics,
 } from "@/lib/voice/pipeline/player";
 import { APP_VERSION } from "@/lib/version";
 import { getProviderSettings } from "@/lib/voice/providerSettings.functions";
@@ -117,6 +118,11 @@ export function VoiceCompanion() {
 
   // Reactive replay button.
   useEffect(() => subscribeLastBuffer(setHasReplay), []);
+
+  // Surface AudioContext / autoplay failures in the in-app debug log so we
+  // can tell when the browser is blocking sound after a hard refresh.
+  useEffect(() => subscribePlayerDiagnostics((m) => pushLog("evt", m)), [pushLog]);
+
 
   const recorderRef = useRef<RecorderHandle | null>(null);
   const historyRef = useRef<GeminiTurn[]>([]);
