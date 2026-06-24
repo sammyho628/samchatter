@@ -1,12 +1,28 @@
+// TAVILY_API_KEY kept in env for fallback — replaced by Brave Search (BRAVE_API_KEY)
 // Supabase Edge Function: web-search
-// Calls Tavily and returns a compact text summary of the top results.
+// Calls Brave Search and returns a compact text summary of the top results.
 // Optional `category` arg: looks up public.trusted_domains for that category and
-// applies the curated domain_query_string to the search.
+// applies the curated domain allow-list as site: filters in the query.
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
+
+// HK-local categories use zh-Hant + HK; global categories use en + US.
+const HK_CATEGORIES = new Set([
+  "hk_news",
+  "weather",
+  "transport",
+  "government",
+  "health",
+  "sports",
+  "stocks",
+  "finance",
+  "shopping",
+  "travel",
+]);
+const GLOBAL_CATEGORIES = new Set(["world_news", "technology"]);
 
 function extractSiteDomains(raw: string): { cleaned: string; domains: string[] } {
   const domains: string[] = [];
@@ -49,15 +65,26 @@ async function lookupCategoryDomains(
   }
 }
 
+function localeForCategory(category?: string): { lang: string; country: string } {
+  if (category && GLOBAL_CATEGORIES.has(category)) {
+    return { lang: "en", country: "US" };
+  }
+  if (category && HK_CATEGORIES.has(category)) {
+    return { lang: "zh-Hant", country: "HK" };
+  }
+  // Default: HK-local
+  return { lang: "zh-Hant", country: "HK" };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
   try {
-    const apiKey = Deno.env.get("TAVILY_API_KEY");
+    const apiKey = Deno.env.get("BRAVE_API_KEY");
     if (!apiKey) {
       return new Response(
-        JSON.stringify({ error: "Missing TAVILY_API_KEY" }),
+        JSON.stringify({ error: "Missing BRAVE_API_KEY" }),
         { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
@@ -81,49 +108,69 @@ Deno.serve(async (req) => {
       allDomains = Array.from(new Set([...allDomains, ...catDomains]));
     }
 
-    const tavilyBody: Record<string, unknown> = {
-      query: cleaned || query,
-      search_depth: "advanced",
-      include_answer: true,
-      max_results: 5,
-    };
-    if (allDomains.length > 0) tavilyBody.include_domains = allDomains;
+    // Build q with site: filters appended (cap at 8 domains for query length).
+    const baseQ = cleaned || query;
+    const limitedDomains = allDomains.slice(0, 8);
+    const siteFilter =
+      limitedDomains.length > 0
+        ? " " + limitedDomains.map((d) => `site:${d}`).join(" OR ")
+        : "";
+    const q = baseQ + siteFilter;
 
-    const resp = await fetch("https://api.tavily.com/search", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify(tavilyBody),
+    const { lang, country } = localeForCategory(category);
+
+    const params = new URLSearchParams({
+      q,
+      count: "5",
+      search_lang: lang,
+      country,
     });
+
+    const resp = await fetch(
+      `https://api.search.brave.com/res/v1/web/search?${params.toString()}`,
+      {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+          "X-Subscription-Token": apiKey,
+        },
+      },
+    );
 
     if (!resp.ok) {
       const txt = await resp.text().catch(() => "");
       return new Response(
-        JSON.stringify({ error: `Tavily error ${resp.status}: ${txt.slice(0, 300)}` }),
+        JSON.stringify({ error: `Brave error ${resp.status}: ${txt.slice(0, 300)}` }),
         { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
 
     const data = (await resp.json()) as {
-      answer?: string;
-      results?: Array<{ title?: string; url?: string; content?: string }>;
+      web?: {
+        results?: Array<{
+          title?: string;
+          url?: string;
+          description?: string;
+          extra_snippets?: string[];
+        }>;
+      };
     };
-    const results = (data.results ?? []).slice(0, 3);
+
+    const results = (data.web?.results ?? []).slice(0, 3);
     const parts: string[] = [];
-    if (data.answer) parts.push(`Answer: ${data.answer}`);
     results.forEach((r, i) => {
       const title = r.title ?? "Untitled";
-      const content = (r.content ?? "").replace(/\s+/g, " ").trim().slice(0, 400);
       const url = r.url ?? "";
-      parts.push(`${i + 1}. ${title}${url ? ` (${url})` : ""}\n${content}`);
+      const description = (r.description ?? "").replace(/\s+/g, " ").trim();
+      parts.push(`${i + 1}. ${title}${url ? ` (${url})` : ""}\n${description}`);
     });
-    const summary = parts.length === 0 ? `No results found for "${query}".` : parts.join("\n\n");
+    const summary =
+      parts.length === 0 ? `No results found for "${query}".` : parts.join("\n\n");
 
-    return new Response(JSON.stringify({ summary, category: category ?? null, domains: allDomains }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return new Response(
+      JSON.stringify({ summary, category: category ?? null, domains: allDomains }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
   } catch (e) {
     return new Response(
       JSON.stringify({ error: (e as Error).message }),
