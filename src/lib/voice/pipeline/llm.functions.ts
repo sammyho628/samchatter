@@ -241,6 +241,39 @@ async function runTool(
   args: Record<string, string>,
 ): Promise<string> {
   let query = String(args.query ?? "").trim();
+
+  if (name === "scrape_page") {
+    const url = String(args.url ?? "").trim();
+    if (!url || !url.startsWith("https://")) {
+      return `Error: scrape_page requires a valid https:// URL.`;
+    }
+    const supabaseUrl = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
+    const anon =
+      process.env.SUPABASE_PUBLISHABLE_KEY ??
+      process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+    if (!supabaseUrl || !anon) return "Error: scrape backend not configured.";
+    try {
+      const r = await fetchWithTimeout(
+        `${supabaseUrl}/functions/v1/web-scrape`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: anon,
+            Authorization: `Bearer ${anon}`,
+          },
+          body: JSON.stringify({ url }),
+        },
+        15000,
+      );
+      const j = (await r.json().catch(() => ({}))) as { summary?: string; error?: string };
+      if (!r.ok) return `HTTP ${r.status}: ${j.error ?? ""}`;
+      return j.summary ?? "No content returned.";
+    } catch (e) {
+      return `scrape_page threw: ${(e as Error).message}`;
+    }
+  }
+
   if (!query) return `Error: missing 'query' for ${name}.`;
   const fn =
     name === "search_places"
