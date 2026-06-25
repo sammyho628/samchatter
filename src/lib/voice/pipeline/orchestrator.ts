@@ -161,9 +161,25 @@ export async function runTurn(
       const fd = new FormData();
       fd.append("audio", input.audio, "recording");
       fd.append("mimeType", input.mimeType);
-      const stt = await retryOnce("STT", () => deps.transcribe({ data: fd }), cbs.onLog);
-      transcript = stt.transcript;
-    }
+      let stt: { transcript: string };
+      try {
+        stt = await retryOnce("STT", () => deps.transcribe({ data: fd }), cbs.onLog);
+        transcript = stt.transcript;
+      } catch (sttErr) {
+        const sttMsg = (sttErr as Error).message ?? "";
+        cbs.onLog?.(`⚠️ STT failed: ${sttMsg}`);
+        const isSttTimeout = /522|timeout|connection|load failed/i.test(sttMsg);
+        const fallbackText = isSttTimeout
+          ? "唔好意思呀，頭先好似收唔到你把聲，不如你再講多次吖？"
+          : "唔好意思，出咗啲問題，可唔可以再試多次？";
+        cbs.onSpeaking?.();
+        try {
+          const tts = await deps.synthesizeSpeech({ data: { text: fallbackText } });
+          await deps.playAudio(tts.audioBase64);
+        } catch { /* ignore TTS failure in fallback */ }
+        cbs.onDone?.();
+        return null;
+      }
     if (!transcript) {
       cbs.onError?.("聽唔清楚，可唔可以講多次？");
       cbs.onDone?.();
