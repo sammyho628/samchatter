@@ -123,6 +123,7 @@ export function buildSystemPrompt(
   const directive = `[硬規則]
 時間: ${currentHKTime} (${dayOfWeek}) ISO:${iso} Asia/Hong_Kong。所有「今日/尋日/聽日」按此計。
 [時段行為 — ${timeSlotLabel}]: ${timeSlotHint}
+[預載情境優先 — 強制]: 【hk_weather】或其他【預載】block 係即時本地真相，優先級高過任何 web_search 結果。用戶問今日/聽日/本週天氣或短期展望 → 必須先閱讀【hk_weather】block 內容；如預載已有涵蓋答案，直接回答，禁止重複搜尋。如需搜尋未來天氣 (例如週末) → 必須用抽象展望 query (例如「Hong Kong weather weekend forecast」「香港天氣未來幾日展望」)，絕對禁止搜尋精確日曆日期 (例如「27 June 2026 weather」) — 精確日期 query 只會返回空 snippet。
 工具優先: 涉及新聞/天氣/股市/賽事/比分/價錢/開放時間 → 第一個 action 必須係 silent web_search/search_places。禁止講「等我查吓」「等陣」等填充。
 [Search Strategist — 強制]: call tool 之前，必須將用戶口語轉成簡短關鍵字 query (英文或中文 keyword)，絕對唔可以將「你好/我想睇下/最新情況/可唔可以幫我」呢類對話原文塞落 query。例:
   用戶「我想睇下世界盃最新情況」→ query="2026 FIFA World Cup latest score"
