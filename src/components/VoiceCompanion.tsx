@@ -134,7 +134,16 @@ export function VoiceCompanion() {
   const promptLoadingRef = useRef(false);
   const personaNameRef = useRef<string>("朋友");
   const greetingAudioRef = useRef<string | null>(null);
+  const turnCountRef = useRef(0);
+  const lastMemorySaveRef = useRef(0);
+  const sessionDataRef = useRef<{
+    personaName: string;
+    weatherSnippet: string;
+    lastMemorySummary: string | null;
+    daysSinceLastSession: number | null;
+  } | null>(null);
   const PROMPT_TTL_MS = 30 * 60 * 1000; // 30 min — refetch knowledge/memory/daily cache
+
 
   const fetchSession = useServerFn(getVoiceSession);
   const saveMemory = useServerFn(summarizeAndSaveSession);
