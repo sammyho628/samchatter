@@ -779,7 +779,7 @@ export const generateAIResponse = createServerFn({ method: "POST" })
         toolResults.some((t) => {
           const cat = (t.args.category ?? "") as string;
           return (
-            ["stocks", "finance", "sports", "health", "hk_news", "world_news"].includes(cat) ||
+            ["stocks", "finance", "sports"].includes(cat) ||
             t.name === "scrape_page"
           );
         }));
