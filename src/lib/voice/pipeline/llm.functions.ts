@@ -79,7 +79,25 @@ const TOOL_DECLS = [
   {
     name: "scrape_page",
     description:
-      "Scrape a specific known URL to get live page content. Use this when you know the exact URL — e.g. a TradingEconomics market page or a sports match page. Returns cleaned markdown content from the live page. Do NOT use for Yahoo Finance or other JS-heavy finance pages — they are blocked by anti-scraping protection and will always return an error page. Only use for static or markdown-friendly pages such as tradingeconomics.com.",
+      "Scrape a specific known URL to get live page content. " +
+      "PRIMARY USE CASE: " +
+      "scrape_page(\"https://tradingeconomics.com/hong-kong/stock-market\") " +
+      "returns three structured datasets in one call: " +
+      "(1) HK50 index price, daily change, and date from the Indexes table; " +
+      "(2) Prices and daily % change for 10 HSI component stocks — " +
+      "Tencent (0700.HK), HSBC (0005.HK), Meituan (3690.HK), Xiaomi, AIA, " +
+      "CNOOC, China Mobile, China Construction Bank, HKEX, and Ping An — " +
+      "from the Components table; " +
+      "(3) Dated market commentary in the News Stream section. " +
+      "ALWAYS check the YYYY-MM-DD date stamp on the latest news item before " +
+      "quoting commentary. If the stamp is not today's date, use only the " +
+      "numeric table data and skip the commentary. " +
+      "For individual HSI component stock queries (e.g. user asks about " +
+      "Tencent or Meituan), prefer this URL over individual Yahoo Finance " +
+      "or Google Finance stock pages. " +
+      "Do NOT use for Yahoo Finance URLs — API blocked, always returns 403. " +
+      "Do NOT use for hsi.com.hk — JS-rendered, always returns empty content. " +
+      "If scrape times out, do not retry — accept failure and inform the user.",
     parameters: {
       type: "object",
       properties: {
@@ -445,7 +463,27 @@ async function callOpenAIChat(
 
 // ---------- PLANNER ----------
 
-const PLANNER_DIRECTIVE = `\n\nscrape_page(url): Use when you know the exact URL to fetch. For the latest HSI price or any HK stock quote: use web_search(category=stocks) with query "Hang Seng Index live latest [ISO date]" or "[Ticker].HK latest price [ISO date]". If the first result snippet does not contain a clear intraday number, immediately fire a fallback web_search with the same format — never guess, calculate, or hallucinate a price. For HK market macro trends and commentary only: use scrape_page("https://tradingeconomics.com/hong-kong/stock-market") — this is the only approved scrape URL for HK market context. Do NOT use scrape_page for any Yahoo Finance URL — they are JS-rendered and will always fail. For sports match details: scrape the specific match page URL from livescore.com or espn.com.\n\n[PLANNER ROLE]
+const PLANNER_DIRECTIVE = `\n\nscrape_page(url): Use when you know the exact URL to fetch live page content.
+For HK market data, follow this two-step process:
+  Step 1 — Always try web_search(category=stocks, query='Hang Seng Index live [ISO date]') first.
+  Step 2 — If the search snippet lacks a clear price number, fire:
+    scrape_page('https://tradingeconomics.com/hong-kong/stock-market')
+  This single scrape returns:
+    • HK50 index price + change% (from the Indexes table)
+    • Closing prices for 10 HSI components: Tencent, HSBC, Meituan, Xiaomi,
+      AIA, CNOOC, China Mobile, China Construction Bank, HKEX, Ping An
+      (from the Components table)
+    • Dated market commentary (from the News Stream section)
+  MANDATORY: Check the YYYY-MM-DD date on the latest News Stream item.
+    Date matches today → use commentary normally.
+    Date is older → skip commentary; use numeric data only.
+  For individual HSI component stock queries (e.g. Tencent, Meituan price):
+    scrape_page('https://tradingeconomics.com/hong-kong/stock-market') is
+    the preferred source. Do NOT scrape individual Yahoo Finance pages.
+  NEVER use scrape_page on Yahoo Finance URLs — blocked, returns 403.
+  NEVER use scrape_page on hsi.com.hk — JS-rendered, always empty.
+  If scrape times out, do not retry — fail gracefully.
+For sports match details: scrape the specific match page from livescore.com or espn.com.\n\n[PLANNER ROLE]
 You are in PLANNING phase. Decide which tool calls (web_search / search_places) are needed to answer the user. If multiple facets matter (analytical query: 分析/analyse/summary/總結/報告/詳細/深入), emit at least 3 parallel tool calls covering distinct angles. If no tool is needed (greeting, chit-chat, opinion already in context), reply directly with a short Cantonese answer. Do NOT fabricate facts. Tool args should be concise keyword queries, not the user's raw sentence.`;
 
 

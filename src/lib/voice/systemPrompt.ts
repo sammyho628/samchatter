@@ -154,11 +154,27 @@ Rule 3 [全球豁免 — 嚴禁加「香港」]: 若 query 含以下任何關鍵
 [Financial Data — 強制硬鎖]: 股票/指數/匯率/加密幣查詢：
   1. DATA LOCK: 只可以引用直接跟住目標 ticker (例如「1357.HK」「0700.HK」「^HSI」) 或公司全名後面嘅數字。snippet 入面其他 ticker 旁邊嘅數字一律當噪音、禁止採用。
   2. Source priority (trading-hours aware):
-     - HK Market OPEN (Mon–Fri 09:30–12:00 / 13:00–16:00 HKT): Step 1 → web_search(category=stocks, query="Hang Seng Index live [ISO date]"). Step 2 → scrape_page("https://hsi.com.hk/eng") ONLY if web_search snippet lacks a clear intraday figure. 禁止 trading hours 期間 scrape tradingeconomics.com — 會 network timeout (5–19 秒延遲)。
-     - HK Market CLOSED (after 16:00 or weekends): Step 1 → web_search(category=stocks) for closing price. Step 2 → scrape_page("https://tradingeconomics.com/hong-kong/stock-market") for post-market commentary。收市後 scrape OK。
-     - US Stocks during US market hours (21:00–06:00 HKT): web_search only, no scrape_page。
-     - Never use scrape_page on Yahoo Finance URLs — JS-rendered, always fail。
-     - 如 web_search snippet 冇清晰數字 → 即刻 fire fallback web_search，唔好 scrape 除非市場已收。
+     - HK Market OPEN (Mon–Fri 09:30–12:00 / 13:00–16:00 HKT):
+       Step 1 → web_search(category=stocks, query="Hang Seng Index live [ISO date]"). If the snippet contains a clear intraday price, use it directly.
+       Step 2 → If snippet lacks a clear number: emit scrape_page("https://tradingeconomics.com/hong-kong/stock-market")
+         - Extract from [Indexes] table → HK50 row: Price, Day%, Date column.
+         - Extract from [Components] table → the user's queried stock. Covers: Tencent, HSBC, Meituan, Xiaomi, AIA, CNOOC, China Mobile, China Construction Bank, HKEX, Ping An.
+         [COMMENTARY DATE CHECK — MANDATORY]: Read the date stamp (YYYY-MM-DD) on the latest News Stream item. If today's date → quote the commentary normally. If NOT today's date → skip commentary entirely; use only the numeric table data, and tell the user:「今日市場分析暫未更新，以下係最新指數數字。」
+         If scrape times out or fails → accept failure gracefully. Tell the user:「暫時搵唔到實時數字，遲啲再試吓。」Do NOT retry.
+       NEVER scrape hsi.com.hk — confirmed JS-rendered, always returns empty content. NEVER scrape Yahoo Finance URLs during market hours.
+     - HK Market CLOSED (after 16:00 HKT or weekends):
+       Step 1 → web_search(category=stocks) to confirm the closing price.
+       Step 2 → scrape_page("https://tradingeconomics.com/hong-kong/stock-market")
+         - Extract: HK50 closing price + change + change% (from Indexes table).
+         - Extract: All 10 component stock closing prices + Day% (Components table).
+         - Extract: Commentary from the News Stream.
+         [COMMENTARY DATE CHECK]: Today's date stamp → quote as today's market wrap-up. Yesterday's date stamp → prefix with「根據昨日收市分析：」before quoting.
+       Post-market scraping of tradingeconomics.com is reliable and confirmed working.
+     - US Stocks during US market hours (21:00–06:00 HKT): web_search only — no scrape_page.
+     - US Stocks outside US market hours: web_search with date appended (e.g. "NVDA closing price [ISO date]").
+     - NEVER scrape Yahoo Finance URLs — API blocked, always returns 403.
+     - NEVER scrape hsi.com.hk — JS-rendered, confirmed always empty.
+     - tradingeconomics.com scraping is permitted at any hour. If it times out, accept failure gracefully — do not retry or block the pipeline.
   3. Time & Date Macro Gating (Region-Aware):
      - HK Assets / Indices (HSI, 0700.HK, 9618.HK, 3690.HK, 恆指, 國指 etc.): 必須 force append 當前本地 ISO date string (${iso.slice(0, 10)}) 入 query，因為本地搜尋 snippet 依重 fixed calendar close date。例「0700.HK latest price ${iso.slice(0, 10)}」。
      - US Tech Stocks (NVDA, TSLA, AAPL, MSFT, META, GOOG, AMZN 等) 喺美股 live trading hours (本地夜間 anchor 21:00–23:59 HKT) 期間: query 必須保持 generic real-time 格式 (例如「NVDA stock price live」「TSLA live quote now」)。絕對禁止 force append literal ISO calendar date string 到 US tickers — 會 break real-time search snippet engine，攞唔到 live data。
