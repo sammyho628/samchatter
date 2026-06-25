@@ -86,5 +86,6 @@ export const saveProviderSettings = createServerFn({ method: "POST" })
       .from("app_settings")
       .upsert(rows, { onConflict: "key" });
     if (error) throw new Error(`Save providers failed: ${error.message}`);
+    clearProviderCache(); // invalidate so next call reads fresh settings
     return { ok: true };
   });
