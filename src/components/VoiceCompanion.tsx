@@ -684,16 +684,42 @@ export function VoiceCompanion() {
     void loadPromptIfNeeded();
     setShowSplash(false);
     try {
-      // Use pre-fetched audio if ready; otherwise fetch now (slower, may be silent on iOS)
-      const audioBase64 = greetingAudioRef.current
-        ?? (await ttsFn({ data: { text: getTimeGreeting(personaNameRef.current ?? "朋友") } })).audioBase64;
-      await playBase64Audio(audioBase64);
+      // Prefer the pre-fetched contextual greeting audio. If the session
+      // hadn't finished loading by tap time, generate it now (may be silent
+      // on iOS due to the gesture gap, but better than no greeting).
+      let audioBase64 = greetingAudioRef.current;
+      if (!audioBase64) {
+        try {
+          const sessData = sessionDataRef.current;
+          const hkNow = new Date(
+            new Date().toLocaleString("en-US", { timeZone: "Asia/Hong_Kong" }),
+          );
+          const greetingText = sessData
+            ? await genGreeting({
+                data: {
+                  personaName: sessData.personaName || "明女",
+                  hkHour: hkNow.getHours(),
+                  hkDayOfWeek: hkNow.getDay(),
+                  weatherSnippet: sessData.weatherSnippet,
+                  lastMemorySummary: sessData.lastMemorySummary ?? undefined,
+                  daysSinceLastSession: sessData.daysSinceLastSession ?? undefined,
+                },
+              })
+            : getTimeGreeting(personaNameRef.current ?? "明女");
+          const tts = await ttsFn({ data: { text: greetingText } });
+          audioBase64 = tts.audioBase64;
+        } catch {
+          // Final fallback: silent start rather than the wrong-name canned greeting.
+        }
+      }
+      if (audioBase64) await playBase64Audio(audioBase64);
     } catch (err) {
       pushLog("err", `greeting: ${(err as Error).message}`);
     } finally {
       setGreeting(false);
     }
-  }, [ttsFn, pushLog, loadPromptIfNeeded]);
+  }, [ttsFn, pushLog, loadPromptIfNeeded, genGreeting]);
+
 
   return (
     <div className="relative flex min-h-[100dvh] w-full flex-col items-center overflow-hidden bg-[oklch(0.18_0.04_265)] px-6 py-6 text-white">
