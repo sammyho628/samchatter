@@ -127,6 +127,7 @@ export async function playBase64Audio(audioBase64: string): Promise<void> {
   }
   const bytes = Uint8Array.from(atob(audioBase64), (ch) => ch.charCodeAt(0));
   const ab = bytes.buffer.slice(0) as ArrayBuffer;
+  diag(`playBase64Audio · ctx=${c.state} · inputBytes=${bytes.length}`);
   let buffer: AudioBuffer;
   try {
     buffer = await c.decodeAudioData(ab);
