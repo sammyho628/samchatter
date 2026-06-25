@@ -70,7 +70,7 @@ export type TurnOutput = {
 function splitIntoSentences(text: string): string[] {
   const t = text.trim();
   if (!t) return [];
-  const TERMINATORS = /([。！？!?\.…]+["”』）)]*\s*)/g;
+  const TERMINATORS = /([。！？!?…]+["”』）)]*\s*)/g;
   const pieces: string[] = [];
   let buf = "";
   let last = 0;

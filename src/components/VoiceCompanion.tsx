@@ -671,7 +671,7 @@ export function VoiceCompanion() {
           >
             {debugOpen ? "Hide debug" : "Show debug"} ({debugLog.length})
           </button>
-          {hasReplay ? (
+          {hasReplay && status !== "speaking" && !textBusy ? (
             <button
               type="button"
               onClick={() => replayLast(() => setStatus("idle"))}
