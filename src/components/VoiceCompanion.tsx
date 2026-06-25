@@ -288,6 +288,8 @@ export function VoiceCompanion() {
     const handle = recorderRef.current;
     if (!handle) return;
     recorderRef.current = null;
+    // Re-unlock in this gesture so playback later in the pipeline is authorized.
+    try { await unlockAudio(); } catch { /* ignore */ }
     let blob: Blob;
     let mimeType: string;
     try {
