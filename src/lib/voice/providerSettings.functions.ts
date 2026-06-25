@@ -20,10 +20,26 @@ export const TTS_PROVIDERS: { value: TtsProvider; label: string; note: string; a
   { value: "minimax", label: "MiniMax speech-02-hd", note: "Cantonese (Yue) boosted. Voice via MINIMAX_VOICE_ID env (default Cantonese_Articulate_commentator_vv2).", available: true },
 ];
 
+// Module-level provider cache — avoids repeated Supabase reads per pipeline run.
+// TTL 5 minutes: long enough to batch all calls in a turn, short enough to
+// reflect any provider change made in the settings page within one session.
+let _providerCache: {
+  value: { llm: LlmProvider; tts: TtsProvider };
+  exp: number;
+} | null = null;
+
+/** Call after saving new provider settings to immediately invalidate the cache. */
+export function clearProviderCache(): void {
+  _providerCache = null;
+}
+
 export async function readProvidersServerSide(): Promise<{
   llm: LlmProvider;
   tts: TtsProvider;
 }> {
+  if (_providerCache && Date.now() < _providerCache.exp) {
+    return _providerCache.value;
+  }
   const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
   const { data } = await supabaseAdmin
     .from("app_settings")
@@ -34,7 +50,7 @@ export async function readProvidersServerSide(): Promise<{
   );
   const llmRaw = map.get(LLM_KEY) as LlmProvider | undefined;
   const ttsRaw = map.get(TTS_KEY) as TtsProvider | undefined;
-  return {
+  const value = {
     llm: (["gemini", "qwen", "grok"] as const).includes(llmRaw as LlmProvider)
       ? (llmRaw as LlmProvider)
       : "gemini",
@@ -42,6 +58,8 @@ export async function readProvidersServerSide(): Promise<{
       ? (ttsRaw as TtsProvider)
       : "google",
   };
+  _providerCache = { value, exp: Date.now() + 5 * 60 * 1000 };
+  return value;
 }
 
 export const getProviderSettings = createServerFn({ method: "GET" }).handler(
@@ -68,5 +86,6 @@ export const saveProviderSettings = createServerFn({ method: "POST" })
       .from("app_settings")
       .upsert(rows, { onConflict: "key" });
     if (error) throw new Error(`Save providers failed: ${error.message}`);
+    clearProviderCache(); // invalidate so next call reads fresh settings
     return { ok: true };
   });
