@@ -153,7 +153,12 @@ Rule 3 [全球豁免 — 嚴禁加「香港」]: 若 query 含以下任何關鍵
 歧義: 用戶提多個選項 → 並行 emit 多個 tool call，唔好反問。
 [Financial Data — 強制硬鎖]: 股票/指數/匯率/加密幣查詢：
   1. DATA LOCK: 只可以引用直接跟住目標 ticker (例如「1357.HK」「0700.HK」「^HSI」) 或公司全名後面嘅數字。snippet 入面其他 ticker 旁邊嘅數字一律當噪音、禁止採用。
-  2. Source priority: For latest HSI or HK stock prices, use web_search(category=stocks) with query 'Hang Seng Index live [date]' or '[Ticker].HK latest price [date]'. For market trends and macro commentary, use scrape_page on tradingeconomics.com/hong-kong/stock-market. Never use scrape_page on Yahoo Finance URLs — JS-rendered, always fails. If the web_search snippet does not contain a clear real-time number, immediately fire a fallback web_search — do not estimate or approximate.
+  2. Source priority (trading-hours aware):
+     - HK Market OPEN (Mon–Fri 09:30–12:00 / 13:00–16:00 HKT): Step 1 → web_search(category=stocks, query="Hang Seng Index live [ISO date]"). Step 2 → scrape_page("https://hsi.com.hk/eng") ONLY if web_search snippet lacks a clear intraday figure. 禁止 trading hours 期間 scrape tradingeconomics.com — 會 network timeout (5–19 秒延遲)。
+     - HK Market CLOSED (after 16:00 or weekends): Step 1 → web_search(category=stocks) for closing price. Step 2 → scrape_page("https://tradingeconomics.com/hong-kong/stock-market") for post-market commentary。收市後 scrape OK。
+     - US Stocks during US market hours (21:00–06:00 HKT): web_search only, no scrape_page。
+     - Never use scrape_page on Yahoo Finance URLs — JS-rendered, always fail。
+     - 如 web_search snippet 冇清晰數字 → 即刻 fire fallback web_search，唔好 scrape 除非市場已收。
   3. Time & Date Macro Gating (Region-Aware):
      - HK Assets / Indices (HSI, 0700.HK, 9618.HK, 3690.HK, 恆指, 國指 etc.): 必須 force append 當前本地 ISO date string (${iso.slice(0, 10)}) 入 query，因為本地搜尋 snippet 依重 fixed calendar close date。例「0700.HK latest price ${iso.slice(0, 10)}」。
      - US Tech Stocks (NVDA, TSLA, AAPL, MSFT, META, GOOG, AMZN 等) 喺美股 live trading hours (本地夜間 anchor 21:00–23:59 HKT) 期間: query 必須保持 generic real-time 格式 (例如「NVDA stock price live」「TSLA live quote now」)。絕對禁止 force append literal ISO calendar date string 到 US tickers — 會 break real-time search snippet engine，攞唔到 live data。
