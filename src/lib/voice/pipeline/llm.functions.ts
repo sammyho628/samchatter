@@ -758,9 +758,20 @@ export const generateAIResponse = createServerFn({ method: "POST" })
     let userText = data.userText;
     let result = await callSynthesiser(systemInstruction, history, userText);
 
+    const needsCritic =
+      toolResults.length > 0 &&
+      (plan.analytical ||
+        toolResults.some((t) => {
+          const cat = (t.args.category ?? "") as string;
+          return (
+            ["stocks", "finance", "sports", "health", "hk_news", "world_news"].includes(cat) ||
+            t.name === "scrape_page"
+          );
+        }));
+
     const MAX_REFINEMENTS = 2;
     for (let loop = 0; loop < MAX_REFINEMENTS; loop++) {
-      if (toolResults.length === 0) break;
+      if (!needsCritic) break;
       const verdict = await evaluateDraft(aggregateToolData(toolResults), result.text);
       if (verdict.status === "OK") break;
       const correction = `[CRITIC FEEDBACK — ${verdict.status}]\n${verdict.feedback}\n請根據以上指示，重新整理答案。`;
