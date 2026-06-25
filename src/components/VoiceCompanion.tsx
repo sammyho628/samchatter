@@ -164,12 +164,16 @@ export function VoiceCompanion() {
     void fetchProviders()
       .then((p) => {
         setProviders(p);
+        const utilityLabel =
+          p.llm === "gemini"
+            ? "lovable-gateway/gemini-2.5-flash"
+            : `${p.llm}→lovable-gateway/gemini-2.5-flash(fallback)`;
         console.log(
-          `[${new Date().toISOString()}] 🔧 models · planner=${p.llm} · synthesizer=${p.llm} · critic=${p.llm}→lovable-gateway · tts=${p.tts} · utility=lovable-gateway/gemini-2.5-flash`,
+          `[${new Date().toISOString()}] 🔧 models · planner=${p.llm} · synthesizer=${p.llm} · critic=${p.llm}→lovable-gateway · tts=${p.tts} · utility=${utilityLabel}`,
         );
         pushLog(
           "evt",
-          `🔧 models · planner=${p.llm} · synthesizer=${p.llm} · critic=${p.llm}→lovable-gateway · tts=${p.tts} · utility=lovable-gateway/gemini-2.5-flash`,
+          `🔧 models · planner=${p.llm} · synthesizer=${p.llm} · critic=${p.llm}→lovable-gateway · tts=${p.tts} · utility=${utilityLabel}`,
         );
       })
       .catch(() => {});
