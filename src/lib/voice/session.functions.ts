@@ -58,10 +58,11 @@ export const getVoiceSession = createServerFn({ method: "GET" }).handler(
         .in("topic", activeTopics),
       supabaseAdmin
         .from("chat_memory")
-        .select("summary_date, conversation_summary")
+        .select("summary_date, conversation_summary, created_at")
         .order("created_at", { ascending: false })
         .limit(3),
     ]);
+
 
     if (ctxRes.error) {
       throw new Error(`Context load failed: ${ctxRes.error.message}`);
