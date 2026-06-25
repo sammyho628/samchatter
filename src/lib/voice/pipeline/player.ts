@@ -23,7 +23,11 @@ export function subscribePlayerDiagnostics(fn: DiagLogger): () => void {
 }
 
 function getCtx(): AudioContext {
-  if (ctx && ctx.state !== "closed") return ctx;
+  if (ctx && ctx.state !== "closed" && (ctx.state as string) !== "interrupted") return ctx;
+  if (ctx) {
+    try { void ctx.close(); } catch { /* ignore */ }
+    ctx = null;
+  }
   const AC: typeof AudioContext =
     (window as unknown as { AudioContext: typeof AudioContext; webkitAudioContext?: typeof AudioContext }).AudioContext ||
     (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
@@ -60,6 +64,12 @@ export async function unlockAudio(): Promise<void> {
       }
     }
   }
+  if ((c.state as string) === "interrupted") {
+    diag(`⚠️ AudioContext interrupted (iOS lock/call) — recreating context`);
+    try { void c.close(); } catch { /* ignore */ }
+    ctx = null;
+    return unlockAudio();
+  }
   diag(`unlockAudio · ${before} → ${c.state}`);
 }
 
@@ -68,11 +78,17 @@ export async function unlockAudio(): Promise<void> {
 // stay silent until another user gesture.
 if (typeof document !== "undefined") {
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible" && ctx && ctx.state === "suspended") {
-      ctx.resume().then(
-        () => diag("visibility resume ok"),
-        (e) => diag(`visibility resume failed: ${(e as Error).message}`),
-      );
+    if (document.visibilityState === "visible" && ctx) {
+      if (ctx.state === "suspended") {
+        ctx.resume().then(
+          () => diag("visibility resume ok"),
+          (e) => diag(`visibility resume failed: ${(e as Error).message}`),
+        );
+      } else if ((ctx.state as string) === "interrupted") {
+        diag("visibility: interrupted context — will recreate on next use");
+        try { void ctx.close(); } catch { /* ignore */ }
+        ctx = null;
+      }
     }
   });
 
@@ -150,7 +166,15 @@ export async function playBase64Audio(audioBase64: string): Promise<void> {
       resolve();
       return;
     }
+    // Safety timeout: if onended never fires (iOS interruption), force-resolve
+    // after duration + 5 seconds so the orchestrator loop can continue.
+    const safetyMs = Math.ceil((buffer.duration + 5) * 1000);
+    const safetyTimer = setTimeout(() => {
+      diag(`⚠️ playback safety timeout after ${(buffer.duration + 5).toFixed(1)}s — force resolve`);
+      resolve();
+    }, safetyMs);
     src.onended = () => {
+      clearTimeout(safetyTimer);
       diag(`■ ended · ctx=${c.state}`);
       if (current === src) current = null;
       resolve();
