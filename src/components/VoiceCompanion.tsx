@@ -164,12 +164,16 @@ export function VoiceCompanion() {
     void fetchProviders()
       .then((p) => {
         setProviders(p);
+        const utilityLabel =
+          p.llm === "gemini"
+            ? "lovable-gateway/gemini-2.5-flash"
+            : `${p.llm}→lovable-gateway/gemini-2.5-flash(fallback)`;
         console.log(
-          `[${new Date().toISOString()}] 🔧 models · planner=${p.llm} · synthesizer=${p.llm} · critic=${p.llm}→lovable-gateway · tts=${p.tts} · utility=lovable-gateway/gemini-2.5-flash`,
+          `[${new Date().toISOString()}] 🔧 models · planner=${p.llm} · synthesizer=${p.llm} · critic=${p.llm}→lovable-gateway · tts=${p.tts} · utility=${utilityLabel}`,
         );
         pushLog(
           "evt",
-          `🔧 models · planner=${p.llm} · synthesizer=${p.llm} · critic=${p.llm}→lovable-gateway · tts=${p.tts} · utility=lovable-gateway/gemini-2.5-flash`,
+          `🔧 models · planner=${p.llm} · synthesizer=${p.llm} · critic=${p.llm}→lovable-gateway · tts=${p.tts} · utility=${utilityLabel}`,
         );
       })
       .catch(() => {});
@@ -206,7 +210,7 @@ export function VoiceCompanion() {
               executedSearches: executedSearchesRef.current ?? [],
             },
           });
-          const msg = `💾 memory auto-save · turn=${turnCountRef.current} · model=lovable-gateway/gemini-2.5-flash`;
+          const msg = `💾 memory auto-save · turn=${turnCountRef.current} · (model logged server-side)`;
           console.log(`[${new Date().toISOString()}] ${msg}`);
           pushLog("db", msg);
         } catch (e) {
@@ -300,7 +304,7 @@ export function VoiceCompanion() {
                 daysSinceLastSession: sessData.daysSinceLastSession ?? undefined,
               },
             });
-            const msg = `👋 greeting · model=lovable-gateway/gemini-2.5-flash · text="${greetingText.slice(0, 40)}"`;
+            const msg = `👋 greeting · text="${greetingText.slice(0, 40)}" · (model logged server-side)`;
             console.log(`[${new Date().toISOString()}] ${msg}`);
             pushLog("evt", msg);
             const tts = await ttsFn({ data: { text: greetingText } });
@@ -708,8 +712,9 @@ export function VoiceCompanion() {
             : getTimeGreeting(personaNameRef.current ?? "明女");
           const tts = await ttsFn({ data: { text: greetingText } });
           audioBase64 = tts.audioBase64;
-        } catch {
-          // Final fallback: silent start rather than the wrong-name canned greeting.
+        } catch (e) {
+          // Log so we can diagnose iOS audio failures — previously this was silent.
+          pushLog("err", `greeting fallback TTS failed: ${(e as Error).message}`);
         }
       }
       if (audioBase64) await playBase64Audio(audioBase64);
