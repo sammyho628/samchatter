@@ -79,25 +79,7 @@ const TOOL_DECLS = [
   {
     name: "scrape_page",
     description:
-      "Scrape a specific known URL to get live page content. " +
-      "PRIMARY USE CASE: " +
-      "scrape_page(\"https://tradingeconomics.com/hong-kong/stock-market\") " +
-      "returns three structured datasets in one call: " +
-      "(1) HK50 index price, daily change, and date from the Indexes table; " +
-      "(2) Prices and daily % change for 10 HSI component stocks — " +
-      "Tencent (0700.HK), HSBC (0005.HK), Meituan (3690.HK), Xiaomi, AIA, " +
-      "CNOOC, China Mobile, China Construction Bank, HKEX, and Ping An — " +
-      "from the Components table; " +
-      "(3) Dated market commentary in the News Stream section. " +
-      "ALWAYS check the YYYY-MM-DD date stamp on the latest news item before " +
-      "quoting commentary. If the stamp is not today's date, use only the " +
-      "numeric table data and skip the commentary. " +
-      "For individual HSI component stock queries (e.g. user asks about " +
-      "Tencent or Meituan), prefer this URL over individual Yahoo Finance " +
-      "or Google Finance stock pages. " +
-      "Do NOT use for Yahoo Finance URLs — API blocked, always returns 403. " +
-      "Do NOT use for hsi.com.hk — JS-rendered, always returns empty content. " +
-      "If scrape times out, do not retry — accept failure and inform the user.",
+      "Scrape a specific URL via Firecrawl to get live JS-rendered page content. MANDATORY for HK stock queries after 16:00 HKT or on weekends — always scrape https://tradingeconomics.com/hong-kong/stock-market to get the authoritative HK50 closing price from the [Indexes] table. Use for any known URL where live rendered content is needed. NEVER scrape Yahoo Finance URLs (blocked, always fail) or hsi.com.hk (JS-rendered, always empty). Confirmed working: tradingeconomics.com via Firecrawl.",
     parameters: {
       type: "object",
       properties: {
