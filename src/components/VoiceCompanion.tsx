@@ -162,18 +162,18 @@ export function VoiceCompanion() {
   // what the brain is actually using on the next turn.
   useEffect(() => {
     void fetchProviders()
-      .then((p) => setProviders(p))
+      .then((p) => {
+        setProviders(p);
+        console.log(
+          `[${new Date().toISOString()}] 🔧 models · planner=${p.llm} · synthesizer=${p.llm} · critic=${p.llm}→lovable-gateway · tts=${p.tts} · utility=lovable-gateway/gemini-2.5-flash`,
+        );
+        pushLog(
+          "evt",
+          `🔧 models · planner=${p.llm} · synthesizer=${p.llm} · critic=${p.llm}→lovable-gateway · tts=${p.tts} · utility=lovable-gateway/gemini-2.5-flash`,
+        );
+      })
       .catch(() => {});
-  }, [fetchProviders]);
-
-  // Pre-fetch greeting audio so handleSplashTap can play it synchronously
-  // after unlockAudio() — eliminates the iOS-Safari gesture-gap silence.
-  useEffect(() => {
-    const text = getTimeGreeting("朋友"); // approximate — persona name may not be loaded yet
-    ttsFn({ data: { text } })
-      .then((r) => { greetingAudioRef.current = r.audioBase64; })
-      .catch(() => {}); // silent — fallback fetches at tap time if this fails
-  }, [ttsFn]);
+  }, [fetchProviders, pushLog]);
 
   const persistTurn = useCallback(
     (role: "user" | "model", text: string) => {
@@ -184,9 +184,39 @@ export function VoiceCompanion() {
         .catch((err) => {
           pushLog("err", `persist ${role}: ${(err as Error).message}`);
         });
+
+      // Auto-save memory every 5 model turns (~5 complete exchanges).
+      if (role !== "model") return;
+      turnCountRef.current += 1;
+      if (turnCountRef.current - lastMemorySaveRef.current < 5) return;
+      lastMemorySaveRef.current = turnCountRef.current;
+      void (async () => {
+        try {
+          const { turns } = await loadTurns();
+          if (turns.length < 4) return;
+          const transcript = turns
+            .map((t) => `${t.role === "user" ? "USER" : "AI"}: ${t.text}`)
+            .join("\n")
+            .slice(0, 60000);
+          const sid = sessionIdRef.current || `sess_${Date.now()}`;
+          await saveMemory({
+            data: {
+              sessionId: sid,
+              transcript,
+              executedSearches: executedSearchesRef.current ?? [],
+            },
+          });
+          const msg = `💾 memory auto-save · turn=${turnCountRef.current} · model=lovable-gateway/gemini-2.5-flash`;
+          console.log(`[${new Date().toISOString()}] ${msg}`);
+          pushLog("db", msg);
+        } catch (e) {
+          pushLog("err", `memory auto-save: ${(e as Error).message}`);
+        }
+      })();
     },
-    [saveTurn, pushLog],
+    [saveTurn, pushLog, loadTurns, saveMemory],
   );
+
 
   useEffect(() => {
     let cancelled = false;
