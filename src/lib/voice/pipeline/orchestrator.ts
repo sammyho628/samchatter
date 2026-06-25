@@ -180,6 +180,7 @@ export async function runTurn(
         cbs.onDone?.();
         return null;
       }
+    }
     if (!transcript) {
       cbs.onError?.("聽唔清楚，可唔可以講多次？");
       cbs.onDone?.();
