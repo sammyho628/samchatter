@@ -23,7 +23,11 @@ export function subscribePlayerDiagnostics(fn: DiagLogger): () => void {
 }
 
 function getCtx(): AudioContext {
-  if (ctx && ctx.state !== "closed") return ctx;
+  if (ctx && ctx.state !== "closed" && (ctx.state as string) !== "interrupted") return ctx;
+  if (ctx) {
+    try { void ctx.close(); } catch { /* ignore */ }
+    ctx = null;
+  }
   const AC: typeof AudioContext =
     (window as unknown as { AudioContext: typeof AudioContext; webkitAudioContext?: typeof AudioContext }).AudioContext ||
     (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
