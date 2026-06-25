@@ -3,7 +3,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { WaveformOrb } from "./WaveformOrb";
 import { buildSystemPrompt } from "@/lib/voice/systemPrompt";
 import { getVoiceSession } from "@/lib/voice/session.functions";
-import { summarizeAndSaveSession } from "@/lib/voice/memory.functions";
+import { summarizeAndSaveSession, generateContextualGreeting } from "@/lib/voice/memory.functions";
 import {
   getTodayChatTurns,
   appendChatTurn,
