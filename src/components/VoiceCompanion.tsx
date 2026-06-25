@@ -155,6 +155,15 @@ export function VoiceCompanion() {
       .catch(() => {});
   }, [fetchProviders]);
 
+  // Pre-fetch greeting audio so handleSplashTap can play it synchronously
+  // after unlockAudio() — eliminates the iOS-Safari gesture-gap silence.
+  useEffect(() => {
+    const text = getTimeGreeting("朋友"); // approximate — persona name may not be loaded yet
+    ttsFn({ data: { text } })
+      .then((r) => { greetingAudioRef.current = r.audioBase64; })
+      .catch(() => {}); // silent — fallback fetches at tap time if this fails
+  }, [ttsFn]);
+
   const persistTurn = useCallback(
     (role: "user" | "model", text: string) => {
       if (!text.trim()) return;
