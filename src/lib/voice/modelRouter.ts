@@ -83,19 +83,66 @@ export async function resolveCriticCaller(): Promise<CriticCaller | null> {
 
 // Utility chat — used by translation / summarisation helpers. Always Lovable
 // AI Gateway (no user-facing toggle for these background tasks).
+// Utility chat — background helpers (memory summarisation, greeting generation,
+// daily cache summarisation). Tries the configured LLM (Qwen/Grok) first for
+// billing consolidation. Falls back to Lovable AI Gateway if: provider=gemini
+// (direct blocked from HK), key missing, or the primary call fails.
+// Returns { text, usedModel } so callers can log which model actually ran.
 export async function callUtilityChat(args: {
   system: string;
   user: string;
   maxTokens?: number;
-}): Promise<string> {
-  const key = process.env.LOVABLE_API_KEY;
-  if (!key) throw new Error("Missing LOVABLE_API_KEY");
+}): Promise<{ text: string; usedModel: string }> {
+  const { llm } = await readProvidersServerSide();
+  const max = args.maxTokens ?? 400;
+
+  // Try configured LLM if it's Qwen or Grok (not Gemini — direct call blocked from HK)
+  if (llm === "qwen" || llm === "grok") {
+    const key = getKey(llm);
+    if (key) {
+      try {
+        const url =
+          llm === "qwen"
+            ? "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+            : "https://api.x.ai/v1/chat/completions";
+        const model = MODEL_IDS[llm];
+        const r = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${key}`,
+          },
+          body: JSON.stringify({
+            model,
+            messages: [
+              { role: "system", content: args.system },
+              { role: "user", content: args.user },
+            ],
+            max_tokens: max,
+          }),
+        });
+        if (r.ok) {
+          const j = (await r.json()) as {
+            choices?: Array<{ message?: { content?: string } }>;
+          };
+          const text = j.choices?.[0]?.message?.content?.trim() ?? "";
+          if (text) return { text, usedModel: llm };
+        }
+      } catch {
+        // Fall through to Lovable gateway
+      }
+    }
+  }
+
+  // Fallback: Lovable AI Gateway (also primary path for provider=gemini)
+  const lovableKey = process.env.LOVABLE_API_KEY;
+  if (!lovableKey) throw new Error("Missing LOVABLE_API_KEY");
   const r = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Lovable-API-Key": key,
-      Authorization: `Bearer ${key}`,
+      "Lovable-API-Key": lovableKey,
+      Authorization: `Bearer ${lovableKey}`,
       "X-Lovable-AIG-SDK": "raw-fetch",
     },
     body: JSON.stringify({
@@ -104,7 +151,7 @@ export async function callUtilityChat(args: {
         { role: "system", content: args.system },
         { role: "user", content: args.user },
       ],
-      max_tokens: args.maxTokens ?? 400,
+      max_tokens: max,
     }),
   });
   if (!r.ok) {
@@ -114,7 +161,8 @@ export async function callUtilityChat(args: {
   const j = (await r.json()) as {
     choices?: Array<{ message?: { content?: string } }>;
   };
-  return j.choices?.[0]?.message?.content?.trim() ?? "";
+  const text = j.choices?.[0]?.message?.content?.trim() ?? "";
+  return { text, usedModel: "lovable-gateway/gemini-2.5-flash" };
 }
 
 // ---- low-level simple callers (no tools, single turn) ----
