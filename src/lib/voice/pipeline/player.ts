@@ -147,6 +147,7 @@ export async function playBase64Audio(audioBase64: string): Promise<void> {
       return;
     }
     src.onended = () => {
+      diag(`■ ended · ctx=${c.state}`);
       if (current === src) current = null;
       resolve();
     };
@@ -161,7 +162,7 @@ export async function playBase64Audio(audioBase64: string): Promise<void> {
     const prevHad = lastBuffer !== null;
     lastBuffer = buffer;
     if (!prevHad) for (const l of listeners) l(true);
-    diag(`▶ playing ${buffer.duration.toFixed(2)}s · ctx=${c.state}`);
+    diag(`▶ started · duration=${buffer.duration.toFixed(2)}s · ctx=${c.state}`);
   });
 }
 
