@@ -79,7 +79,25 @@ const TOOL_DECLS = [
   {
     name: "scrape_page",
     description:
-      "Scrape a specific known URL to get live page content. Use this when you know the exact URL — e.g. a TradingEconomics market page or a sports match page. Returns cleaned markdown content from the live page. Do NOT use for Yahoo Finance or other JS-heavy finance pages — they are blocked by anti-scraping protection and will always return an error page. Only use for static or markdown-friendly pages such as tradingeconomics.com.",
+      "Scrape a specific known URL to get live page content. " +
+      "PRIMARY USE CASE: " +
+      "scrape_page(\"https://tradingeconomics.com/hong-kong/stock-market\") " +
+      "returns three structured datasets in one call: " +
+      "(1) HK50 index price, daily change, and date from the Indexes table; " +
+      "(2) Prices and daily % change for 10 HSI component stocks — " +
+      "Tencent (0700.HK), HSBC (0005.HK), Meituan (3690.HK), Xiaomi, AIA, " +
+      "CNOOC, China Mobile, China Construction Bank, HKEX, and Ping An — " +
+      "from the Components table; " +
+      "(3) Dated market commentary in the News Stream section. " +
+      "ALWAYS check the YYYY-MM-DD date stamp on the latest news item before " +
+      "quoting commentary. If the stamp is not today's date, use only the " +
+      "numeric table data and skip the commentary. " +
+      "For individual HSI component stock queries (e.g. user asks about " +
+      "Tencent or Meituan), prefer this URL over individual Yahoo Finance " +
+      "or Google Finance stock pages. " +
+      "Do NOT use for Yahoo Finance URLs — API blocked, always returns 403. " +
+      "Do NOT use for hsi.com.hk — JS-rendered, always returns empty content. " +
+      "If scrape times out, do not retry — accept failure and inform the user.",
     parameters: {
       type: "object",
       properties: {
