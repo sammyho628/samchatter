@@ -674,9 +674,20 @@ export const synthesizeAnswer = createServerFn({ method: "POST" })
 
     let result = await callSynthesiser(systemInstruction, history, userText);
 
+    const needsCritic =
+      data.toolResults.length > 0 &&
+      (isAnalytical ||
+        data.toolResults.some((t) => {
+          const cat = (t.args.category ?? "") as string;
+          return (
+            ["stocks", "finance", "sports", "health", "hk_news", "world_news"].includes(cat) ||
+            t.name === "scrape_page"
+          );
+        }));
+
     const MAX_REFINEMENTS = 2;
     for (let loop = 0; loop < MAX_REFINEMENTS; loop++) {
-      if (data.toolResults.length === 0) break;
+      if (!needsCritic) break;
       const verdict = await evaluateDraft(
         aggregateToolData(data.toolResults),
         result.text,
