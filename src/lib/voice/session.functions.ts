@@ -334,11 +334,14 @@ async function summariseTopic(raw: string, topic: string): Promise<string> {
     `${dateContext}\n\n請用繁體中文（香港）將以下內容總結成簡短播報稿（200字內）。唔好用 markdown，純文字。`;
 
   try {
-    const out = await callUtilityChat({
+    const { text: out, usedModel: cacheModel } = await callUtilityChat({
       system: systemPrompt,
       user: `原始資料：\n${raw.slice(0, 3000)}`,
       maxTokens: 600,
     });
+    console.log(
+      `[${new Date().toISOString()}] 📦 daily-cache-summarize · topic=${topic} · model=${cacheModel}`,
+    );
     return out && out.length > 0 ? out : raw.slice(0, 1000);
   } catch (e) {
     console.error(`[VoiceSession] summarise ${topic} failed:`, e);
