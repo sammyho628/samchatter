@@ -133,6 +133,7 @@ export function VoiceCompanion() {
   const promptLoadedAtRef = useRef<number>(0);
   const promptLoadingRef = useRef(false);
   const personaNameRef = useRef<string>("朋友");
+  const greetingAudioRef = useRef<string | null>(null);
   const PROMPT_TTL_MS = 30 * 60 * 1000; // 30 min — refetch knowledge/memory/daily cache
 
   const fetchSession = useServerFn(getVoiceSession);
@@ -153,6 +154,15 @@ export function VoiceCompanion() {
       .then((p) => setProviders(p))
       .catch(() => {});
   }, [fetchProviders]);
+
+  // Pre-fetch greeting audio so handleSplashTap can play it synchronously
+  // after unlockAudio() — eliminates the iOS-Safari gesture-gap silence.
+  useEffect(() => {
+    const text = getTimeGreeting("朋友"); // approximate — persona name may not be loaded yet
+    ttsFn({ data: { text } })
+      .then((r) => { greetingAudioRef.current = r.audioBase64; })
+      .catch(() => {}); // silent — fallback fetches at tap time if this fails
+  }, [ttsFn]);
 
   const persistTurn = useCallback(
     (role: "user" | "model", text: string) => {
@@ -288,6 +298,8 @@ export function VoiceCompanion() {
     const handle = recorderRef.current;
     if (!handle) return;
     recorderRef.current = null;
+    // Re-unlock in this gesture so playback later in the pipeline is authorized.
+    try { await unlockAudio(); } catch { /* ignore */ }
     let blob: Blob;
     let mimeType: string;
     try {
@@ -580,17 +592,16 @@ export function VoiceCompanion() {
 
   const handleSplashTap = useCallback(async () => {
     setGreeting(true);
-    try {
-      await unlockAudio();
-    } catch { /* ignore */ }
+    try { await unlockAudio(); } catch { /* ignore */ }
     // Warm the prompt at the same moment audio unlocks so the user's first
     // real interaction has no cold-start latency.
     void loadPromptIfNeeded();
     setShowSplash(false);
     try {
-      const greetingText = getTimeGreeting(personaNameRef.current ?? "朋友");
-      const tts = await ttsFn({ data: { text: greetingText } });
-      await playBase64Audio(tts.audioBase64);
+      // Use pre-fetched audio if ready; otherwise fetch now (slower, may be silent on iOS)
+      const audioBase64 = greetingAudioRef.current
+        ?? (await ttsFn({ data: { text: getTimeGreeting(personaNameRef.current ?? "朋友") } })).audioBase64;
+      await playBase64Audio(audioBase64);
     } catch (err) {
       pushLog("err", `greeting: ${(err as Error).message}`);
     } finally {

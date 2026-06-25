@@ -127,6 +127,7 @@ export async function playBase64Audio(audioBase64: string): Promise<void> {
   }
   const bytes = Uint8Array.from(atob(audioBase64), (ch) => ch.charCodeAt(0));
   const ab = bytes.buffer.slice(0) as ArrayBuffer;
+  diag(`playBase64Audio · ctx=${c.state} · inputBytes=${bytes.length}`);
   let buffer: AudioBuffer;
   try {
     buffer = await c.decodeAudioData(ab);
@@ -146,6 +147,7 @@ export async function playBase64Audio(audioBase64: string): Promise<void> {
       return;
     }
     src.onended = () => {
+      diag(`■ ended · ctx=${c.state}`);
       if (current === src) current = null;
       resolve();
     };
@@ -160,7 +162,7 @@ export async function playBase64Audio(audioBase64: string): Promise<void> {
     const prevHad = lastBuffer !== null;
     lastBuffer = buffer;
     if (!prevHad) for (const l of listeners) l(true);
-    diag(`▶ playing ${buffer.duration.toFixed(2)}s · ctx=${c.state}`);
+    diag(`▶ started · duration=${buffer.duration.toFixed(2)}s · ctx=${c.state}`);
   });
 }
 
