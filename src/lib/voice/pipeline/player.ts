@@ -64,6 +64,12 @@ export async function unlockAudio(): Promise<void> {
       }
     }
   }
+  if ((c.state as string) === "interrupted") {
+    diag(`⚠️ AudioContext interrupted (iOS lock/call) — recreating context`);
+    try { void c.close(); } catch { /* ignore */ }
+    ctx = null;
+    return unlockAudio();
+  }
   diag(`unlockAudio · ${before} → ${c.state}`);
 }
 
