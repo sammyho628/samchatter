@@ -11,12 +11,15 @@ const SummarizeInput = z.object({
 export const summarizeAndSaveSession = createServerFn({ method: "POST" })
   .inputValidator((d: unknown) => SummarizeInput.parse(d))
   .handler(async ({ data }) => {
-    const summary = await callUtilityChat({
+    const { text: summary, usedModel: summaryModel } = await callUtilityChat({
       system:
         "Summarize this Cantonese voice chat transcript between an AI companion and 明囡 in 2-3 short Traditional Chinese sentences. Capture: what she asked about, what she shared, mood. Skip greetings/filler. Output ONLY the summary text, no preamble.",
       user: data.transcript,
       maxTokens: 300,
     });
+    console.log(
+      `[${new Date().toISOString()}] 🧠 memory-summarize · model=${summaryModel}`,
+    );
     if (!summary) throw new Error("Empty summary");
 
     const { supabaseAdmin } = await import(
