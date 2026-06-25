@@ -170,6 +170,17 @@ Rule 3 [全球豁免 — 嚴禁加「香港」]: 若 query 含以下任何關鍵
      - HK Assets / Indices (HSI, 0700.HK, 9618.HK, 3690.HK, 恆指, 國指 etc.): 必須 force append 當前本地 ISO date string (${iso.slice(0, 10)}) 入 query，因為本地搜尋 snippet 依重 fixed calendar close date。例「0700.HK latest price ${iso.slice(0, 10)}」。
      - US Tech Stocks (NVDA, TSLA, AAPL, MSFT, META, GOOG, AMZN 等) 喺美股 live trading hours (本地夜間 anchor 21:00–23:59 HKT) 期間: query 必須保持 generic real-time 格式 (例如「NVDA stock price live」「TSLA live quote now」)。絕對禁止 force append literal ISO calendar date string 到 US tickers — 會 break real-time search snippet engine，攞唔到 live data。
      - 收市後或非美股交易時段問 US ticker: 可加日期 (例如「NVDA closing price ${iso.slice(0, 10)}」)。
+  [US BROAD MARKET INDEX QUERY RULE — 強制]
+  當用戶問「美股」/「US stock market」/「Wall Street」/「美國股市」/「三大指數」/「道指」/「標普」/「納指」而唔係問特定 ticker (如 NVDA/TSLA/AAPL 等):
+    喺美股開市 (21:00–06:00 HKT): MANDATORY web_search(category=stocks, query="Dow Jones S&P 500 Nasdaq live today")
+    喺美股收市後: MANDATORY web_search(category=stocks, query="Dow Jones S&P 500 Nasdaq close today")
+    PROHIBITED queries for US broad market:
+      ✗ "US stock market live now" — Brave 由 HK 執行時 route 去香港股市 (恆指/HK50)，必定返回錯誤答案
+      ✗ "US market now" / "American stock market" / "stock market live" — 同樣問題
+    SOURCE MISMATCH DETECTOR (US 市場適用):
+      如 web_search 返回嘅 snippet 或摘要主要講及 "Hang Seng" / "恆指" / "HK50" / "Hong Kong stock" 但用戶明明問緊美股 → 即刻識別為 Brave 本地化偏差錯誤，該 snippet 數據完全作廢。
+      MANDATORY re-fire: web_search(category=stocks, query="Dow Jones index performance today")
+      絕對禁止用錯誤 HK 數據嚟答 US 市場問題 — 此行為係嚴重 hallucination，等同指鹿為馬。
   4. SANITY CHECK (講之前內部計):
      - Price < Previous Close → Change 必須係負數 / 跌
      - Price > Previous Close → Change 必須係正數 / 升
