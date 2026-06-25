@@ -78,11 +78,17 @@ export async function unlockAudio(): Promise<void> {
 // stay silent until another user gesture.
 if (typeof document !== "undefined") {
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible" && ctx && ctx.state === "suspended") {
-      ctx.resume().then(
-        () => diag("visibility resume ok"),
-        (e) => diag(`visibility resume failed: ${(e as Error).message}`),
-      );
+    if (document.visibilityState === "visible" && ctx) {
+      if (ctx.state === "suspended") {
+        ctx.resume().then(
+          () => diag("visibility resume ok"),
+          (e) => diag(`visibility resume failed: ${(e as Error).message}`),
+        );
+      } else if ((ctx.state as string) === "interrupted") {
+        diag("visibility: interrupted context — will recreate on next use");
+        try { void ctx.close(); } catch { /* ignore */ }
+        ctx = null;
+      }
     }
   });
 
