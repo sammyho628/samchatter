@@ -166,11 +166,12 @@ export async function playBase64Audio(audioBase64: string): Promise<void> {
       resolve();
       return;
     }
-    // Safety timeout: if onended never fires (iOS interruption), force-resolve
-    // after duration + 5 seconds so the orchestrator loop can continue.
-    const safetyMs = Math.ceil((buffer.duration + 5) * 1000);
+    // Safety timeout: if onended never fires (iOS interruption mid-playback), force-resolve.
+    // Buffer is 30s to account for decode time + scheduling latency before playback starts.
+    // The 5s original buffer was too tight — decode alone can take 3–4s for large chunks.
+    const safetyMs = Math.ceil((buffer.duration + 30) * 1000);
     const safetyTimer = setTimeout(() => {
-      diag(`⚠️ playback safety timeout after ${(buffer.duration + 5).toFixed(1)}s — force resolve`);
+      diag(`⚠️ playback safety timeout after ${(buffer.duration + 30).toFixed(1)}s — force resolve`);
       resolve();
     }, safetyMs);
     src.onended = () => {

@@ -461,7 +461,17 @@ NEVER invent or estimate a price if neither tool returns a clear number — say 
 [HK STOCK RULE — OPEN MARKET]
 If the user asks about HK stocks during trading hours (Mon–Fri 09:30–16:00 HKT):
   Fire ONLY web_search(category="stocks", query="Hang Seng Index live [today ISO date]").
-  Do NOT fire scrape_page — tradingeconomics.com times out during live trading hours (5–19 second delay).`;
+  Do NOT fire scrape_page — tradingeconomics.com times out during live trading hours (5–19 second delay).
+
+[SPORTS LIVE STANDINGS MANDATORY RULE]
+If the user asks for live/current match results, group standings, tournament rankings, or "who is eliminated/qualified" from an ongoing tournament:
+  ALWAYS fire BOTH tools simultaneously in a single plan step:
+    Tool 1: web_search(category="sports", query="[tournament] group standings results [today date]")
+    Tool 2: scrape_page(url="https://www.bbc.com/sport/football/world-cup", reason="Get rendered standings table — Brave snippets only return page descriptions, not actual scores")
+  The scraped BBC Sport page gives rendered match results and standings tables that Brave Search cannot return. Use the scraped content as the authoritative data source.
+  If BBC Sport is unavailable, fallback scrape URL: "https://www.reuters.com/sports/soccer/"
+  Do NOT fire web_search alone for live sports standings — Brave snippets for Livescore/ESPN/BBC Sport only return page titles and descriptions, never actual score data.
+  Exception: if the user asks for general sports news or previews (not live scores/standings), web_search alone is fine.`;
 
 
 const ANALYTICAL_RE =
