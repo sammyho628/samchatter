@@ -124,10 +124,29 @@ export const getVoiceSession = createServerFn({ method: "GET" }).handler(
     const memRows = (memRes.data ?? []) as Array<{
       summary_date: string;
       conversation_summary: string;
+      created_at?: string;
     }>;
-    const memoryContext = memRows
-      .map((m) => `【往績】${m.summary_date}：${m.conversation_summary}`)
-      .join("\n");
+    const memoryContext =
+      memRows.length > 0
+        ? memRows
+            .map((r, i) => `[往績 ${i + 1}] ${r.conversation_summary}`)
+            .join("\n")
+        : "";
+
+    // Extract first ~200 chars of hk_weather block for greeting context.
+    const weatherRow = cacheRows.find((r) => r.topic === "hk_weather");
+    const weatherSnippet = weatherRow?.content?.slice(0, 200) ?? "";
+
+    const lastMemorySummary = memRows[0]?.conversation_summary ?? null;
+    const daysSinceLastSession = (() => {
+      if (!memRows[0]?.created_at) return null;
+      const lastDate = new Date(memRows[0].created_at);
+      const nowHK = new Date(
+        new Date().toLocaleString("en-US", { timeZone: "Asia/Hong_Kong" }),
+      );
+      const diffMs = nowHK.getTime() - lastDate.getTime();
+      return Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    })();
 
     return {
       contextText,
@@ -136,9 +155,13 @@ export const getVoiceSession = createServerFn({ method: "GET" }).handler(
       prefetchContext,
       memoryContext,
       cacheMeta,
+      weatherSnippet,
+      lastMemorySummary,
+      daysSinceLastSession,
     };
   },
 );
+
 
 async function refreshTopicsBackground(topics: string[]) {
   const { supabaseAdmin } = await import(
