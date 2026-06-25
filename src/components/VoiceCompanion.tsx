@@ -582,17 +582,16 @@ export function VoiceCompanion() {
 
   const handleSplashTap = useCallback(async () => {
     setGreeting(true);
-    try {
-      await unlockAudio();
-    } catch { /* ignore */ }
+    try { await unlockAudio(); } catch { /* ignore */ }
     // Warm the prompt at the same moment audio unlocks so the user's first
     // real interaction has no cold-start latency.
     void loadPromptIfNeeded();
     setShowSplash(false);
     try {
-      const greetingText = getTimeGreeting(personaNameRef.current ?? "朋友");
-      const tts = await ttsFn({ data: { text: greetingText } });
-      await playBase64Audio(tts.audioBase64);
+      // Use pre-fetched audio if ready; otherwise fetch now (slower, may be silent on iOS)
+      const audioBase64 = greetingAudioRef.current
+        ?? (await ttsFn({ data: { text: getTimeGreeting(personaNameRef.current ?? "朋友") } })).audioBase64;
+      await playBase64Audio(audioBase64);
     } catch (err) {
       pushLog("err", `greeting: ${(err as Error).message}`);
     } finally {
