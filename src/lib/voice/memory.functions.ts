@@ -90,11 +90,14 @@ ${lastMemorySummary ? `- 上次對話摘要：${lastMemorySummary.slice(0, 150)}
 只回覆問候語本身，唔好加任何解釋。`;
 
     try {
-      const greeting = await callUtilityChat({
+      const { text: greeting, usedModel: greetingModel } = await callUtilityChat({
         system: systemPrompt,
         user: userPrompt,
         maxTokens: 80,
       });
+      console.log(
+        `[${new Date().toISOString()}] 👋 greeting-generate · model=${greetingModel}`,
+      );
       return greeting.trim() || `${name}，你好！`;
     } catch {
       const fallbacks: Record<string, string[]> = {
