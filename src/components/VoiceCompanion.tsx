@@ -267,11 +267,56 @@ export function VoiceCompanion() {
       personaNameRef.current = personaName;
       promptLoadedAtRef.current = Date.now();
       sessionIdRef.current = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+      // Cache session data needed for contextual greeting + pre-fetch greeting audio.
+      const extra = session as unknown as {
+        weatherSnippet?: string;
+        lastMemorySummary?: string | null;
+        daysSinceLastSession?: number | null;
+      };
+      const sessData = {
+        personaName,
+        weatherSnippet: extra.weatherSnippet ?? "",
+        lastMemorySummary: extra.lastMemorySummary ?? null,
+        daysSinceLastSession: extra.daysSinceLastSession ?? null,
+      };
+      sessionDataRef.current = sessData;
+
+      // Pre-fetch the contextual greeting + TTS so splash tap can play it
+      // synchronously inside the user gesture (avoids iOS audio-gesture gap).
+      if (!greetingAudioRef.current) {
+        void (async () => {
+          try {
+            const hkNow = new Date(
+              new Date().toLocaleString("en-US", { timeZone: "Asia/Hong_Kong" }),
+            );
+            const greetingText = await genGreeting({
+              data: {
+                personaName: sessData.personaName || "明女",
+                hkHour: hkNow.getHours(),
+                hkDayOfWeek: hkNow.getDay(),
+                weatherSnippet: sessData.weatherSnippet,
+                lastMemorySummary: sessData.lastMemorySummary ?? undefined,
+                daysSinceLastSession: sessData.daysSinceLastSession ?? undefined,
+              },
+            });
+            const msg = `👋 greeting · model=lovable-gateway/gemini-2.5-flash · text="${greetingText.slice(0, 40)}"`;
+            console.log(`[${new Date().toISOString()}] ${msg}`);
+            pushLog("evt", msg);
+            const tts = await ttsFn({ data: { text: greetingText } });
+            greetingAudioRef.current = tts.audioBase64;
+          } catch (e) {
+            pushLog("err", `greeting prefetch: ${(e as Error).message}`);
+          }
+        })();
+      }
+
       pushLog("evt", `🕒 HK now: ${nowHK} · persona=${personaName}`);
       pushLog(
         "db",
         `✓ session loaded · ctx:${session.contextText.length} prefetch:${session.prefetchContext.length} memory:${session.memoryContext.length}`,
       );
+
       // Daily cache metadata — surface what the LLM is reading from prefetch.
       const meta = (session as unknown as {
         cacheMeta?: Array<{ topic: string; updated_at: string; chars: number }>;
