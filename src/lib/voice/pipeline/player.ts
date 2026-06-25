@@ -96,7 +96,9 @@ if (typeof document !== "undefined") {
 export function stopPlayback() {
   if (current) {
     try {
-      current.onended = null;
+      // Do NOT null onended — let stop() fire it naturally so any
+      // pending playBase64Audio promise resolves and the orchestrator
+      // loop can continue. Nulling it here causes textBusy to get stuck.
       current.stop();
       current.disconnect();
     } catch {
@@ -128,6 +130,8 @@ export async function playBase64Audio(audioBase64: string): Promise<void> {
   const bytes = Uint8Array.from(atob(audioBase64), (ch) => ch.charCodeAt(0));
   const ab = bytes.buffer.slice(0) as ArrayBuffer;
   diag(`playBase64Audio · ctx=${c.state} · inputBytes=${bytes.length}`);
+  // Capture the schedule time BEFORE the async decode so it isn't stale
+  const scheduleAt = c.currentTime + 0.1;
   let buffer: AudioBuffer;
   try {
     buffer = await c.decodeAudioData(ab);
@@ -152,7 +156,9 @@ export async function playBase64Audio(audioBase64: string): Promise<void> {
       resolve();
     };
     try {
-      src.start(c.currentTime + 0.05);
+      // Use max so we never schedule in the past if decode was slow
+      const startAt = Math.max(scheduleAt, c.currentTime + 0.02);
+      src.start(startAt);
     } catch (err) {
       diag(`⚠️ source.start failed: ${(err as Error).message}`);
       resolve();
