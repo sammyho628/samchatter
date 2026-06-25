@@ -3,7 +3,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { WaveformOrb } from "./WaveformOrb";
 import { buildSystemPrompt } from "@/lib/voice/systemPrompt";
 import { getVoiceSession } from "@/lib/voice/session.functions";
-import { summarizeAndSaveSession } from "@/lib/voice/memory.functions";
+import { summarizeAndSaveSession, generateContextualGreeting } from "@/lib/voice/memory.functions";
 import {
   getTodayChatTurns,
   appendChatTurn,
@@ -134,7 +134,16 @@ export function VoiceCompanion() {
   const promptLoadingRef = useRef(false);
   const personaNameRef = useRef<string>("朋友");
   const greetingAudioRef = useRef<string | null>(null);
+  const turnCountRef = useRef(0);
+  const lastMemorySaveRef = useRef(0);
+  const sessionDataRef = useRef<{
+    personaName: string;
+    weatherSnippet: string;
+    lastMemorySummary: string | null;
+    daysSinceLastSession: number | null;
+  } | null>(null);
   const PROMPT_TTL_MS = 30 * 60 * 1000; // 30 min — refetch knowledge/memory/daily cache
+
 
   const fetchSession = useServerFn(getVoiceSession);
   const saveMemory = useServerFn(summarizeAndSaveSession);
@@ -146,23 +155,25 @@ export function VoiceCompanion() {
   const synthAnswerFn = useServerFn(synthesizeAnswer);
   const ttsFn = useServerFn(synthesizeSpeech);
   const fetchProviders = useServerFn(getProviderSettings);
+  const genGreeting = useServerFn(generateContextualGreeting);
+
 
   // Load active provider settings so the header (and debug log) reflects
   // what the brain is actually using on the next turn.
   useEffect(() => {
     void fetchProviders()
-      .then((p) => setProviders(p))
+      .then((p) => {
+        setProviders(p);
+        console.log(
+          `[${new Date().toISOString()}] 🔧 models · planner=${p.llm} · synthesizer=${p.llm} · critic=${p.llm}→lovable-gateway · tts=${p.tts} · utility=lovable-gateway/gemini-2.5-flash`,
+        );
+        pushLog(
+          "evt",
+          `🔧 models · planner=${p.llm} · synthesizer=${p.llm} · critic=${p.llm}→lovable-gateway · tts=${p.tts} · utility=lovable-gateway/gemini-2.5-flash`,
+        );
+      })
       .catch(() => {});
-  }, [fetchProviders]);
-
-  // Pre-fetch greeting audio so handleSplashTap can play it synchronously
-  // after unlockAudio() — eliminates the iOS-Safari gesture-gap silence.
-  useEffect(() => {
-    const text = getTimeGreeting("朋友"); // approximate — persona name may not be loaded yet
-    ttsFn({ data: { text } })
-      .then((r) => { greetingAudioRef.current = r.audioBase64; })
-      .catch(() => {}); // silent — fallback fetches at tap time if this fails
-  }, [ttsFn]);
+  }, [fetchProviders, pushLog]);
 
   const persistTurn = useCallback(
     (role: "user" | "model", text: string) => {
@@ -173,9 +184,39 @@ export function VoiceCompanion() {
         .catch((err) => {
           pushLog("err", `persist ${role}: ${(err as Error).message}`);
         });
+
+      // Auto-save memory every 5 model turns (~5 complete exchanges).
+      if (role !== "model") return;
+      turnCountRef.current += 1;
+      if (turnCountRef.current - lastMemorySaveRef.current < 5) return;
+      lastMemorySaveRef.current = turnCountRef.current;
+      void (async () => {
+        try {
+          const { turns } = await loadTurns();
+          if (turns.length < 4) return;
+          const transcript = turns
+            .map((t) => `${t.role === "user" ? "USER" : "AI"}: ${t.text}`)
+            .join("\n")
+            .slice(0, 60000);
+          const sid = sessionIdRef.current || `sess_${Date.now()}`;
+          await saveMemory({
+            data: {
+              sessionId: sid,
+              transcript,
+              executedSearches: executedSearchesRef.current ?? [],
+            },
+          });
+          const msg = `💾 memory auto-save · turn=${turnCountRef.current} · model=lovable-gateway/gemini-2.5-flash`;
+          console.log(`[${new Date().toISOString()}] ${msg}`);
+          pushLog("db", msg);
+        } catch (e) {
+          pushLog("err", `memory auto-save: ${(e as Error).message}`);
+        }
+      })();
     },
-    [saveTurn, pushLog],
+    [saveTurn, pushLog, loadTurns, saveMemory],
   );
+
 
   useEffect(() => {
     let cancelled = false;
@@ -226,11 +267,56 @@ export function VoiceCompanion() {
       personaNameRef.current = personaName;
       promptLoadedAtRef.current = Date.now();
       sessionIdRef.current = `sess_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+      // Cache session data needed for contextual greeting + pre-fetch greeting audio.
+      const extra = session as unknown as {
+        weatherSnippet?: string;
+        lastMemorySummary?: string | null;
+        daysSinceLastSession?: number | null;
+      };
+      const sessData = {
+        personaName,
+        weatherSnippet: extra.weatherSnippet ?? "",
+        lastMemorySummary: extra.lastMemorySummary ?? null,
+        daysSinceLastSession: extra.daysSinceLastSession ?? null,
+      };
+      sessionDataRef.current = sessData;
+
+      // Pre-fetch the contextual greeting + TTS so splash tap can play it
+      // synchronously inside the user gesture (avoids iOS audio-gesture gap).
+      if (!greetingAudioRef.current) {
+        void (async () => {
+          try {
+            const hkNow = new Date(
+              new Date().toLocaleString("en-US", { timeZone: "Asia/Hong_Kong" }),
+            );
+            const greetingText = await genGreeting({
+              data: {
+                personaName: sessData.personaName || "明女",
+                hkHour: hkNow.getHours(),
+                hkDayOfWeek: hkNow.getDay(),
+                weatherSnippet: sessData.weatherSnippet,
+                lastMemorySummary: sessData.lastMemorySummary ?? undefined,
+                daysSinceLastSession: sessData.daysSinceLastSession ?? undefined,
+              },
+            });
+            const msg = `👋 greeting · model=lovable-gateway/gemini-2.5-flash · text="${greetingText.slice(0, 40)}"`;
+            console.log(`[${new Date().toISOString()}] ${msg}`);
+            pushLog("evt", msg);
+            const tts = await ttsFn({ data: { text: greetingText } });
+            greetingAudioRef.current = tts.audioBase64;
+          } catch (e) {
+            pushLog("err", `greeting prefetch: ${(e as Error).message}`);
+          }
+        })();
+      }
+
       pushLog("evt", `🕒 HK now: ${nowHK} · persona=${personaName}`);
       pushLog(
         "db",
         `✓ session loaded · ctx:${session.contextText.length} prefetch:${session.prefetchContext.length} memory:${session.memoryContext.length}`,
       );
+
       // Daily cache metadata — surface what the LLM is reading from prefetch.
       const meta = (session as unknown as {
         cacheMeta?: Array<{ topic: string; updated_at: string; chars: number }>;
@@ -264,7 +350,7 @@ export function VoiceCompanion() {
     } finally {
       promptLoadingRef.current = false;
     }
-  }, [fetchSession, pushLog]);
+  }, [fetchSession, pushLog, genGreeting, ttsFn]);
 
   const flushSessionSummary = useCallback(async () => {
     const lines = transcriptLinesRef.current;
@@ -598,16 +684,42 @@ export function VoiceCompanion() {
     void loadPromptIfNeeded();
     setShowSplash(false);
     try {
-      // Use pre-fetched audio if ready; otherwise fetch now (slower, may be silent on iOS)
-      const audioBase64 = greetingAudioRef.current
-        ?? (await ttsFn({ data: { text: getTimeGreeting(personaNameRef.current ?? "朋友") } })).audioBase64;
-      await playBase64Audio(audioBase64);
+      // Prefer the pre-fetched contextual greeting audio. If the session
+      // hadn't finished loading by tap time, generate it now (may be silent
+      // on iOS due to the gesture gap, but better than no greeting).
+      let audioBase64 = greetingAudioRef.current;
+      if (!audioBase64) {
+        try {
+          const sessData = sessionDataRef.current;
+          const hkNow = new Date(
+            new Date().toLocaleString("en-US", { timeZone: "Asia/Hong_Kong" }),
+          );
+          const greetingText = sessData
+            ? await genGreeting({
+                data: {
+                  personaName: sessData.personaName || "明女",
+                  hkHour: hkNow.getHours(),
+                  hkDayOfWeek: hkNow.getDay(),
+                  weatherSnippet: sessData.weatherSnippet,
+                  lastMemorySummary: sessData.lastMemorySummary ?? undefined,
+                  daysSinceLastSession: sessData.daysSinceLastSession ?? undefined,
+                },
+              })
+            : getTimeGreeting(personaNameRef.current ?? "明女");
+          const tts = await ttsFn({ data: { text: greetingText } });
+          audioBase64 = tts.audioBase64;
+        } catch {
+          // Final fallback: silent start rather than the wrong-name canned greeting.
+        }
+      }
+      if (audioBase64) await playBase64Audio(audioBase64);
     } catch (err) {
       pushLog("err", `greeting: ${(err as Error).message}`);
     } finally {
       setGreeting(false);
     }
-  }, [ttsFn, pushLog, loadPromptIfNeeded]);
+  }, [ttsFn, pushLog, loadPromptIfNeeded, genGreeting]);
+
 
   return (
     <div className="relative flex min-h-[100dvh] w-full flex-col items-center overflow-hidden bg-[oklch(0.18_0.04_265)] px-6 py-6 text-white">
