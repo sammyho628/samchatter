@@ -210,7 +210,7 @@ export function VoiceCompanion() {
               executedSearches: executedSearchesRef.current ?? [],
             },
           });
-          const msg = `💾 memory auto-save · turn=${turnCountRef.current} · model=lovable-gateway/gemini-2.5-flash`;
+          const msg = `💾 memory auto-save · turn=${turnCountRef.current} · (model logged server-side)`;
           console.log(`[${new Date().toISOString()}] ${msg}`);
           pushLog("db", msg);
         } catch (e) {
