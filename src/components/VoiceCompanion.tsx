@@ -155,6 +155,8 @@ export function VoiceCompanion() {
   const synthAnswerFn = useServerFn(synthesizeAnswer);
   const ttsFn = useServerFn(synthesizeSpeech);
   const fetchProviders = useServerFn(getProviderSettings);
+  const genGreeting = useServerFn(generateContextualGreeting);
+
 
   // Load active provider settings so the header (and debug log) reflects
   // what the brain is actually using on the next turn.
