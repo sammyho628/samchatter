@@ -350,7 +350,7 @@ export function VoiceCompanion() {
     } finally {
       promptLoadingRef.current = false;
     }
-  }, [fetchSession, pushLog]);
+  }, [fetchSession, pushLog, genGreeting, ttsFn]);
 
   const flushSessionSummary = useCallback(async () => {
     const lines = transcriptLinesRef.current;
