@@ -166,16 +166,34 @@ export async function playBase64Audio(audioBase64: string): Promise<void> {
       resolve();
       return;
     }
-    // Safety timeout: if onended never fires (iOS interruption mid-playback), force-resolve.
-    // Buffer is 30s to account for decode time + scheduling latency before playback starts.
-    // The 5s original buffer was too tight — decode alone can take 3–4s for large chunks.
-    const safetyMs = Math.ceil((buffer.duration + 5) * 1000);
+    // Resolve immediately if AudioContext is interrupted (iOS phone lock/background)
+    // rather than waiting for the full safety timer — which would block all subsequent audio.
+    const onStateChange = () => {
+      if (c.state === "interrupted" || c.state === "closed") {
+        cleanup();
+        diag(`⚠️ ctx ${c.state} during playback — force resolve`);
+        resolve();
+      }
+    };
+    c.addEventListener("statechange", onStateChange);
+
+    // Safety timer: fallback if onended AND statechange both fail to fire.
+    // 15s buffer covers slow decode on desktop without blocking mobile for 30s.
+    const safetyMs = Math.ceil((buffer.duration + 15) * 1000);
     const safetyTimer = setTimeout(() => {
-      diag(`⚠️ playback safety timeout after ${(buffer.duration + 5).toFixed(1)}s — force resolve`);
+      cleanup();
+      diag(`⚠️ playback safety timeout after ${(buffer.duration + 15).toFixed(1)}s — force resolve`);
       resolve();
     }, safetyMs);
-    src.onended = () => {
+
+    function cleanup() {
       clearTimeout(safetyTimer);
+      c.removeEventListener("statechange", onStateChange);
+      src.onended = null;
+    }
+
+    src.onended = () => {
+      cleanup();
       diag(`■ ended · ctx=${c.state}`);
       if (current === src) current = null;
       resolve();
