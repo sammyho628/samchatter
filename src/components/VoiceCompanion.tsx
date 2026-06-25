@@ -304,7 +304,7 @@ export function VoiceCompanion() {
                 daysSinceLastSession: sessData.daysSinceLastSession ?? undefined,
               },
             });
-            const msg = `👋 greeting · model=lovable-gateway/gemini-2.5-flash · text="${greetingText.slice(0, 40)}"`;
+            const msg = `👋 greeting · text="${greetingText.slice(0, 40)}" · (model logged server-side)`;
             console.log(`[${new Date().toISOString()}] ${msg}`);
             pushLog("evt", msg);
             const tts = await ttsFn({ data: { text: greetingText } });
