@@ -712,8 +712,9 @@ export function VoiceCompanion() {
             : getTimeGreeting(personaNameRef.current ?? "明女");
           const tts = await ttsFn({ data: { text: greetingText } });
           audioBase64 = tts.audioBase64;
-        } catch {
-          // Final fallback: silent start rather than the wrong-name canned greeting.
+        } catch (e) {
+          // Log so we can diagnose iOS audio failures — previously this was silent.
+          pushLog("err", `greeting fallback TTS failed: ${(e as Error).message}`);
         }
       }
       if (audioBase64) await playBase64Audio(audioBase64);
