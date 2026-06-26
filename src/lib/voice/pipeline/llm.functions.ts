@@ -196,6 +196,13 @@ function refineQuery(rawQuery: string, category: string): string {
   const lower = q.toLowerCase();
   if (HK_HINTS.some((h) => lower.includes(h.toLowerCase()))) return q;
   if (NON_HK_HINTS.some((h) => lower.includes(h.toLowerCase()))) return q;
+  // Detect English proper nouns in location-sensitive queries (e.g. "Sydney weather", "Bangkok restaurants")
+  // A word matching /^[A-Z][a-z]{2,}$/ is almost certainly a city/country name in these categories
+  // This catches cities not in NON_HK_HINTS without needing an exhaustive list
+  if (LOCAL_CATEGORIES.has(category.toLowerCase())) {
+    const hasEnglishProperNoun = rawQuery.trim().split(/\s+/).some(w => /^[A-Z][a-z]{2,}$/.test(w));
+    if (hasEnglishProperNoun) return q;
+  }
   const localHint =
     LOCAL_CATEGORIES.has(category.toLowerCase()) ||
     /(天氣|氣溫|溫度|落雨|打風|新聞|頭條|交通|塞車|港股|股市|股價|匯率|油價|樓價|地震|颱風|空氣|aqi|weather|temperature)/i.test(
