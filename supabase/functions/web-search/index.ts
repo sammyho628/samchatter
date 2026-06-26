@@ -22,7 +22,13 @@ const HK_CATEGORIES = new Set([
   "shopping",
   "travel",
 ]);
-const GLOBAL_CATEGORIES = new Set(["world_news", "technology"]);
+const GLOBAL_CATEGORIES = new Set([
+  "world_news",
+  "technology",
+  "weather_global",
+  "stocks_us",
+  "market_us",
+]);
 
 function extractSiteDomains(raw: string): { cleaned: string; domains: string[] } {
   const domains: string[] = [];

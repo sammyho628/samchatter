@@ -1,0 +1,1 @@
+INSERT INTO public.app_settings (key, value) VALUES ('voice.personaName.v1', '明女') ON CONFLICT (key) DO UPDATE SET value = '明女';
