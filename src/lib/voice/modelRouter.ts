@@ -24,6 +24,10 @@ const MODEL_IDS = {
   utility: "google/gemini-2.5-flash", // Lovable AI Gateway model id
 } as const;
 
+// Custom Aliyun Model Studio workspace endpoint (OpenAI-compatible).
+const QWEN_API_URL =
+  "https://ws-gmzpr3q5gtcnhft1.ap-southeast-1.maas.aliyuncs.com/v1/chat/completions";
+
 function getKey(provider: LlmProvider): string | undefined {
   if (provider === "gemini") return process.env.GEMINI_API_KEY;
   if (provider === "qwen") return process.env.DASHSCOPE_API_KEY;
@@ -40,7 +44,7 @@ export async function resolveLlmModel(): Promise<MainModel> {
       provider: "qwen",
       model: MODEL_IDS.qwen,
       apiKey: key,
-      apiUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+      apiUrl: QWEN_API_URL,
     };
   }
   if (llm === "grok") {
@@ -66,7 +70,7 @@ export async function resolveCriticCaller(): Promise<CriticCaller | null> {
     if (llm === "qwen")
       return (p) =>
         callOpenAISimple(
-          "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+          QWEN_API_URL,
           MODEL_IDS.qwen,
           key,
           p,
@@ -103,7 +107,7 @@ export async function callUtilityChat(args: {
       try {
         const url =
           llm === "qwen"
-            ? "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+            ? QWEN_API_URL
             : "https://api.x.ai/v1/chat/completions";
         const model = MODEL_IDS[llm];
         const r = await fetch(url, {
