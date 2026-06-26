@@ -70,7 +70,7 @@ const TOOL_DECLS = [
         category: {
           type: "string",
           description:
-            "Optional. health | stocks | finance | hk_news | world_news | shopping | weather | sports | transport | travel | government | technology",
+            "Optional. health | stocks_hk | stocks_us | market_hk | market_us | finance | hk_news | world_news | shopping | weather | weather_global | sports | transport | travel | government | technology",
         },
       },
       required: ["query"],
