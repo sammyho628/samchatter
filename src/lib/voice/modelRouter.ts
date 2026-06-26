@@ -24,6 +24,10 @@ const MODEL_IDS = {
   utility: "google/gemini-2.5-flash", // Lovable AI Gateway model id
 } as const;
 
+// Custom Aliyun Model Studio workspace endpoint (OpenAI-compatible).
+const QWEN_API_URL =
+  "https://ws-gmzpr3q5gtcnhft1.ap-southeast-1.maas.aliyuncs.com/v1/chat/completions";
+
 function getKey(provider: LlmProvider): string | undefined {
   if (provider === "gemini") return process.env.GEMINI_API_KEY;
   if (provider === "qwen") return process.env.DASHSCOPE_API_KEY;
