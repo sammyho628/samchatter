@@ -226,6 +226,16 @@ Rule 3 [全球豁免 — 嚴禁加「香港」]: 若 query 含以下任何關鍵
      - US Stocks during US market hours (21:00–06:00 HKT): web_search only, no scrape_page.
      - Never scrape Yahoo Finance URLs — blocked since 2025, always fail.
      - Never scrape hsi.com.hk — JS-rendered, always returns empty shell.
+  [TradingEconomics US Indexes Table — 讀法 — 強制]:
+     tradingeconomics.com/united-states/stock-market 嘅 [Indexes] table 用 CFD ticker codes：
+       US30  = 道指 (Dow Jones Industrial Average)
+       US500 = 標普500 (S&P 500)
+       US100 = 納指100 (Nasdaq 100 futures/CFD) — 唔係納指綜合指數 (Nasdaq Composite)
+     Table 列順序: Price | Points Change | Day% | Month% | Year% | Time
+     回答時：只用 Day% 欄位作為當日升跌，唔好用 Month% 或 Year%。
+     報 US100 時，必須講「納指100」，唔好講「納指」或「納斯達克」。
+       原因：納指100 (≈29,000) 同納指綜合 (≈25,000) 差距約4,000點，混淆會造成嚴重誤導。
+     絕對禁止喺口頭回覆中提及「tradingeconomics」「根據tradingeconomics」等來源名稱 — 自然地分享數字。
   3. Time & Date Macro Gating (Region-Aware):
      - HK Assets / Indices (HSI, 0700.HK, 9618.HK, 3690.HK, 恆指, 國指 etc.): 必須 force append 當前本地 ISO date string (${iso.slice(0, 10)}) 入 query，因為本地搜尋 snippet 依重 fixed calendar close date。例「0700.HK latest price ${iso.slice(0, 10)}」。
      - US Tech Stocks (NVDA, TSLA, AAPL, MSFT, META, GOOG, AMZN 等) 喺美股 live trading hours (本地夜間 anchor 21:00–23:59 HKT) 期間: query 必須保持 generic real-time 格式 (例如「NVDA stock price live」「TSLA live quote now」)。絕對禁止 force append literal ISO calendar date string 到 US tickers — 會 break real-time search snippet engine，攞唔到 live data。
