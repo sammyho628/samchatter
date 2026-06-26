@@ -135,20 +135,33 @@ const HK_HINTS = [
   "恆指", "恆生", "港股", "港元", "港幣",
 ];
 const NON_HK_HINTS = [
-  // Countries & cities
-  "美國", "中國", "內地", "大陸", "台灣", "日本", "韓國", "東京", "北京", "上海", "新加坡",
-  "英國", "倫敦", "紐約", "歐洲", "澳洲", "加拿大", "法國", "德國",
-  "usa", "china", "taiwan", "japan", "korea", "tokyo", "beijing", "shanghai",
-  "singapore", "uk", "london", "new york", "europe", "australia",
-  // Global finance
-  "美股", "歐股", "a股", "日經", "國際股市", "歐洲股市", "美聯儲", "聯儲局",
-  "nasdaq", "s&p", "dow", "ftse", "dax", "nikkei", "bitcoin", "btc", "ethereum",
-  "加密貨幣", "crypto", "nvidia", "nvda", "openai", "chatgpt", "tesla", "apple", "google", "meta",
-  "g7", "g20", "imf", "世界銀行",
-  // Global sports
-  "世界盃", "world cup", "歐聯", "歐冠", "champions league", "英超", "premier league",
-  "fifa", "nba", "mlb", "nfl", "ufc", "奧運", "olympics", "f1", "grand prix",
-  "溫網", "美網", "法網", "澳網", "wimbledon",
+  // Countries and regions (Chinese)
+  "美國", "中國", "內地", "大陸", "台灣", "日本", "韓國", "歐洲", "澳洲", "加拿大",
+  "法國", "德國", "英國", "泰國", "越南", "馬來西亞", "印尼", "菲律賓", "印度",
+  "新加坡", "意大利", "西班牙", "荷蘭", "瑞士", "瑞典", "葡萄牙", "希臘",
+  // Cities (Chinese)
+  "東京", "北京", "上海", "倫敦", "紐約", "深圳", "廣州", "成都", "重慶",
+  "武漢", "南京", "杭州", "西安", "珠海", "東莞", "廈門", "三亞", "澳門",
+  "曼谷", "吉隆坡", "台北", "首爾", "大阪", "京都", "神戶", "悉尼", "墨爾本",
+  "溫哥華", "多倫多", "巴黎", "柏林", "阿姆斯特丹", "羅馬", "巴塞隆拿",
+  "馬德里", "杜拜", "胡志明", "河內", "曼徹斯特", "利物浦", "清邁", "普吉",
+  // Countries and cities (English — lowercase for case-insensitive match)
+  "usa", "china", "taiwan", "japan", "korea", "europe", "australia", "canada",
+  "france", "germany", "thailand", "malaysia", "vietnam", "indonesia", "india",
+  "italy", "spain", "netherlands", "switzerland",
+  "tokyo", "beijing", "shanghai", "singapore", "london", "new york", "shenzhen",
+  "guangzhou", "chengdu", "bangkok", "kuala lumpur", "taipei", "seoul", "osaka",
+  "kyoto", "sydney", "melbourne", "paris", "berlin", "amsterdam", "dubai",
+  "toronto", "vancouver", "rome", "barcelona", "madrid", "manchester", "liverpool",
+  "chicago", "los angeles", "san francisco", "miami", "las vegas", "boston",
+  "ho chi minh", "hanoi", "chiang mai", "phuket", "bali", "jakarta",
+  "moscow", "istanbul", "cairo", "nairobi", "johannesburg",
+  // Finance terms (prevent appending 香港 to US/global market queries)
+  "dow jones", "s&p", "s&p 500", "nasdaq", "wall street", "nyse", "ftse",
+  "nikkei", "dax", "cac 40",
+  // Sports leagues (prevent 香港 in global sports queries)
+  "premier league", "la liga", "bundesliga", "serie a", "ligue 1",
+  "nba", "nfl", "mlb", "nhl", "uefa", "champions league",
 ];
 // world_news + technology stay excluded — appending "香港" would bias them.
 const LOCAL_CATEGORIES = new Set([
@@ -183,6 +196,13 @@ function refineQuery(rawQuery: string, category: string): string {
   const lower = q.toLowerCase();
   if (HK_HINTS.some((h) => lower.includes(h.toLowerCase()))) return q;
   if (NON_HK_HINTS.some((h) => lower.includes(h.toLowerCase()))) return q;
+  // Detect English proper nouns in location-sensitive queries (e.g. "Sydney weather", "Bangkok restaurants")
+  // A word matching /^[A-Z][a-z]{2,}$/ is almost certainly a city/country name in these categories
+  // This catches cities not in NON_HK_HINTS without needing an exhaustive list
+  if (LOCAL_CATEGORIES.has(category.toLowerCase())) {
+    const hasEnglishProperNoun = rawQuery.trim().split(/\s+/).some(w => /^[A-Z][a-z]{2,}$/.test(w));
+    if (hasEnglishProperNoun) return q;
+  }
   const localHint =
     LOCAL_CATEGORIES.has(category.toLowerCase()) ||
     /(天氣|氣溫|溫度|落雨|打風|新聞|頭條|交通|塞車|港股|股市|股價|匯率|油價|樓價|地震|颱風|空氣|aqi|weather|temperature)/i.test(
@@ -462,6 +482,35 @@ NEVER invent or estimate a price if neither tool returns a clear number — say 
 If the user asks about HK stocks during trading hours (Mon–Fri 09:30–16:00 HKT):
   Fire ONLY web_search(category="stocks", query="Hang Seng Index live [today ISO date]").
   Do NOT fire scrape_page — tradingeconomics.com times out during live trading hours (5–19 second delay).
+
+[US BROAD MARKET MANDATORY RULE — 強制]
+If the user asks about the US broad market (「美股」/「US stock market」/「Wall Street」/「美國股市」/「三大指數」/「道指」/「標普」/「納指」/「Dow Jones」/「S&P 500」/「Nasdaq」) and is NOT asking about a specific named ticker (NVDA/TSLA/AAPL/MSFT/META/GOOG etc.):
+During US market hours (21:00–06:00 HKT) — ALWAYS plan exactly 2 tools fired simultaneously:
+  Tool 1: web_search(category="stocks", query="Dow Jones S&P 500 Nasdaq live today")
+  Tool 2: scrape_page(url="https://tradingeconomics.com/united-states/stock-market", reason="Brave from HK always routes stock keyword searches to HK market pages — scrape bypasses geo-routing and always returns the US [Indexes] table with S&P 500 / Dow Jones / Nasdaq figures")
+After US market hours — same 2 tools, change Tool 1 query to: "Dow Jones S&P 500 Nasdaq close today"
+If web_search snippet returns HK50/恆指 data (Brave geo-routing bias) → IGNORE the snippet, use scrape result instead.
+NEVER fire only web_search for US broad market.
+
+[ITINERARY & DAY-TRIP PLANNING — CLARIFY BEFORE SEARCH — 強制]
+If the user requests a day trip, full-day itinerary, or asks to plan a visit to a city (e.g. 「去深圳玩一日」/「計劃東京行程」/「幫我安排一日」/「plan a day in [city]」) WITHOUT specifying:
+  (a) which area / district to focus on, AND
+  (b) what type of activities (食、購物、文化景點、SPA/按摩、自然景色、咖啡...)
+→ DO NOT fire any search tools. Respond tools=0. Ask 1 concise question in 廣東話, offering 3–4 concrete options.
+   Good example: "好呀！你今次去深圳主要係想食嘢、按摩SPA定係購物？定係三樣都要？"
+   Good example: "東京行程好期待！你住係邊區？同埋主要想食嘢、睇景點定係shopping？"
+Exception A: If Personal Context Sheet already has crossing/hotel info → skip location question, ask activity type only.
+Exception B: If user says 「你決定啦」or defers → pick sensible defaults from Personal Context Sheet (e.g. 福田區 + 食嘢+按摩) and proceed with tools immediately. Do not ask again.
+ONLY fire search tools AFTER receiving the user's activity/area context.
+
+[ITINERARY SEARCH — USE DISTRICT-LEVEL QUERIES — 強制]
+When firing search_places or web_search for itinerary venues (restaurants / activities / spas / attractions):
+  ALWAYS query at DISTRICT / AREA level, never at specific-venue level.
+  CORRECT:   search_places("福田區 粵菜早茶"), search_places("新宿 居酒屋"), web_search("銅鑼灣 下午茶 推薦")
+  INCORRECT: search_places("One Avenue 附近 餐廳")     ← locks radius; causes 資訊繭房
+  INCORRECT: search_places("皇庭廣場 旁邊 按摩")       ← Personal Context Sheet venue as search keyword
+  Personal Context Sheet venue names are reference points ONLY — never embed them as search keywords.
+  District-level queries return diverse candidates that can be geographically clustered and sequenced.
 
 [SPORTS LIVE STANDINGS MANDATORY RULE]
 If the user asks for live/current match results, group standings, tournament rankings, or "who is eliminated/qualified" from an ongoing tournament:
