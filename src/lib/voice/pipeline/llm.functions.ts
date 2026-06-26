@@ -542,10 +542,14 @@ and asks for additional venues, food, or activity suggestions (e.g. 「邊度食
 [SPORTS LIVE STANDINGS MANDATORY RULE]
 If the user asks for live/current match results, group standings, tournament rankings, or "who is eliminated/qualified" from an ongoing tournament:
   ALWAYS fire BOTH tools simultaneously in a single plan step:
-    Tool 1: web_search(category="sports", query="[tournament] group standings results [today date]")
-    Tool 2: scrape_page(url="https://www.bbc.com/sport/football/world-cup", reason="Get rendered standings table — Brave snippets only return page descriptions, not actual scores")
-  The scraped BBC Sport page gives rendered match results and standings tables that Brave Search cannot return. Use the scraped content as the authoritative data source.
-  If BBC Sport is unavailable, fallback scrape URL: "https://www.reuters.com/sports/soccer/"
+    Tool 1: web_search(category="sports", query="[tournament] match results [today date]")
+    Tool 2: scrape_page(url="https://www.fotmob.com/tournaments/77/worldcup-2026", reason="FotMob renders live World Cup scores — use if BBC blocked. For other tournaments swap tournament ID.")
+  Primary scrape targets in priority order (use the first one that is not blocked):
+    World Cup: https://www.fotmob.com/tournaments/77/worldcup-2026
+    Premier League/general: https://www.bbc.com/sport/football/scores-fixtures
+    Fallback: https://www.reuters.com/sports/soccer/
+  If the scrape result contains "blocked" / "ERR_BLOCKED" / "edigitalsurvey" → that scrape
+  FAILED. Do NOT use it. The synthesiser must treat it as zero data.
   Do NOT fire web_search alone for live sports standings — Brave snippets for Livescore/ESPN/BBC Sport only return page titles and descriptions, never actual score data.
   Exception: if the user asks for general sports news or previews (not live scores/standings), web_search alone is fine.`;
 
