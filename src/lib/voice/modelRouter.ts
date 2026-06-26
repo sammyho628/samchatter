@@ -19,7 +19,7 @@ export type MainModel =
 // Centralised model ids — change in one place.
 const MODEL_IDS = {
   gemini: "gemini-2.5-flash",
-  qwen: "qwen3.7-plus",
+  qwen: "qwen-3.7-plus",
   grok: "grok-4-latest",
   utility: "google/gemini-2.5-flash", // Lovable AI Gateway model id
 } as const;
