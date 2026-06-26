@@ -44,7 +44,7 @@ export async function resolveLlmModel(): Promise<MainModel> {
       provider: "qwen",
       model: MODEL_IDS.qwen,
       apiKey: key,
-      apiUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+      apiUrl: QWEN_API_URL,
     };
   }
   if (llm === "grok") {
@@ -70,7 +70,7 @@ export async function resolveCriticCaller(): Promise<CriticCaller | null> {
     if (llm === "qwen")
       return (p) =>
         callOpenAISimple(
-          "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+          QWEN_API_URL,
           MODEL_IDS.qwen,
           key,
           p,
@@ -107,7 +107,7 @@ export async function callUtilityChat(args: {
       try {
         const url =
           llm === "qwen"
-            ? "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions"
+            ? QWEN_API_URL
             : "https://api.x.ai/v1/chat/completions";
         const model = MODEL_IDS[llm];
         const r = await fetch(url, {
