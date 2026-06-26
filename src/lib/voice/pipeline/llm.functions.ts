@@ -135,20 +135,33 @@ const HK_HINTS = [
   "恆指", "恆生", "港股", "港元", "港幣",
 ];
 const NON_HK_HINTS = [
-  // Countries & cities
-  "美國", "中國", "內地", "大陸", "台灣", "日本", "韓國", "東京", "北京", "上海", "新加坡",
-  "英國", "倫敦", "紐約", "歐洲", "澳洲", "加拿大", "法國", "德國",
-  "usa", "china", "taiwan", "japan", "korea", "tokyo", "beijing", "shanghai",
-  "singapore", "uk", "london", "new york", "europe", "australia",
-  // Global finance
-  "美股", "歐股", "a股", "日經", "國際股市", "歐洲股市", "美聯儲", "聯儲局",
-  "nasdaq", "s&p", "dow", "ftse", "dax", "nikkei", "bitcoin", "btc", "ethereum",
-  "加密貨幣", "crypto", "nvidia", "nvda", "openai", "chatgpt", "tesla", "apple", "google", "meta",
-  "g7", "g20", "imf", "世界銀行",
-  // Global sports
-  "世界盃", "world cup", "歐聯", "歐冠", "champions league", "英超", "premier league",
-  "fifa", "nba", "mlb", "nfl", "ufc", "奧運", "olympics", "f1", "grand prix",
-  "溫網", "美網", "法網", "澳網", "wimbledon",
+  // Countries and regions (Chinese)
+  "美國", "中國", "內地", "大陸", "台灣", "日本", "韓國", "歐洲", "澳洲", "加拿大",
+  "法國", "德國", "英國", "泰國", "越南", "馬來西亞", "印尼", "菲律賓", "印度",
+  "新加坡", "意大利", "西班牙", "荷蘭", "瑞士", "瑞典", "葡萄牙", "希臘",
+  // Cities (Chinese)
+  "東京", "北京", "上海", "倫敦", "紐約", "深圳", "廣州", "成都", "重慶",
+  "武漢", "南京", "杭州", "西安", "珠海", "東莞", "廈門", "三亞", "澳門",
+  "曼谷", "吉隆坡", "台北", "首爾", "大阪", "京都", "神戶", "悉尼", "墨爾本",
+  "溫哥華", "多倫多", "巴黎", "柏林", "阿姆斯特丹", "羅馬", "巴塞隆拿",
+  "馬德里", "杜拜", "胡志明", "河內", "曼徹斯特", "利物浦", "清邁", "普吉",
+  // Countries and cities (English — lowercase for case-insensitive match)
+  "usa", "china", "taiwan", "japan", "korea", "europe", "australia", "canada",
+  "france", "germany", "thailand", "malaysia", "vietnam", "indonesia", "india",
+  "italy", "spain", "netherlands", "switzerland",
+  "tokyo", "beijing", "shanghai", "singapore", "london", "new york", "shenzhen",
+  "guangzhou", "chengdu", "bangkok", "kuala lumpur", "taipei", "seoul", "osaka",
+  "kyoto", "sydney", "melbourne", "paris", "berlin", "amsterdam", "dubai",
+  "toronto", "vancouver", "rome", "barcelona", "madrid", "manchester", "liverpool",
+  "chicago", "los angeles", "san francisco", "miami", "las vegas", "boston",
+  "ho chi minh", "hanoi", "chiang mai", "phuket", "bali", "jakarta",
+  "moscow", "istanbul", "cairo", "nairobi", "johannesburg",
+  // Finance terms (prevent appending 香港 to US/global market queries)
+  "dow jones", "s&p", "s&p 500", "nasdaq", "wall street", "nyse", "ftse",
+  "nikkei", "dax", "cac 40",
+  // Sports leagues (prevent 香港 in global sports queries)
+  "premier league", "la liga", "bundesliga", "serie a", "ligue 1",
+  "nba", "nfl", "mlb", "nhl", "uefa", "champions league",
 ];
 // world_news + technology stay excluded — appending "香港" would bias them.
 const LOCAL_CATEGORIES = new Set([
