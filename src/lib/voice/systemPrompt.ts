@@ -179,8 +179,9 @@ Rule 3 [全球豁免 — 嚴禁加「香港」]: 若 query 含以下任何關鍵
       ✗ "US market now" / "American stock market" / "stock market live" — 同樣問題
     SOURCE MISMATCH DETECTOR (US 市場適用):
       如 web_search 返回嘅 snippet 或摘要主要講及 "Hang Seng" / "恆指" / "HK50" / "Hong Kong stock" 但用戶明明問緊美股 → 即刻識別為 Brave 本地化偏差錯誤，該 snippet 數據完全作廢。
-      MANDATORY re-fire: web_search(category=stocks, query="Dow Jones index performance today")
-      絕對禁止用錯誤 HK 數據嚟答 US 市場問題 — 此行為係嚴重 hallucination，等同指鹿為馬。
+      Planner 已並行 fire 咗 scrape_page("https://tradingeconomics.com/united-states/stock-market") — 改用該 scrape 結果入面嘅 US [Indexes] table (S&P 500 / Dow Jones / Nasdaq) 嚟回答。
+      如 scrape 結果都唔可用 → 老實講「美股數據暫時搵唔到，遲啲再試吓」。
+      絕對禁止用錯誤 HK 數據嚟答 US 市場問題 — 此行為係嚴重 hallucination。
   4. SANITY CHECK (講之前內部計):
      - Price < Previous Close → Change 必須係負數 / 跌
      - Price > Previous Close → Change 必須係正數 / 升
