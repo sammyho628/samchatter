@@ -166,13 +166,27 @@ export async function playBase64Audio(audioBase64: string): Promise<void> {
       resolve();
       return;
     }
-    // Resolve immediately if AudioContext is interrupted (iOS phone lock/background)
-    // rather than waiting for the full safety timer — which would block all subsequent audio.
+    // If the AudioContext gets interrupted mid-playback (iOS phone lock,
+    // incoming call, Siri, route change), try ctx.resume() first instead of
+    // immediately bailing — that's what was freezing the orb + voice. Only
+    // force-resolve if resume fails or the context is closed for good.
     const onStateChange = () => {
-      if (c.state === "interrupted" || c.state === "closed") {
+      if (c.state === "closed") {
         cleanup();
-        diag(`⚠️ ctx ${c.state} during playback — force resolve`);
+        diag(`⚠️ ctx closed during playback — force resolve`);
         resolve();
+        return;
+      }
+      if ((c.state as string) === "interrupted" || c.state === "suspended") {
+        diag(`⚠️ ctx ${c.state} mid-playback — attempting auto-resume`);
+        c.resume().then(
+          () => diag(`✓ ctx auto-resumed → ${c.state}`),
+          (e) => {
+            diag(`⚠️ auto-resume failed: ${(e as Error).message} — force resolve`);
+            cleanup();
+            resolve();
+          },
+        );
       }
     };
     c.addEventListener("statechange", onStateChange);
@@ -182,7 +196,11 @@ export async function playBase64Audio(audioBase64: string): Promise<void> {
     const safetyMs = Math.ceil((buffer.duration + 15) * 1000);
     const safetyTimer = setTimeout(() => {
       cleanup();
-      diag(`⚠️ playback safety timeout after ${(buffer.duration + 15).toFixed(1)}s — force resolve`);
+      diag(`⚠️ playback safety timeout after ${(buffer.duration + 15).toFixed(1)}s · ctx=${c.state} — force resolve + recreate ctx`);
+      // Nuke the wedged context so the next utterance starts on a fresh one
+      // instead of inheriting the stuck state.
+      try { void c.close(); } catch { /* ignore */ }
+      if (ctx === c) ctx = null;
       resolve();
     }, safetyMs);
 
