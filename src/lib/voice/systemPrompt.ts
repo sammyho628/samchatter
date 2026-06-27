@@ -79,7 +79,7 @@ function getHKTimeSlot(): {
       slot: "evening",
       label: "傍晚 (18:00–20:59)",
       behaviorHint:
-        "傍晚語氣。適合提晚餐建議。港股已收市，可提當日收市總結。天氣預報宜提明日。",
+        "傍晚語氣。適合提晚餐建議。港股已收市，可提當日收市總結。",
     };
   if (hkHour >= 21 && hkHour < 24)
     return {
