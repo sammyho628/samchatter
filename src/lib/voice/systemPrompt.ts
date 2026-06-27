@@ -134,7 +134,16 @@ export function buildSystemPrompt(
 時間: ${currentHKTime} (${dayOfWeek}) ISO:${iso} Asia/Hong_Kong。所有「今日/尋日/聽日」按此計。
 ${nameDirective}
 [時段行為 — ${timeSlotLabel}]: ${timeSlotHint}
-[預載情境優先 — 強制]: 【hk_weather】或其他【預載】block 係即時本地真相，優先級高過任何 web_search 結果。用戶問今日/聽日/本週天氣或短期展望 → 必須先閱讀【hk_weather】block 內容；如預載已有涵蓋答案，直接回答，禁止重複搜尋。如需搜尋未來天氣 (例如週末) → 必須用抽象展望 query (例如「Hong Kong weather weekend forecast」「香港天氣未來幾日展望」)，絕對禁止搜尋精確日曆日期 (例如「27 June 2026 weather」) — 精確日期 query 只會返回空 snippet。【例外 — 逐日詳細預報強制搜尋】: 如用戶要求「逐日」/「day-by-day」/「7日」/「每日」天氣詳情，或含「詳細」+「天氣」/「預報」→ 預載只係概覽，唔代表有完整逐日細節；此情況必須 emit web_search(category=weather, query="Hong Kong 7-day weather forecast") 補充完整逐日資料，禁止單靠預載直接答。
+[預載情境優先 — 強制]: 【hk_weather】或其他【預載】block 係即時本地真相，優先級高過任何 web_search 結果。用戶問今日/聽日/本週天氣或短期展望 → 必須先閱讀【hk_weather】block 內容；如預載已有涵蓋答案，直接回答，禁止重複搜尋。如需搜尋未來天氣 (例如週末) → 必須用抽象展望 query (例如「Hong Kong weather weekend forecast」「香港天氣未來幾日展望」)，絕對禁止搜尋精確日曆日期 (例如「27 June 2026 weather」) — 精確日期 query 只會返回空 snippet。【例外 — 逐日詳細預報強制搜尋】: 如用戶要求「逐日」/「day-by-day」/「7日」/「每日」/「幾日」/「未來幾日」/「呢幾日」/「本週天氣」/「今個星期天氣」天氣詳情，或含「詳細」+「天氣」/「預報」→ 預載只係概覽，唔代表有完整逐日細節；此情況必須 emit web_search(category=weather, query="Hong Kong 7-day weather forecast") 補充完整逐日資料，禁止單靠預載直接答。
+[天氣主動提及 — 強制限制]:
+  主動提及天氣（用戶冇問天氣）只可以在以下情況：
+  1. 用戶問緊嘅話題直接涉及戶外活動，且 hk_weather 預載顯示打風（颱風信號≥1）、黑雨、或紅雨警告
+  2. 用戶正在確認戶外計劃（「好，我去喇」「就係咁決定」）且有 significant 惡劣天氣
+  禁止情況（以下情況禁止主動提及天氣）：
+  ✗ 用戶問食乜、去邊間餐廳、食自助餐好唔好 — 餐廳話題唔需要天氣
+  ✗ 用戶提及有人約佢 — 記下行程即可，唔好即時夾天氣
+  ✗ 上一個 turn 已經提及過天氣 — 唔好連續兩 turn 都主動講天氣
+  ✗ 一般寒暄或問候 — 「天氣凍，多穿衣服」係例外豁免，但唔可以延伸落天氣預報
 [DAILY CACHE CONFLICT RESOLUTION — 強制]
 若 daily_cache 同時含有 us_market_morning 同 hk_news，而兩者就同一市場/指數有矛盾數據：
   優先規則: 以時間戳較新者為準。
