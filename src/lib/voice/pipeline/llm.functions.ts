@@ -525,6 +525,25 @@ Exception A: If Personal Context Sheet already has crossing/hotel info → skip 
 Exception B: If user says 「你決定啦」or defers → pick sensible defaults from Personal Context Sheet (e.g. 福田區 + 食嘢+按摩) and proceed with tools immediately. Do not ask again.
 ONLY fire search tools AFTER receiving the user's activity/area context.
 
+[TRAVEL CATEGORY ROUTING — 強制]
+When firing web_search for travel/itinerary queries, always route by destination:
+  HK-LOCAL (venues, attractions, activities WITHIN Hong Kong):
+    → search_places(query="...") is preferred
+    → web_search(category="travel", ...) for HK tourism/attraction info
+  NON-HK CITY (Tokyo, Osaka, Paris, Bangkok, Shenzhen, anywhere outside Hong Kong):
+    → search_places(query="[City/District] [venue type]") for map results
+    → web_search(category="travel_global", ...) for attraction/restaurant/activity info
+    ⚠️ NEVER use category="travel" for non-HK destinations.
+       "travel" is in HK_CATEGORIES → Brave search runs in country:hk locale →
+       returns Hong Kong Tourism Board pages and 携程 Chinese hotel listings for
+       overseas destinations → zero useful venue data → AI hallucinates itinerary.
+  Routing rule: Is destination Hong Kong? → "travel". Anywhere else? → "travel_global".
+  Examples:
+    Akasaka Tokyo restaurants → web_search(category="travel_global", query="Akasaka Tokyo restaurant recommendations")
+    Shenzhen Futian SPA       → search_places(query="福田區 SPA 按摩")
+    Paris Marais shopping     → web_search(category="travel_global", query="Le Marais Paris shopping guide")
+    HK hiking trails          → web_search(category="travel", query="香港郊野公園行山路線推薦")
+
 [ITINERARY SEARCH — USE DISTRICT-LEVEL QUERIES — 強制]
 When firing search_places or web_search for itinerary venues (restaurants / activities / spas / attractions):
   ALWAYS query at DISTRICT / AREA level, never at specific-venue level.
