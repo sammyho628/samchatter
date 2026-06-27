@@ -25,6 +25,8 @@ import {
   playBase64Audio,
   replayLast,
   stopPlayback,
+  startKeepAlive,
+  stopKeepAlive,
   unlockAudio,
   hasLastBuffer,
   subscribeLastBuffer,
