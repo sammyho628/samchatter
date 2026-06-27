@@ -689,17 +689,15 @@ export function VoiceCompanion() {
     );
   }, [debugLog, pushLog]);
 
-  const handleSplashTap = useCallback(async () => {
+  const handleSplashTap = useCallback(async (e: React.PointerEvent) => {
+    e.preventDefault();
     setGreeting(true);
     try { await unlockAudio(); } catch { /* ignore */ }
-    // Warm the prompt at the same moment audio unlocks so the user's first
-    // real interaction has no cold-start latency.
+    // Keep-alive: hold the iOS audio session open during LLM + TTS generation.
+    startKeepAlive();
     void loadPromptIfNeeded();
     setShowSplash(false);
     try {
-      // Prefer the pre-fetched contextual greeting audio. If the session
-      // hadn't finished loading by tap time, generate it now (may be silent
-      // on iOS due to the gesture gap, but better than no greeting).
       let audioBase64 = greetingAudioRef.current;
       if (!audioBase64) {
         try {
@@ -722,14 +720,15 @@ export function VoiceCompanion() {
           const tts = await ttsFn({ data: { text: greetingText } });
           audioBase64 = tts.audioBase64;
         } catch (e) {
-          // Log so we can diagnose iOS audio failures — previously this was silent.
           pushLog("err", `greeting fallback TTS failed: ${(e as Error).message}`);
         }
       }
+      stopKeepAlive();
       if (audioBase64) await playBase64Audio(audioBase64);
     } catch (err) {
       pushLog("err", `greeting: ${(err as Error).message}`);
     } finally {
+      stopKeepAlive();
       setGreeting(false);
     }
   }, [ttsFn, pushLog, loadPromptIfNeeded, genGreeting]);
