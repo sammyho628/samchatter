@@ -41,7 +41,7 @@ function getKey(provider: LlmProvider): string | undefined {
 }
 
 export async function resolveLlmModel(): Promise<MainModel> {
-  const { llm } = await readProvidersServerSide();
+  const { llm, openrouterModel } = await readProvidersServerSide();
   const key = getKey(llm);
   if (!key) throw new Error(`Missing API key for selected LLM provider '${llm}'.`);
   if (llm === "qwen") {
@@ -58,6 +58,14 @@ export async function resolveLlmModel(): Promise<MainModel> {
       model: MODEL_IDS.grok,
       apiKey: key,
       apiUrl: "https://api.x.ai/v1/chat/completions",
+    };
+  }
+  if (llm === "openrouter") {
+    return {
+      provider: "openrouter",
+      model: openrouterModel,
+      apiKey: key,
+      apiUrl: OPENROUTER_API_URL,
     };
   }
   return { provider: "gemini", model: MODEL_IDS.gemini, apiKey: key };
