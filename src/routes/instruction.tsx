@@ -108,17 +108,27 @@ function InstructionPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const providerDirty = llmProvider !== savedLlm || ttsProvider !== savedTts;
+  const providerDirty =
+    llmProvider !== savedLlm ||
+    ttsProvider !== savedTts ||
+    (llmProvider === "openrouter" && openrouterModel !== savedOrModel);
 
   const onSaveProviders = async () => {
     setProviderSaving(true);
     setProviderStatus("Saving…");
     try {
-      await saveProviders({ data: { llm: llmProvider, tts: ttsProvider } });
+      await saveProviders({
+        data: { llm: llmProvider, tts: ttsProvider, openrouterModel },
+      });
       setSavedLlm(llmProvider);
       setSavedTts(ttsProvider);
+      setSavedOrModel(openrouterModel);
+      const tag =
+        llmProvider === "openrouter"
+          ? `${llmProvider}:${openrouterModel}`
+          : llmProvider;
       setProviderStatus(
-        `Saved (LLM=${llmProvider}, TTS=${ttsProvider}) at ${new Date().toLocaleTimeString()}.`,
+        `Saved (LLM=${tag}, TTS=${ttsProvider}) at ${new Date().toLocaleTimeString()}.`,
       );
     } catch (e) {
       setProviderStatus(`Save failed: ${(e as Error).message}`);
