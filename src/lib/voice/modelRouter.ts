@@ -14,7 +14,8 @@ import { readProvidersServerSide, type LlmProvider } from "./providerSettings.fu
 export type MainModel =
   | { provider: "gemini"; model: string; apiKey: string }
   | { provider: "qwen"; model: string; apiKey: string; apiUrl: string }
-  | { provider: "grok"; model: string; apiKey: string; apiUrl: string };
+  | { provider: "grok"; model: string; apiKey: string; apiUrl: string }
+  | { provider: "openrouter"; model: string; apiKey: string; apiUrl: string };
 
 // Centralised model ids — change in one place.
 const MODEL_IDS = {
@@ -28,10 +29,14 @@ const MODEL_IDS = {
 const QWEN_API_URL =
   "https://ws-gmzpr3q5gtcnhft1.ap-southeast-1.maas.aliyuncs.com/v1/chat/completions";
 
+// OpenRouter — OpenAI-compatible chat completions endpoint.
+const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
+
 function getKey(provider: LlmProvider): string | undefined {
   if (provider === "gemini") return process.env.GEMINI_API_KEY;
   if (provider === "qwen") return process.env.DASHSCOPE_API_KEY;
   if (provider === "grok") return process.env.XAI_API_KEY;
+  if (provider === "openrouter") return process.env.OPENROUTER_API_KEY;
   return undefined;
 }
 
