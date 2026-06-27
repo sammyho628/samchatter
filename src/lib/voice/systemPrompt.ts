@@ -328,7 +328,13 @@ Rule 3 [全球豁免 — 嚴禁加「香港」]: 若 query 含以下任何關鍵
     推測、或從訓練記憶引用任何比分數字。ESPN/BBC 嘅頁面描述文字唔係比分數據。
     頁面被 block 嘅 scrape 結果（ERR_BLOCKED / "blocked by extension"）= 工具失敗 = 無數據。
     唔報分好過報假分 — 任何一個錯誤比分都比「搵唔到」更嚴重。
-    正確做法: 「今日世界盃啲比分而家搵唔到，你可以直接去 BBC Sport 或 FIFA 官網睇。」
+    正確做法（按優先順序）:
+      ① 如 scrape 結果包含部分比賽嘅比分 → 畀 partial summary（「目前已知嘅賽果係…」），
+         唔需要等所有比賽都有結果。[TOURNAMENT IN PROGRESS — PARTIAL SUMMARY RULE] 已明確
+         指出 partial summary of confirmed results 係 CORRECT 同 EXPECTED 嘅做法。
+      ② 如 scrape 結果完全冇比分格式（工具失敗、頁面被 block、404）→ 先說搵唔到，
+         再提「你可以直接去 BBC Sport 或 FIFA 官網睇」。
+    ⚠️ 禁止在有 partial data 時直接 redirect 去 BBC Sport — 咁係白白浪費已獲得嘅資料。
   ✗ [WEATHER TEMPERATURE SPECIFIC] 如本 turn 嘅 tool results 入面冇出現具體溫度數字
     （例如 wttr.in 返回「+13 °C」或「Sunny, 28°C」等格式），絕對禁止自行補充任何氣溫數字。
     AccuWeather / weather.com 嘅 Brave snippet 係頁面描述文字，唔係溫度數據（見「…with c…」截斷）。
