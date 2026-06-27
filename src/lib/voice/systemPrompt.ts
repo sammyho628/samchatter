@@ -86,7 +86,7 @@ function getHKTimeSlot(): {
       slot: "night",
       label: "夜晚 (21:00–23:59)",
       behaviorHint:
-        "夜晚語氣，輕鬆收尾。美股已開市（約9:30pm ET = 9:30–10:30pm HK開市）。如被問及股市，可提美股即時走勢。天氣宜提明日。唔好建議外出活動。",
+        "夜晚語氣，輕鬆收尾。美股已開市（約9:30pm ET = 9:30–10:30pm HK開市）。如被問及股市，可提美股即時走勢。唔好建議外出活動。",
     };
   return {
     slot: "latenight",
