@@ -269,6 +269,27 @@ function InstructionPage() {
             </label>
           </div>
 
+          {llmProvider === "openrouter" && (
+            <label className="space-y-1.5 block">
+              <span className="text-sm font-medium">OpenRouter model</span>
+              <select
+                value={openrouterModel}
+                onChange={(e) => setOpenrouterModel(e.target.value)}
+                disabled={loading}
+                className="w-full rounded-md border border-border bg-card text-card-foreground p-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+              >
+                {OPENROUTER_MODELS.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label} — {m.value}
+                  </option>
+                ))}
+              </select>
+              <span className="block text-xs text-muted-foreground">
+                Routed via openrouter.ai. Pricing depends on the selected model — see openrouter.ai/models.
+              </span>
+            </label>
+          )}
+
           <div className="flex items-center gap-3">
             <button
               type="button"
