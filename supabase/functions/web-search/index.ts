@@ -28,6 +28,7 @@ const GLOBAL_CATEGORIES = new Set([
   "weather_global",
   "stocks_us",
   "market_us",
+  "travel_global",
 ]);
 
 function extractSiteDomains(raw: string): { cleaned: string; domains: string[] } {

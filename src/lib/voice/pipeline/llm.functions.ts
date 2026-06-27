@@ -70,7 +70,7 @@ const TOOL_DECLS = [
         category: {
           type: "string",
           description:
-            "Optional. health | stocks_hk | stocks_us | market_hk | market_us | finance | hk_news | world_news | shopping | weather | weather_global | sports | transport | travel | government | technology",
+            "Optional. health | stocks_hk | stocks_us | market_hk | market_us | finance | hk_news | world_news | shopping | weather | weather_global | sports | transport | travel | travel_global | government | technology",
         },
       },
       required: ["query"],
@@ -484,16 +484,26 @@ If the user asks about HK stocks during trading hours (Mon–Fri 09:30–16:00 H
   Do NOT fire scrape_page — tradingeconomics.com times out during live trading hours (5–19 second delay).
 
 [NON-HK WEATHER MANDATORY RULE — 強制]
-If the user asks about weather for a location OUTSIDE Hong Kong (e.g. "Sydney weather", "東京天氣", "Bangkok weather", any city/country that is not Hong Kong):
-  → ALWAYS use web_search(category="weather_global", query="[City] weather today") — NOT category="weather"
-  → category="weather" is ONLY for Hong Kong — it hard-routes to HKO (site:hko.gov.hk) and country:hk, making it useless for any non-HK city
-  → category="weather_global" uses country:us locale + global sources (weather.com, timeanddate.com, bom.gov.au, accuweather.com)
-  Detection rule: any query mentioning a city/country name that is NOT 香港/HK/Hong Kong → use weather_global, not weather.
-  Examples:
-    "悉尼天氣點呀" → web_search(category="weather_global", query="Sydney weather today")
-    "東京今日幾度" → web_search(category="weather_global", query="Tokyo weather today")
-    "Bangkok weather this week" → web_search(category="weather_global", query="Bangkok weather forecast")
-    "London weather tomorrow" → web_search(category="weather_global", query="London weather tomorrow")
+If the user asks about weather for a location OUTSIDE Hong Kong:
+  → ALWAYS fire BOTH tools simultaneously in a single plan step:
+    Tool 1: web_search(category="weather_global", query="[City] weather today")
+    Tool 2: scrape_page(url="https://wttr.in/[English city name]", reason="wttr.in returns actual temperature in °C as plain text — AccuWeather/weather.com Brave snippets are page meta-descriptions only, never actual temperature data")
+  → wttr.in is the PRIMARY temperature source. web_search provides forecast narrative context.
+  → NEVER fire web_search alone for non-HK weather. AccuWeather/weather.com Brave snippets
+    contain ZERO actual temperature data — they are page descriptions like
+    "Sydney, New South Wales weather forecast, with c…". This will cause hallucination.
+  → category="weather" is ONLY for Hong Kong (routes to HKO, country:hk).
+  wttr.in URL format: https://wttr.in/[English city name]
+    "悉尼天氣"    → Tool 1: web_search(category="weather_global", "Sydney weather today")
+                     Tool 2: scrape_page("https://wttr.in/Sydney")
+    "東京今日幾度" → Tool 1: web_search(category="weather_global", "Tokyo weather today")
+                     Tool 2: scrape_page("https://wttr.in/Tokyo")
+    "深圳聽日天氣" → Tool 1: web_search(category="weather_global", "Shenzhen weather tomorrow")
+                     Tool 2: scrape_page("https://wttr.in/Shenzhen")
+    "曼谷天氣"    → Tool 1: web_search(category="weather_global", "Bangkok weather today")
+                     Tool 2: scrape_page("https://wttr.in/Bangkok")
+    "New York weather" → Tool 1: web_search(category="weather_global", "New York weather today")
+                          Tool 2: scrape_page("https://wttr.in/New+York")
 
 [US BROAD MARKET MANDATORY RULE — 強制]
 If the user asks about the US broad market (「美股」/「US stock market」/「Wall Street」/「美國股市」/「三大指數」/「道指」/「標普」/「納指」/「Dow Jones」/「S&P 500」/「Nasdaq」) and is NOT asking about a specific named ticker (NVDA/TSLA/AAPL/MSFT/META/GOOG etc.):
@@ -515,6 +525,25 @@ Exception A: If Personal Context Sheet already has crossing/hotel info → skip 
 Exception B: If user says 「你決定啦」or defers → pick sensible defaults from Personal Context Sheet (e.g. 福田區 + 食嘢+按摩) and proceed with tools immediately. Do not ask again.
 ONLY fire search tools AFTER receiving the user's activity/area context.
 
+[TRAVEL CATEGORY ROUTING — 強制]
+When firing web_search for travel/itinerary queries, always route by destination:
+  HK-LOCAL (venues, attractions, activities WITHIN Hong Kong):
+    → search_places(query="...") is preferred
+    → web_search(category="travel", ...) for HK tourism/attraction info
+  NON-HK CITY (Tokyo, Osaka, Paris, Bangkok, Shenzhen, anywhere outside Hong Kong):
+    → search_places(query="[City/District] [venue type]") for map results
+    → web_search(category="travel_global", ...) for attraction/restaurant/activity info
+    ⚠️ NEVER use category="travel" for non-HK destinations.
+       "travel" is in HK_CATEGORIES → Brave search runs in country:hk locale →
+       returns Hong Kong Tourism Board pages and 携程 Chinese hotel listings for
+       overseas destinations → zero useful venue data → AI hallucinates itinerary.
+  Routing rule: Is destination Hong Kong? → "travel". Anywhere else? → "travel_global".
+  Examples:
+    Akasaka Tokyo restaurants → web_search(category="travel_global", query="Akasaka Tokyo restaurant recommendations")
+    Shenzhen Futian SPA       → search_places(query="福田區 SPA 按摩")
+    Paris Marais shopping     → web_search(category="travel_global", query="Le Marais Paris shopping guide")
+    HK hiking trails          → web_search(category="travel", query="香港郊野公園行山路線推薦")
+
 [ITINERARY SEARCH — USE DISTRICT-LEVEL QUERIES — 強制]
 When firing search_places or web_search for itinerary venues (restaurants / activities / spas / attractions):
   ALWAYS query at DISTRICT / AREA level, never at specific-venue level.
@@ -535,7 +564,7 @@ and asks for additional venues, food, or activity suggestions (e.g. 「邊度食
     User (in Shenzhen itinerary): "晚餐去邊好？"
       → search_places("福田區 晚餐 餐廳推薦") — use district from context
     User (in Tokyo itinerary): "仲有咩景點？"
-      → web_search(category="travel", query="新宿 景點 推薦") — use district from context
+      → web_search(category="travel_global", query="新宿 景點 推薦") — travel_global for non-HK cities
   Exception: if user explicitly says 「你話俾我聽就算」or defers to memory → may use Personal
   Context Sheet favourites, but must still preface with 「呢個係我之前喺記錄見到嘅，唔係最新搜尋結果」.
 
@@ -543,11 +572,12 @@ and asks for additional venues, food, or activity suggestions (e.g. 「邊度食
 If the user asks for live/current match results, group standings, tournament rankings, or "who is eliminated/qualified" from an ongoing tournament:
   ALWAYS fire BOTH tools simultaneously in a single plan step:
     Tool 1: web_search(category="sports", query="[tournament] match results [today date]")
-    Tool 2: scrape_page(url="https://www.fotmob.com/tournaments/77/worldcup-2026", reason="FotMob renders live World Cup scores — use if BBC blocked. For other tournaments swap tournament ID.")
-  Primary scrape targets in priority order (use the first one that is not blocked):
-    World Cup: https://www.fotmob.com/tournaments/77/worldcup-2026
-    Premier League/general: https://www.bbc.com/sport/football/scores-fixtures
-    Fallback: https://www.reuters.com/sports/soccer/
+    Tool 2: scrape_page(url="https://www.fifa.com/fifaplus/en/tournaments/mens/worldcup/canadamexicousa2026", reason="FIFA official World Cup 2026 site for live scores and match results")
+  Primary scrape targets in priority order (use the first that returns actual scores):
+    World Cup 2026 (primary): https://www.fifa.com/fifaplus/en/tournaments/mens/worldcup/canadamexicousa2026
+    World Cup 2026 (fallback): https://www.sofascore.com/tournament/football/world/world-cup-2026/1
+    Premier League / general football: https://www.bbc.com/sport/football/scores-fixtures
+    General fallback: https://www.reuters.com/sports/soccer/
   If the scrape result contains "blocked" / "ERR_BLOCKED" / "edigitalsurvey" → that scrape
   FAILED. Do NOT use it. The synthesiser must treat it as zero data.
   Do NOT fire web_search alone for live sports standings — Brave snippets for Livescore/ESPN/BBC Sport only return page titles and descriptions, never actual score data.
