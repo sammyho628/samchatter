@@ -54,13 +54,21 @@ export async function unlockAudio(): Promise<void> {
   }
   if (c.state === "suspended") {
     try {
-      await c.resume();
+      // Race resume() with a 1.5s timeout — on some iOS Safari builds
+      // resume() never resolves even from a valid user gesture, which would
+      // hang the whole splash flow forever.
+      await Promise.race([
+        c.resume(),
+        new Promise<void>((_, rej) =>
+          setTimeout(() => rej(new Error("resume timeout 1500ms")), 1500),
+        ),
+      ]);
     } catch (err) {
       const e = err as Error;
       if (e.name === "NotAllowedError" || /autoplay/i.test(e.message)) {
         diag(`⚠️ autoplay blocked — resume() rejected (${e.message}). Need a real user gesture.`);
       } else {
-        diag(`⚠️ AudioContext resume failed: ${e.message}`);
+        diag(`⚠️ AudioContext resume failed/slow: ${e.message} (continuing)`);
       }
     }
   }
