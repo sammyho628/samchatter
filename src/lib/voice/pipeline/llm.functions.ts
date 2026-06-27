@@ -355,6 +355,17 @@ async function runTool(
     }
   }
 
+  // General trusted_domains fallback — if the site-filtered result is too thin
+  // (< 120 chars means only a page title or error snippet came back), retry without
+  // the site filter so the open web can answer. This handles cases where a venue,
+  // restaurant, or attraction isn't indexed on the trusted_domains sites.
+  if (!isSports && category && summary.trim().length < 120) {
+    const openWebRetry = await callEdgeSearch(fn, { query });
+    if (openWebRetry.trim().length > summary.trim().length) {
+      summary = `${openWebRetry}\n\n[open-web fallback — trusted_domains returned thin result]\n${summary}`;
+    }
+  }
+
   return summary;
 }
 
