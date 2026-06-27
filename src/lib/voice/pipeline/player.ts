@@ -288,3 +288,46 @@ export function subscribeLastBuffer(fn: (has: boolean) => void): () => void {
   listeners.add(fn);
   return () => listeners.delete(fn);
 }
+
+// ── Keep-alive ─────────────────────────────────────────────────────────────
+// iOS Safari de-activates the WebAudio session if no real audio is scheduled
+// within a short window after the user gesture that unlocked the context.
+// Greeting generation (LLM + TTS) takes 15–30s. Without a keep-alive, the
+// session goes stale and the first audio chunk plays silently on iPhone.
+// Solution: play a 0-volume looping silent buffer to hold the session open.
+let keepAliveNode: AudioBufferSourceNode | null = null;
+let keepAliveGain: GainNode | null = null;
+
+export function startKeepAlive(): void {
+  if (keepAliveNode) return;
+  const c = getCtx();
+  if (c.state !== "running") return;
+  try {
+    const buf = c.createBuffer(1, c.sampleRate, c.sampleRate);
+    const src = c.createBufferSource();
+    src.buffer = buf;
+    src.loop = true;
+    const g = c.createGain();
+    g.gain.value = 0;
+    src.connect(g);
+    g.connect(c.destination);
+    src.start(0);
+    keepAliveNode = src;
+    keepAliveGain = g;
+    diag("keepAlive · started");
+  } catch (err) {
+    diag(`keepAlive start failed: ${(err as Error).message}`);
+  }
+}
+
+export function stopKeepAlive(): void {
+  if (!keepAliveNode) return;
+  try {
+    keepAliveNode.stop();
+    keepAliveNode.disconnect();
+    keepAliveGain?.disconnect();
+  } catch { /* ignore */ }
+  keepAliveNode = null;
+  keepAliveGain = null;
+  diag("keepAlive · stopped");
+}
