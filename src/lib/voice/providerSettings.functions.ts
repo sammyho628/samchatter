@@ -26,7 +26,9 @@ export const TTS_PROVIDERS: { value: TtsProvider; label: string; note: string; a
 // OpenRouter model slugs sent in the `model` field.
 export const OPENROUTER_MODELS: { value: string; label: string }[] = [
   { value: "qwen/qwen3-max", label: "Qwen3 Max" },
+  { value: "qwen/qwen3.7-plus", label: "Qwen 3.7 Plus" },
   { value: "qwen/qwen-2.5-72b-instruct", label: "Qwen 2.5 72B Instruct" },
+  { value: "openrouter/owl-alpha", label: "OpenRouter Owl Alpha" },
   { value: "anthropic/claude-3.5-sonnet", label: "Anthropic Claude 3.5 Sonnet" },
   { value: "anthropic/claude-3.5-haiku", label: "Anthropic Claude 3.5 Haiku" },
   { value: "deepseek/deepseek-chat", label: "DeepSeek V3" },
