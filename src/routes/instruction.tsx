@@ -17,6 +17,8 @@ import {
   saveProviderSettings,
   LLM_PROVIDERS,
   TTS_PROVIDERS,
+  OPENROUTER_MODELS,
+  DEFAULT_OPENROUTER_MODEL,
   type LlmProvider,
   type TtsProvider,
 } from "@/lib/voice/providerSettings.functions";
@@ -49,8 +51,10 @@ function InstructionPage() {
 
   const [llmProvider, setLlmProvider] = useState<LlmProvider>("gemini");
   const [ttsProvider, setTtsProvider] = useState<TtsProvider>("google");
+  const [openrouterModel, setOpenrouterModel] = useState<string>(DEFAULT_OPENROUTER_MODEL);
   const [savedLlm, setSavedLlm] = useState<LlmProvider>("gemini");
   const [savedTts, setSavedTts] = useState<TtsProvider>("google");
+  const [savedOrModel, setSavedOrModel] = useState<string>(DEFAULT_OPENROUTER_MODEL);
   const [providerSaving, setProviderSaving] = useState(false);
   const [providerStatus, setProviderStatus] = useState("");
 
@@ -77,7 +81,11 @@ function InstructionPage() {
       try {
         const [{ template, updatedAt }, providers] = await Promise.all([
           fetchPrompt(),
-          fetchProviders().catch(() => ({ llm: "gemini" as LlmProvider, tts: "google" as TtsProvider })),
+          fetchProviders().catch(() => ({
+            llm: "gemini" as LlmProvider,
+            tts: "google" as TtsProvider,
+            openrouterModel: DEFAULT_OPENROUTER_MODEL,
+          })),
           loadKb().catch((e) => setKbStatus(`load failed: ${(e as Error).message}`)),
         ]);
         const effective = template ?? DEFAULT_SYSTEM_PROMPT_TEMPLATE;
@@ -86,8 +94,10 @@ function InstructionPage() {
         setUpdatedAt(updatedAt);
         setLlmProvider(providers.llm);
         setTtsProvider(providers.tts);
+        setOpenrouterModel(providers.openrouterModel ?? DEFAULT_OPENROUTER_MODEL);
         setSavedLlm(providers.llm);
         setSavedTts(providers.tts);
+        setSavedOrModel(providers.openrouterModel ?? DEFAULT_OPENROUTER_MODEL);
       } catch (err) {
         setStatus(`Load failed: ${(err as Error).message}`);
         setValue(DEFAULT_SYSTEM_PROMPT_TEMPLATE);
@@ -98,17 +108,27 @@ function InstructionPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const providerDirty = llmProvider !== savedLlm || ttsProvider !== savedTts;
+  const providerDirty =
+    llmProvider !== savedLlm ||
+    ttsProvider !== savedTts ||
+    (llmProvider === "openrouter" && openrouterModel !== savedOrModel);
 
   const onSaveProviders = async () => {
     setProviderSaving(true);
     setProviderStatus("Saving…");
     try {
-      await saveProviders({ data: { llm: llmProvider, tts: ttsProvider } });
+      await saveProviders({
+        data: { llm: llmProvider, tts: ttsProvider, openrouterModel },
+      });
       setSavedLlm(llmProvider);
       setSavedTts(ttsProvider);
+      setSavedOrModel(openrouterModel);
+      const tag =
+        llmProvider === "openrouter"
+          ? `${llmProvider}:${openrouterModel}`
+          : llmProvider;
       setProviderStatus(
-        `Saved (LLM=${llmProvider}, TTS=${ttsProvider}) at ${new Date().toLocaleTimeString()}.`,
+        `Saved (LLM=${tag}, TTS=${ttsProvider}) at ${new Date().toLocaleTimeString()}.`,
       );
     } catch (e) {
       setProviderStatus(`Save failed: ${(e as Error).message}`);
@@ -248,6 +268,27 @@ function InstructionPage() {
               </span>
             </label>
           </div>
+
+          {llmProvider === "openrouter" && (
+            <label className="space-y-1.5 block">
+              <span className="text-sm font-medium">OpenRouter model</span>
+              <select
+                value={openrouterModel}
+                onChange={(e) => setOpenrouterModel(e.target.value)}
+                disabled={loading}
+                className="w-full rounded-md border border-border bg-card text-card-foreground p-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+              >
+                {OPENROUTER_MODELS.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label} — {m.value}
+                  </option>
+                ))}
+              </select>
+              <span className="block text-xs text-muted-foreground">
+                Routed via openrouter.ai. Pricing depends on the selected model — see openrouter.ai/models.
+              </span>
+            </label>
+          )}
 
           <div className="flex items-center gap-3">
             <button

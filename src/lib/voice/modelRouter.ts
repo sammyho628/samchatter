@@ -14,7 +14,8 @@ import { readProvidersServerSide, type LlmProvider } from "./providerSettings.fu
 export type MainModel =
   | { provider: "gemini"; model: string; apiKey: string }
   | { provider: "qwen"; model: string; apiKey: string; apiUrl: string }
-  | { provider: "grok"; model: string; apiKey: string; apiUrl: string };
+  | { provider: "grok"; model: string; apiKey: string; apiUrl: string }
+  | { provider: "openrouter"; model: string; apiKey: string; apiUrl: string };
 
 // Centralised model ids — change in one place.
 const MODEL_IDS = {
@@ -28,15 +29,19 @@ const MODEL_IDS = {
 const QWEN_API_URL =
   "https://ws-gmzpr3q5gtcnhft1.ap-southeast-1.maas.aliyuncs.com/v1/chat/completions";
 
+// OpenRouter — OpenAI-compatible chat completions endpoint.
+const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
+
 function getKey(provider: LlmProvider): string | undefined {
   if (provider === "gemini") return process.env.GEMINI_API_KEY;
   if (provider === "qwen") return process.env.DASHSCOPE_API_KEY;
   if (provider === "grok") return process.env.XAI_API_KEY;
+  if (provider === "openrouter") return process.env.OPENROUTER_API_KEY;
   return undefined;
 }
 
 export async function resolveLlmModel(): Promise<MainModel> {
-  const { llm } = await readProvidersServerSide();
+  const { llm, openrouterModel } = await readProvidersServerSide();
   const key = getKey(llm);
   if (!key) throw new Error(`Missing API key for selected LLM provider '${llm}'.`);
   if (llm === "qwen") {
@@ -55,6 +60,14 @@ export async function resolveLlmModel(): Promise<MainModel> {
       apiUrl: "https://api.x.ai/v1/chat/completions",
     };
   }
+  if (llm === "openrouter") {
+    return {
+      provider: "openrouter",
+      model: openrouterModel,
+      apiKey: key,
+      apiUrl: OPENROUTER_API_URL,
+    };
+  }
   return { provider: "gemini", model: MODEL_IDS.gemini, apiKey: key };
 }
 
@@ -63,21 +76,17 @@ export async function resolveLlmModel(): Promise<MainModel> {
 export type CriticCaller = (prompt: string) => Promise<string>;
 
 export async function resolveCriticCaller(): Promise<CriticCaller | null> {
-  const { llm } = await readProvidersServerSide();
+  const { llm, openrouterModel } = await readProvidersServerSide();
   const key = getKey(llm);
   if (key) {
     if (llm === "gemini") return (p) => callGeminiSimple(key, MODEL_IDS.gemini, p);
     if (llm === "qwen")
-      return (p) =>
-        callOpenAISimple(
-          QWEN_API_URL,
-          MODEL_IDS.qwen,
-          key,
-          p,
-        );
+      return (p) => callOpenAISimple(QWEN_API_URL, MODEL_IDS.qwen, key, p);
     if (llm === "grok")
       return (p) =>
         callOpenAISimple("https://api.x.ai/v1/chat/completions", MODEL_IDS.grok, key, p);
+    if (llm === "openrouter")
+      return (p) => callOpenAISimple(OPENROUTER_API_URL, openrouterModel, key, p);
   }
   // Fallback: Lovable AI Gateway
   const lovableKey = process.env.LOVABLE_API_KEY;
@@ -88,28 +97,32 @@ export async function resolveCriticCaller(): Promise<CriticCaller | null> {
 // Utility chat — used by translation / summarisation helpers. Always Lovable
 // AI Gateway (no user-facing toggle for these background tasks).
 // Utility chat — background helpers (memory summarisation, greeting generation,
-// daily cache summarisation). Tries the configured LLM (Qwen/Grok) first for
-// billing consolidation. Falls back to Lovable AI Gateway if: provider=gemini
-// (direct blocked from HK), key missing, or the primary call fails.
+// daily cache summarisation). Tries the configured LLM first for billing
+// consolidation. Falls back to Lovable AI Gateway if: provider=gemini (direct
+// blocked from HK), key missing, or the primary call fails.
 // Returns { text, usedModel } so callers can log which model actually ran.
 export async function callUtilityChat(args: {
   system: string;
   user: string;
   maxTokens?: number;
 }): Promise<{ text: string; usedModel: string }> {
-  const { llm } = await readProvidersServerSide();
+  const { llm, openrouterModel } = await readProvidersServerSide();
   const max = args.maxTokens ?? 400;
 
-  // Try configured LLM if it's Qwen or Grok (not Gemini — direct call blocked from HK)
-  if (llm === "qwen" || llm === "grok") {
+  // Try configured LLM if it has a direct OpenAI-compatible endpoint
+  // (Qwen, Grok, OpenRouter). Gemini direct is blocked from HK so we skip it.
+  if (llm === "qwen" || llm === "grok" || llm === "openrouter") {
     const key = getKey(llm);
     if (key) {
       try {
         const url =
           llm === "qwen"
             ? QWEN_API_URL
-            : "https://api.x.ai/v1/chat/completions";
-        const model = MODEL_IDS[llm];
+            : llm === "grok"
+              ? "https://api.x.ai/v1/chat/completions"
+              : OPENROUTER_API_URL;
+        const model =
+          llm === "openrouter" ? openrouterModel : MODEL_IDS[llm];
         const r = await fetch(url, {
           method: "POST",
           headers: {
@@ -130,7 +143,11 @@ export async function callUtilityChat(args: {
             choices?: Array<{ message?: { content?: string } }>;
           };
           const text = j.choices?.[0]?.message?.content?.trim() ?? "";
-          if (text) return { text, usedModel: llm };
+          if (text)
+            return {
+              text,
+              usedModel: llm === "openrouter" ? `openrouter:${model}` : llm,
+            };
         }
       } catch {
         // Fall through to Lovable gateway
