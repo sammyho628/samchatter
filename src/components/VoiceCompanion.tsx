@@ -102,6 +102,7 @@ export function VoiceCompanion() {
   });
   const [textInput, setTextInput] = useState("");
   const [textBusy, setTextBusy] = useState(false);
+  const turnGenRef = useRef(0);
   const [debugLog, setDebugLog] = useState<
     Array<{ t: number; kind: "user" | "ai" | "tool" | "evt" | "err" | "db"; text: string }>
   >([]);
@@ -527,7 +528,9 @@ export function VoiceCompanion() {
   const sendTextTurn = useCallback(
     async (rawText: string) => {
       const text = rawText.trim();
-      if (!text || textBusy) return;
+      if (!text || (textBusy && status !== "speaking")) return;
+      if (status === "speaking") stopPlayback();
+      const myGen = ++turnGenRef.current;
       setTextBusy(true);
       setErrorMsg("");
       try {
@@ -600,11 +603,14 @@ export function VoiceCompanion() {
           },
         );
       } finally {
-        setTextBusy(false);
+        if (turnGenRef.current === myGen) {
+          setTextBusy(false);
+        }
       }
     },
     [
       textBusy,
+      status,
       loadPromptIfNeeded,
       sttFn,
       planFn,
@@ -613,6 +619,7 @@ export function VoiceCompanion() {
       ttsFn,
       pushLog,
       persistTurn,
+      stopPlayback,
     ],
   );
 
@@ -832,7 +839,7 @@ export function VoiceCompanion() {
           />
           <button
             type="submit"
-            disabled={textBusy || !textInput.trim()}
+            disabled={(textBusy && status !== "speaking") || !textInput.trim()}
             className="rounded-full bg-amber-300 px-3 py-1 text-xs font-bold text-orange-950 disabled:opacity-40"
           >
             {status === "speaking" ? "明女講緊…" : textBusy ? "…" : "Send"}
