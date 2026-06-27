@@ -196,6 +196,13 @@ function refineQuery(rawQuery: string, category: string): string {
   const lower = q.toLowerCase();
   if (HK_HINTS.some((h) => lower.includes(h.toLowerCase()))) return q;
   if (NON_HK_HINTS.some((h) => lower.includes(h.toLowerCase()))) return q;
+  // Global categories must NEVER have "香港" appended — they are explicitly for non-HK queries.
+  // weather_global, travel_global, stocks_us, market_us, world_news, technology
+  const GLOBAL_CATS = new Set([
+    "weather_global", "travel_global", "stocks_us", "market_us", "world_news", "technology",
+  ]);
+  if (GLOBAL_CATS.has(category.toLowerCase())) return q;
+
   // Detect English proper nouns in location-sensitive queries (e.g. "Sydney weather", "Bangkok restaurants")
   // A word matching /^[A-Z][a-z]{2,}$/ is almost certainly a city/country name in these categories
   // This catches cities not in NON_HK_HINTS without needing an exhaustive list
