@@ -827,16 +827,15 @@ export function VoiceCompanion() {
             type="text"
             value={textInput}
             onChange={(e) => setTextInput(e.target.value)}
-            disabled={textBusy}
             placeholder="Type a message to skip STT (debug)…"
-            className="flex-1 bg-transparent text-sm text-white placeholder-white/30 outline-none disabled:opacity-50"
+            className="flex-1 bg-transparent text-sm text-white placeholder-white/30 outline-none"
           />
           <button
             type="submit"
             disabled={textBusy || !textInput.trim()}
             className="rounded-full bg-amber-300 px-3 py-1 text-xs font-bold text-orange-950 disabled:opacity-40"
           >
-            {textBusy ? "…" : "Send"}
+            {status === "speaking" ? "明女講緊…" : textBusy ? "…" : "Send"}
           </button>
         </form>
       </div>
