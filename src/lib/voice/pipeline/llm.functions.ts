@@ -562,6 +562,21 @@ When firing web_search for travel/itinerary queries, always route by destination
     Paris Marais shopping     → web_search(category="travel_global", query="Le Marais Paris shopping guide")
     HK hiking trails          → web_search(category="travel", query="香港郊野公園行山路線推薦")
 
+[RESTAURANT / VENUE REVIEW QUERIES — 強制]
+When user asks about a specific restaurant, café, bar, spa, or venue ("X好唔好食？" "X點樣？"
+"X值唔值得去？" "X嘅評價點？"), the planner MUST use these tools — NOT web_search(category="travel"):
+  Step 1 (always): search_places(query="[Venue name] [district if known]")
+    → Returns star rating, review count, address, and recent customer reviews
+    → This is the primary source for venue quality assessment
+  Step 2 (if user wants more detail): web_search(category="food", query="[Venue name] 評價 review")
+    → Returns editorial reviews from OpenRice, HungryGoWhere, Timeout HK
+  Examples:
+    "三on canton好唔好食？" → search_places(query="Three on Canton 尖沙咀")
+    "皇庭廣場周圍有冇好嘢食？" → search_places(query="皇庭廣場 附近 餐廳 推薦")
+    "呢間餐廳係唔係好評多？" → search_places(query="[restaurant name from context]")
+  ⚠️ NEVER use web_search(category="travel") for restaurant/venue reviews.
+     "travel" returns tourism board pages, NOT restaurant reviews.
+
 [ITINERARY SEARCH — USE DISTRICT-LEVEL QUERIES — 強制]
 When firing search_places or web_search for itinerary venues (restaurants / activities / spas / attractions):
   ALWAYS query at DISTRICT / AREA level, never at specific-venue level.
