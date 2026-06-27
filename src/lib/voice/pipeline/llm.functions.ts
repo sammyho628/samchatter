@@ -70,7 +70,7 @@ const TOOL_DECLS = [
         category: {
           type: "string",
           description:
-            "Optional. health | stocks_hk | stocks_us | market_hk | market_us | finance | hk_news | world_news | shopping | weather | weather_global | sports | transport | travel | travel_global | government | technology",
+            "Optional. health | stocks_hk | stocks_us | market_hk | market_us | finance | hk_news | world_news | shopping | weather | weather_global | sports | transport | travel | travel_global | food | government | technology",
         },
       },
       required: ["query"],
@@ -196,6 +196,13 @@ function refineQuery(rawQuery: string, category: string): string {
   const lower = q.toLowerCase();
   if (HK_HINTS.some((h) => lower.includes(h.toLowerCase()))) return q;
   if (NON_HK_HINTS.some((h) => lower.includes(h.toLowerCase()))) return q;
+  // Global categories must NEVER have "香港" appended — they are explicitly for non-HK queries.
+  // weather_global, travel_global, stocks_us, market_us, world_news, technology
+  const GLOBAL_CATS = new Set([
+    "weather_global", "travel_global", "stocks_us", "market_us", "world_news", "technology",
+  ]);
+  if (GLOBAL_CATS.has(category.toLowerCase())) return q;
+
   // Detect English proper nouns in location-sensitive queries (e.g. "Sydney weather", "Bangkok restaurants")
   // A word matching /^[A-Z][a-z]{2,}$/ is almost certainly a city/country name in these categories
   // This catches cities not in NON_HK_HINTS without needing an exhaustive list
@@ -345,6 +352,17 @@ async function runTool(
     });
     if (snippetHasScore(retry) || retry.length > summary.length) {
       summary = `${retry}\n\n[fallback from first pass]\n${summary}`;
+    }
+  }
+
+  // General trusted_domains fallback — if the site-filtered result is too thin
+  // (< 120 chars means only a page title or error snippet came back), retry without
+  // the site filter so the open web can answer. This handles cases where a venue,
+  // restaurant, or attraction isn't indexed on the trusted_domains sites.
+  if (!isSports && category && summary.trim().length < 120) {
+    const openWebRetry = await callEdgeSearch(fn, { query });
+    if (openWebRetry.trim().length > summary.trim().length) {
+      summary = `${openWebRetry}\n\n[open-web fallback — trusted_domains returned thin result]\n${summary}`;
     }
   }
 
@@ -544,6 +562,21 @@ When firing web_search for travel/itinerary queries, always route by destination
     Paris Marais shopping     → web_search(category="travel_global", query="Le Marais Paris shopping guide")
     HK hiking trails          → web_search(category="travel", query="香港郊野公園行山路線推薦")
 
+[RESTAURANT / VENUE REVIEW QUERIES — 強制]
+When user asks about a specific restaurant, café, bar, spa, or venue ("X好唔好食？" "X點樣？"
+"X值唔值得去？" "X嘅評價點？"), the planner MUST use these tools — NOT web_search(category="travel"):
+  Step 1 (always): search_places(query="[Venue name] [district if known]")
+    → Returns star rating, review count, address, and recent customer reviews
+    → This is the primary source for venue quality assessment
+  Step 2 (if user wants more detail): web_search(category="food", query="[Venue name] 評價 review")
+    → Returns editorial reviews from OpenRice, HungryGoWhere, Timeout HK
+  Examples:
+    "三on canton好唔好食？" → search_places(query="Three on Canton 尖沙咀")
+    "皇庭廣場周圍有冇好嘢食？" → search_places(query="皇庭廣場 附近 餐廳 推薦")
+    "呢間餐廳係唔係好評多？" → search_places(query="[restaurant name from context]")
+  ⚠️ NEVER use web_search(category="travel") for restaurant/venue reviews.
+     "travel" returns tourism board pages, NOT restaurant reviews.
+
 [ITINERARY SEARCH — USE DISTRICT-LEVEL QUERIES — 強制]
 When firing search_places or web_search for itinerary venues (restaurants / activities / spas / attractions):
   ALWAYS query at DISTRICT / AREA level, never at specific-venue level.
@@ -572,15 +605,15 @@ and asks for additional venues, food, or activity suggestions (e.g. 「邊度食
 If the user asks for live/current match results, group standings, tournament rankings, or "who is eliminated/qualified" from an ongoing tournament:
   ALWAYS fire BOTH tools simultaneously in a single plan step:
     Tool 1: web_search(category="sports", query="[tournament] match results [today date]")
-    Tool 2: scrape_page(url="https://www.fifa.com/fifaplus/en/tournaments/mens/worldcup/canadamexicousa2026", reason="FIFA official World Cup 2026 site for live scores and match results")
-  Primary scrape targets in priority order (use the first that returns actual scores):
-    World Cup 2026 (primary): https://www.fifa.com/fifaplus/en/tournaments/mens/worldcup/canadamexicousa2026
-    World Cup 2026 (fallback): https://www.sofascore.com/tournament/football/world/world-cup-2026/1
-    Premier League / general football: https://www.bbc.com/sport/football/scores-fixtures
-    General fallback: https://www.reuters.com/sports/soccer/
-  If the scrape result contains "blocked" / "ERR_BLOCKED" / "edigitalsurvey" → that scrape
-  FAILED. Do NOT use it. The synthesiser must treat it as zero data.
-  Do NOT fire web_search alone for live sports standings — Brave snippets for Livescore/ESPN/BBC Sport only return page titles and descriptions, never actual score data.
+    Tool 2: scrape_page(url="https://www.reuters.com/sports/soccer/", reason="Reuters soccer news page — text-based, not JS-rendered, accessible from server IPs")
+  Scrape target selection — IMPORTANT: FIFA.com, FotMob, SofaScore are JavaScript dashboards
+  that block server IP scraping (ERR_BLOCKED_BY_CLIENT). Use text-based news pages only:
+    World Cup 2026 news (text): https://www.reuters.com/sports/soccer/
+    BBC Sport text page:        https://www.bbc.com/sport/football
+    AP Sports:                  https://apnews.com/hub/soccer
+  The web_search(category="sports") self-healing loop will already retry with a
+  "match report result summary" query if the first pass has no scores — rely on that.
+  If scrape also returns nothing → apply [TOURNAMENT IN PROGRESS — PARTIAL SUMMARY RULE].
   Exception: if the user asks for general sports news or previews (not live scores/standings), web_search alone is fine.`;
 
 
