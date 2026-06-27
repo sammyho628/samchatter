@@ -92,7 +92,7 @@ function getHKTimeSlot(): {
     slot: "latenight",
     label: "深夜/凌晨 (00:00–04:59)",
     behaviorHint:
-      "深夜語氣，溫柔簡短。美股仍在交易中。提醒早點休息。天氣提明日/後日。",
+      "深夜語氣，溫柔簡短。美股仍在交易中。提醒早點休息。",
   };
 }
 
