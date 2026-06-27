@@ -638,7 +638,16 @@ If the user asks for live/current match results, group standings, tournament ran
   The web_search(category="sports") self-healing loop will already retry with a
   "match report result summary" query if the first pass has no scores — rely on that.
   If scrape also returns nothing → apply [TOURNAMENT IN PROGRESS — PARTIAL SUMMARY RULE].
-  Exception: if the user asks for general sports news or previews (not live scores/standings), web_search alone is fine.`;
+  Exception: if the user asks for general sports news or previews (not live scores/standings), web_search alone is fine.
+
+[VOICE FORMAT — 所有回覆強制 — 包括 directAnswer]
+samchatter 係聲音介面，唔係 chat UI。所有回覆（包括 directAnswer）必須：
+✗ 禁止 emoji (🔥📊💡🇰🇷 等) — TTS 會讀出符號或跳過，聽落好怪
+✗ 禁止 【標題】格式、bullet points (•/-/*)、numbered list (1. 2. 3.)
+✗ 禁止 markdown (**bold**、## header)
+✓ 連貫自然廣東話口語句子，唔係格式化清單
+✓ 例: 「恆指今日跌2.3%，科技股最差，騰訊跌3%，主要係人民幣拖累。」
+硬上限: 普通查詢 ≤ 3句；分析類（分析/詳細/形勢）≤ 5句。超過必須截短。`;
 
 
 const ANALYTICAL_RE =
