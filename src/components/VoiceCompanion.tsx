@@ -692,11 +692,13 @@ export function VoiceCompanion() {
   const handleSplashTap = useCallback(async (e: React.PointerEvent) => {
     e.preventDefault();
     setGreeting(true);
+    // Hide splash immediately so a slow/failed greeting can't trap the user
+    // behind a spinning button. The orb screen has its own loading state.
+    setShowSplash(false);
     try { await unlockAudio(); } catch { /* ignore */ }
     // Keep-alive: hold the iOS audio session open during LLM + TTS generation.
     startKeepAlive();
     void loadPromptIfNeeded();
-    setShowSplash(false);
     try {
       let audioBase64 = greetingAudioRef.current;
       if (!audioBase64) {
@@ -705,26 +707,47 @@ export function VoiceCompanion() {
           const hkNow = new Date(
             new Date().toLocaleString("en-US", { timeZone: "Asia/Hong_Kong" }),
           );
+          // Cap greeting generation at 12s — if the network/LLM hangs we'd
+          // rather skip the greeting than block the UI indefinitely.
+          const withTimeout = <T,>(p: Promise<T>, ms: number, label: string) =>
+            Promise.race<T>([
+              p,
+              new Promise<T>((_, rej) =>
+                setTimeout(() => rej(new Error(`${label} timeout ${ms}ms`)), ms),
+              ),
+            ]);
           const greetingText = sessData
-            ? await genGreeting({
-                data: {
-                  personaName: sessData.personaName || "明女",
-                  hkHour: hkNow.getHours(),
-                  hkDayOfWeek: hkNow.getDay(),
-                  weatherSnippet: sessData.weatherSnippet,
-                  lastMemorySummary: sessData.lastMemorySummary ?? undefined,
-                  daysSinceLastSession: sessData.daysSinceLastSession ?? undefined,
-                },
-              })
+            ? await withTimeout(
+                genGreeting({
+                  data: {
+                    personaName: sessData.personaName || "明女",
+                    hkHour: hkNow.getHours(),
+                    hkDayOfWeek: hkNow.getDay(),
+                    weatherSnippet: sessData.weatherSnippet,
+                    lastMemorySummary: sessData.lastMemorySummary ?? undefined,
+                    daysSinceLastSession: sessData.daysSinceLastSession ?? undefined,
+                  },
+                }),
+                12000,
+                "greeting",
+              )
             : getTimeGreeting(personaNameRef.current ?? "明女");
-          const tts = await ttsFn({ data: { text: greetingText } });
+          const tts = await withTimeout(
+            ttsFn({ data: { text: greetingText } }),
+            12000,
+            "greeting-tts",
+          );
           audioBase64 = tts.audioBase64;
         } catch (e) {
-          pushLog("err", `greeting fallback TTS failed: ${(e as Error).message}`);
+          pushLog("err", `greeting prefetch skipped: ${(e as Error).message}`);
         }
       }
       stopKeepAlive();
-      if (audioBase64) await playBase64Audio(audioBase64);
+      if (audioBase64) {
+        try { await playBase64Audio(audioBase64); } catch (e) {
+          pushLog("err", `greeting playback: ${(e as Error).message}`);
+        }
+      }
     } catch (err) {
       pushLog("err", `greeting: ${(err as Error).message}`);
     } finally {
