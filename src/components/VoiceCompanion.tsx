@@ -25,6 +25,8 @@ import {
   playBase64Audio,
   replayLast,
   stopPlayback,
+  startKeepAlive,
+  stopKeepAlive,
   unlockAudio,
   hasLastBuffer,
   subscribeLastBuffer,
@@ -687,17 +689,15 @@ export function VoiceCompanion() {
     );
   }, [debugLog, pushLog]);
 
-  const handleSplashTap = useCallback(async () => {
+  const handleSplashTap = useCallback(async (e: React.PointerEvent) => {
+    e.preventDefault();
     setGreeting(true);
     try { await unlockAudio(); } catch { /* ignore */ }
-    // Warm the prompt at the same moment audio unlocks so the user's first
-    // real interaction has no cold-start latency.
+    // Keep-alive: hold the iOS audio session open during LLM + TTS generation.
+    startKeepAlive();
     void loadPromptIfNeeded();
     setShowSplash(false);
     try {
-      // Prefer the pre-fetched contextual greeting audio. If the session
-      // hadn't finished loading by tap time, generate it now (may be silent
-      // on iOS due to the gesture gap, but better than no greeting).
       let audioBase64 = greetingAudioRef.current;
       if (!audioBase64) {
         try {
@@ -720,14 +720,15 @@ export function VoiceCompanion() {
           const tts = await ttsFn({ data: { text: greetingText } });
           audioBase64 = tts.audioBase64;
         } catch (e) {
-          // Log so we can diagnose iOS audio failures — previously this was silent.
           pushLog("err", `greeting fallback TTS failed: ${(e as Error).message}`);
         }
       }
+      stopKeepAlive();
       if (audioBase64) await playBase64Audio(audioBase64);
     } catch (err) {
       pushLog("err", `greeting: ${(err as Error).message}`);
     } finally {
+      stopKeepAlive();
       setGreeting(false);
     }
   }, [ttsFn, pushLog, loadPromptIfNeeded, genGreeting]);
@@ -850,18 +851,35 @@ export function VoiceCompanion() {
       <div className="flex-1" />
 
       {showSplash ? (
-        <button
-          type="button"
-          onClick={handleSplashTap}
-          className="fixed inset-0 z-[60] flex flex-col items-center justify-center gap-6 bg-[oklch(0.18_0.04_265)]/95 px-6 text-white backdrop-blur"
+        <div
+          className="fixed inset-0 z-[60] flex flex-col items-center justify-between bg-[oklch(0.18_0.04_265)]/95 px-6 py-16 text-white backdrop-blur"
         >
-          <div className="text-5xl font-black tracking-tight">傾偈</div>
-          <div className="text-lg text-white/70">點一下開始 · Tap to start</div>
-          <div className="rounded-full bg-gradient-to-br from-amber-300 to-orange-400 px-8 py-4 text-xl font-black text-orange-950 shadow-2xl">
-            {greeting ? "講緊…" : "👋 你好"}
+          <div className="flex flex-col items-center gap-3 text-center">
+            <div className="text-5xl font-black tracking-tight">傾偈</div>
+            <div className="text-base text-white/70">明女正在等緊你...</div>
           </div>
-          <div className="text-xs text-white/40">啟動聲音播放 · Enables audio</div>
-        </button>
+
+          <button
+            type="button"
+            onPointerDown={handleSplashTap}
+            disabled={greeting}
+            className="flex h-56 w-56 items-center justify-center rounded-full bg-gradient-to-br from-amber-300 to-orange-400 text-orange-950 shadow-2xl transition-transform active:scale-95 disabled:opacity-80"
+            style={{ touchAction: "manipulation" }}
+            aria-label="Start"
+          >
+            {greeting ? (
+              <span className="inline-block h-16 w-16 animate-spin rounded-full border-4 border-orange-950/30 border-t-orange-950" />
+            ) : (
+              <svg width="80" height="80" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                <path d="M8 5v14l11-7z" />
+              </svg>
+            )}
+          </button>
+
+          <div className="text-center text-sm text-white/60">
+            {greeting ? "準備緊,請稍候…" : "點擊開始 · 啟動音訊通道"}
+          </div>
+        </div>
       ) : null}
 
 

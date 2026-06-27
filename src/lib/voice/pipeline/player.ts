@@ -218,21 +218,35 @@ export async function playBase64Audio(audioBase64: string): Promise<void> {
     c.addEventListener("statechange", onStateChange);
 
     // Safety timer: fallback if onended AND statechange both fail to fire.
-    // 15s buffer covers slow decode on desktop without blocking mobile for 30s.
-    const safetyMs = Math.ceil((buffer.duration + 15) * 1000);
+    // Reduced from +15s to +3s — 3s tolerance after expected end is generous enough.
+    const safetyMs = Math.ceil((buffer.duration + 3) * 1000);
     const safetyTimer = setTimeout(() => {
       cleanup();
-      diag(`⚠️ playback safety timeout after ${(buffer.duration + 15).toFixed(1)}s · ctx=${c.state} — force resolve + recreate ctx`);
-      // Nuke the wedged context so the next utterance starts on a fresh one
-      // instead of inheriting the stuck state.
+      diag(`⚠️ playback safety timeout after ${(buffer.duration + 3).toFixed(1)}s · ctx=${c.state} — force resolve + recreate ctx`);
       try { void c.close(); } catch { /* ignore */ }
       if (ctx === c) ctx = null;
       resolve();
     }, safetyMs);
 
+    // currentTime polling: detect when audio should have ended but onended
+    // hasn't fired. Catches iOS "silent playback" ~1.5s after expected end.
+    const expectedEndTime = scheduleAt + buffer.duration;
+    const pollTimer = setInterval(() => {
+      if (cleaned) { clearInterval(pollTimer); return; }
+      if (c.currentTime > expectedEndTime + 1.0) {
+        clearInterval(pollTimer);
+        diag(`⚠️ onended not fired ${(c.currentTime - expectedEndTime).toFixed(1)}s past expected end — force resolve + recreate ctx`);
+        cleanup();
+        try { void c.close(); } catch { /* ignore */ }
+        if (ctx === c) ctx = null;
+        resolve();
+      }
+    }, 500);
+
     function cleanup() {
-      if (cleaned) return;   // idempotent: safe to call from multiple code paths
+      if (cleaned) return;
       cleaned = true;
+      clearInterval(pollTimer);
       clearTimeout(safetyTimer);
       c.removeEventListener("statechange", onStateChange);
       src.onended = null;
@@ -287,4 +301,47 @@ export function hasLastBuffer() {
 export function subscribeLastBuffer(fn: (has: boolean) => void): () => void {
   listeners.add(fn);
   return () => listeners.delete(fn);
+}
+
+// ── Keep-alive ─────────────────────────────────────────────────────────────
+// iOS Safari de-activates the WebAudio session if no real audio is scheduled
+// within a short window after the user gesture that unlocked the context.
+// Greeting generation (LLM + TTS) takes 15–30s. Without a keep-alive, the
+// session goes stale and the first audio chunk plays silently on iPhone.
+// Solution: play a 0-volume looping silent buffer to hold the session open.
+let keepAliveNode: AudioBufferSourceNode | null = null;
+let keepAliveGain: GainNode | null = null;
+
+export function startKeepAlive(): void {
+  if (keepAliveNode) return;
+  const c = getCtx();
+  if (c.state !== "running") return;
+  try {
+    const buf = c.createBuffer(1, c.sampleRate, c.sampleRate);
+    const src = c.createBufferSource();
+    src.buffer = buf;
+    src.loop = true;
+    const g = c.createGain();
+    g.gain.value = 0;
+    src.connect(g);
+    g.connect(c.destination);
+    src.start(0);
+    keepAliveNode = src;
+    keepAliveGain = g;
+    diag("keepAlive · started");
+  } catch (err) {
+    diag(`keepAlive start failed: ${(err as Error).message}`);
+  }
+}
+
+export function stopKeepAlive(): void {
+  if (!keepAliveNode) return;
+  try {
+    keepAliveNode.stop();
+    keepAliveNode.disconnect();
+    keepAliveGain?.disconnect();
+  } catch { /* ignore */ }
+  keepAliveNode = null;
+  keepAliveGain = null;
+  diag("keepAlive · stopped");
 }
