@@ -3,16 +3,18 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
 
-export type LlmProvider = "gemini" | "qwen" | "grok";
+export type LlmProvider = "gemini" | "qwen" | "grok" | "openrouter";
 export type TtsProvider = "google" | "minimax";
 
 const LLM_KEY = "voice.llmProvider";
 const TTS_KEY = "voice.ttsProvider";
+const OPENROUTER_MODEL_KEY = "voice.openrouterModel";
 
 export const LLM_PROVIDERS: { value: LlmProvider; label: string; note: string }[] = [
   { value: "gemini", label: "Google Gemini 2.5 Flash", note: "Default. Strong Cantonese + tool use." },
-  { value: "qwen", label: "Alibaba Qwen (DashScope)", note: "Needs DASHSCOPE_API_KEY." },
-  { value: "grok", label: "xAI Grok", note: "Needs XAI_API_KEY." },
+  { value: "qwen", label: "Alibaba Qwen (DashScope direct)", note: "Direct DashScope. Needs DASHSCOPE_API_KEY." },
+  { value: "grok", label: "xAI Grok (direct)", note: "Direct xAI. Needs XAI_API_KEY." },
+  { value: "openrouter", label: "OpenRouter (multi-model)", note: "Routes via OpenRouter — pick a model below. Needs OPENROUTER_API_KEY." },
 ];
 
 export const TTS_PROVIDERS: { value: TtsProvider; label: string; note: string; available: boolean }[] = [
@@ -20,15 +22,30 @@ export const TTS_PROVIDERS: { value: TtsProvider; label: string; note: string; a
   { value: "minimax", label: "MiniMax speech-02-hd", note: "Cantonese (Yue) boosted. Voice via MINIMAX_VOICE_ID env (default Cantonese_Articulate_commentator_vv2).", available: true },
 ];
 
+// OpenRouter model catalog. Add/remove freely — values are the canonical
+// OpenRouter model slugs sent in the `model` field.
+export const OPENROUTER_MODELS: { value: string; label: string }[] = [
+  { value: "qwen/qwen3-max", label: "Qwen3 Max" },
+  { value: "qwen/qwen-2.5-72b-instruct", label: "Qwen 2.5 72B Instruct" },
+  { value: "anthropic/claude-3.5-sonnet", label: "Anthropic Claude 3.5 Sonnet" },
+  { value: "anthropic/claude-3.5-haiku", label: "Anthropic Claude 3.5 Haiku" },
+  { value: "deepseek/deepseek-chat", label: "DeepSeek V3" },
+  { value: "deepseek/deepseek-r1", label: "DeepSeek R1 (reasoning)" },
+  { value: "meta-llama/llama-3.3-70b-instruct", label: "Llama 3.3 70B Instruct" },
+  { value: "openai/gpt-4o-mini", label: "OpenAI GPT-4o mini" },
+  { value: "openai/gpt-4o", label: "OpenAI GPT-4o" },
+  { value: "google/gemini-2.5-flash", label: "Gemini 2.5 Flash (via OpenRouter)" },
+  { value: "x-ai/grok-4", label: "xAI Grok 4 (via OpenRouter)" },
+];
+
+export const DEFAULT_OPENROUTER_MODEL = "qwen/qwen3-max";
+
 // Module-level provider cache — avoids repeated Supabase reads per pipeline run.
-// TTL 5 minutes: long enough to batch all calls in a turn, short enough to
-// reflect any provider change made in the settings page within one session.
 let _providerCache: {
-  value: { llm: LlmProvider; tts: TtsProvider };
+  value: { llm: LlmProvider; tts: TtsProvider; openrouterModel: string };
   exp: number;
 } | null = null;
 
-/** Call after saving new provider settings to immediately invalidate the cache. */
 export function clearProviderCache(): void {
   _providerCache = null;
 }
@@ -36,6 +53,7 @@ export function clearProviderCache(): void {
 export async function readProvidersServerSide(): Promise<{
   llm: LlmProvider;
   tts: TtsProvider;
+  openrouterModel: string;
 }> {
   if (_providerCache && Date.now() < _providerCache.exp) {
     return _providerCache.value;
@@ -44,19 +62,21 @@ export async function readProvidersServerSide(): Promise<{
   const { data } = await supabaseAdmin
     .from("app_settings")
     .select("key, value")
-    .in("key", [LLM_KEY, TTS_KEY]);
+    .in("key", [LLM_KEY, TTS_KEY, OPENROUTER_MODEL_KEY]);
   const map = new Map<string, string>(
     (data ?? []).map((r) => [r.key as string, r.value as string]),
   );
   const llmRaw = map.get(LLM_KEY) as LlmProvider | undefined;
   const ttsRaw = map.get(TTS_KEY) as TtsProvider | undefined;
+  const orRaw = map.get(OPENROUTER_MODEL_KEY);
   const value = {
-    llm: (["gemini", "qwen", "grok"] as const).includes(llmRaw as LlmProvider)
+    llm: (["gemini", "qwen", "grok", "openrouter"] as const).includes(llmRaw as LlmProvider)
       ? (llmRaw as LlmProvider)
       : "gemini",
     tts: (["google", "minimax"] as const).includes(ttsRaw as TtsProvider)
       ? (ttsRaw as TtsProvider)
       : "google",
+    openrouterModel: orRaw && orRaw.trim() ? orRaw : DEFAULT_OPENROUTER_MODEL,
   };
   _providerCache = { value, exp: Date.now() + 5 * 60 * 1000 };
   return value;
@@ -70,8 +90,9 @@ export const saveProviderSettings = createServerFn({ method: "POST" })
   .inputValidator((d) =>
     z
       .object({
-        llm: z.enum(["gemini", "qwen", "grok"]).optional(),
+        llm: z.enum(["gemini", "qwen", "grok", "openrouter"]).optional(),
         tts: z.enum(["google", "minimax"]).optional(),
+        openrouterModel: z.string().min(1).max(200).optional(),
       })
       .parse(d),
   )
@@ -81,11 +102,13 @@ export const saveProviderSettings = createServerFn({ method: "POST" })
     const now = new Date().toISOString();
     if (data.llm) rows.push({ key: LLM_KEY, value: data.llm, updated_at: now });
     if (data.tts) rows.push({ key: TTS_KEY, value: data.tts, updated_at: now });
+    if (data.openrouterModel)
+      rows.push({ key: OPENROUTER_MODEL_KEY, value: data.openrouterModel, updated_at: now });
     if (rows.length === 0) return { ok: true };
     const { error } = await supabaseAdmin
       .from("app_settings")
       .upsert(rows, { onConflict: "key" });
     if (error) throw new Error(`Save providers failed: ${error.message}`);
-    clearProviderCache(); // invalidate so next call reads fresh settings
+    clearProviderCache();
     return { ok: true };
   });
