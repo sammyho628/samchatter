@@ -76,21 +76,17 @@ export async function resolveLlmModel(): Promise<MainModel> {
 export type CriticCaller = (prompt: string) => Promise<string>;
 
 export async function resolveCriticCaller(): Promise<CriticCaller | null> {
-  const { llm } = await readProvidersServerSide();
+  const { llm, openrouterModel } = await readProvidersServerSide();
   const key = getKey(llm);
   if (key) {
     if (llm === "gemini") return (p) => callGeminiSimple(key, MODEL_IDS.gemini, p);
     if (llm === "qwen")
-      return (p) =>
-        callOpenAISimple(
-          QWEN_API_URL,
-          MODEL_IDS.qwen,
-          key,
-          p,
-        );
+      return (p) => callOpenAISimple(QWEN_API_URL, MODEL_IDS.qwen, key, p);
     if (llm === "grok")
       return (p) =>
         callOpenAISimple("https://api.x.ai/v1/chat/completions", MODEL_IDS.grok, key, p);
+    if (llm === "openrouter")
+      return (p) => callOpenAISimple(OPENROUTER_API_URL, openrouterModel, key, p);
   }
   // Fallback: Lovable AI Gateway
   const lovableKey = process.env.LOVABLE_API_KEY;
@@ -101,9 +97,9 @@ export async function resolveCriticCaller(): Promise<CriticCaller | null> {
 // Utility chat — used by translation / summarisation helpers. Always Lovable
 // AI Gateway (no user-facing toggle for these background tasks).
 // Utility chat — background helpers (memory summarisation, greeting generation,
-// daily cache summarisation). Tries the configured LLM (Qwen/Grok) first for
-// billing consolidation. Falls back to Lovable AI Gateway if: provider=gemini
-// (direct blocked from HK), key missing, or the primary call fails.
+// daily cache summarisation). Tries the configured LLM first for billing
+// consolidation. Falls back to Lovable AI Gateway if: provider=gemini (direct
+// blocked from HK), key missing, or the primary call fails.
 // Returns { text, usedModel } so callers can log which model actually ran.
 export async function callUtilityChat(args: {
   system: string;
