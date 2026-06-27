@@ -81,7 +81,11 @@ function InstructionPage() {
       try {
         const [{ template, updatedAt }, providers] = await Promise.all([
           fetchPrompt(),
-          fetchProviders().catch(() => ({ llm: "gemini" as LlmProvider, tts: "google" as TtsProvider })),
+          fetchProviders().catch(() => ({
+            llm: "gemini" as LlmProvider,
+            tts: "google" as TtsProvider,
+            openrouterModel: DEFAULT_OPENROUTER_MODEL,
+          })),
           loadKb().catch((e) => setKbStatus(`load failed: ${(e as Error).message}`)),
         ]);
         const effective = template ?? DEFAULT_SYSTEM_PROMPT_TEMPLATE;
@@ -90,8 +94,10 @@ function InstructionPage() {
         setUpdatedAt(updatedAt);
         setLlmProvider(providers.llm);
         setTtsProvider(providers.tts);
+        setOpenrouterModel(providers.openrouterModel ?? DEFAULT_OPENROUTER_MODEL);
         setSavedLlm(providers.llm);
         setSavedTts(providers.tts);
+        setSavedOrModel(providers.openrouterModel ?? DEFAULT_OPENROUTER_MODEL);
       } catch (err) {
         setStatus(`Load failed: ${(err as Error).message}`);
         setValue(DEFAULT_SYSTEM_PROMPT_TEMPLATE);
