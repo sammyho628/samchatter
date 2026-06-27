@@ -17,6 +17,8 @@ import {
   saveProviderSettings,
   LLM_PROVIDERS,
   TTS_PROVIDERS,
+  OPENROUTER_MODELS,
+  DEFAULT_OPENROUTER_MODEL,
   type LlmProvider,
   type TtsProvider,
 } from "@/lib/voice/providerSettings.functions";
