@@ -155,8 +155,16 @@ export async function playBase64Audio(audioBase64: string): Promise<void> {
     diag(`⚠️ decodeAudioData failed: ${(err as Error).message}`);
     throw err;
   }
+  // Context may have suspended during the async decodeAudioData call above.
+  // If so, try to resume it now before scheduling playback.
+  if (c.state === "suspended") {
+    diag("playBase64Audio · ctx suspended post-decode — attempting resume");
+    try { await c.resume(); } catch { /* will be handled by statechange listener */ }
+  }
   stopPlayback();
   return new Promise<void>((resolve) => {
+    // Guard against cleanup() being called twice (safety timer + stateChange racing).
+    let cleaned = false;
     const src = c.createBufferSource();
     src.buffer = buffer;
     try {
@@ -167,9 +175,9 @@ export async function playBase64Audio(audioBase64: string): Promise<void> {
       return;
     }
     // If the AudioContext gets interrupted mid-playback (iOS phone lock,
-    // incoming call, Siri, route change), try ctx.resume() first instead of
-    // immediately bailing — that's what was freezing the orb + voice. Only
-    // force-resolve if resume fails or the context is closed for good.
+    // incoming call, Siri, route change), try ctx.resume() first. If resume
+    // succeeds but onended still doesn't fire within 2s, force-resolve so the
+    // next AI response isn't blocked for 15+ seconds.
     const onStateChange = () => {
       if (c.state === "closed") {
         cleanup();
@@ -180,7 +188,21 @@ export async function playBase64Audio(audioBase64: string): Promise<void> {
       if ((c.state as string) === "interrupted" || c.state === "suspended") {
         diag(`⚠️ ctx ${c.state} mid-playback — attempting auto-resume`);
         c.resume().then(
-          () => diag(`✓ ctx auto-resumed → ${c.state}`),
+          () => {
+            diag(`✓ ctx resume() resolved · state=${c.state}`);
+            // On iOS, resume() often resolves without throwing even when there
+            // is no user gesture, but the AudioContext stays suspended/interrupted
+            // and onended never fires. Give audio 2 seconds to prove it's
+            // actually playing; if it hasn't fired onended by then, force-resolve.
+            setTimeout(() => {
+              if (cleaned) return; // onended already fired — all good
+              diag(`⚠️ onended silent 2s after resume · ctx=${c.state} — force resolve`);
+              cleanup();
+              try { void c.close(); } catch { /* ignore */ }
+              if (ctx === c) ctx = null;
+              resolve();
+            }, 2000);
+          },
           (e) => {
             diag(`⚠️ auto-resume failed: ${(e as Error).message} — force resolve`);
             cleanup();
@@ -205,10 +227,13 @@ export async function playBase64Audio(audioBase64: string): Promise<void> {
     }, safetyMs);
 
     function cleanup() {
+      if (cleaned) return;   // idempotent: safe to call from multiple code paths
+      cleaned = true;
       clearTimeout(safetyTimer);
       c.removeEventListener("statechange", onStateChange);
       src.onended = null;
     }
+
 
     src.onended = () => {
       cleanup();
