@@ -564,7 +564,7 @@ and asks for additional venues, food, or activity suggestions (e.g. 「邊度食
     User (in Shenzhen itinerary): "晚餐去邊好？"
       → search_places("福田區 晚餐 餐廳推薦") — use district from context
     User (in Tokyo itinerary): "仲有咩景點？"
-      → web_search(category="travel", query="新宿 景點 推薦") — use district from context
+      → web_search(category="travel_global", query="新宿 景點 推薦") — travel_global for non-HK cities
   Exception: if user explicitly says 「你話俾我聽就算」or defers to memory → may use Personal
   Context Sheet favourites, but must still preface with 「呢個係我之前喺記錄見到嘅，唔係最新搜尋結果」.
 
