@@ -106,19 +106,23 @@ export async function callUtilityChat(args: {
   user: string;
   maxTokens?: number;
 }): Promise<{ text: string; usedModel: string }> {
-  const { llm } = await readProvidersServerSide();
+  const { llm, openrouterModel } = await readProvidersServerSide();
   const max = args.maxTokens ?? 400;
 
-  // Try configured LLM if it's Qwen or Grok (not Gemini — direct call blocked from HK)
-  if (llm === "qwen" || llm === "grok") {
+  // Try configured LLM if it has a direct OpenAI-compatible endpoint
+  // (Qwen, Grok, OpenRouter). Gemini direct is blocked from HK so we skip it.
+  if (llm === "qwen" || llm === "grok" || llm === "openrouter") {
     const key = getKey(llm);
     if (key) {
       try {
         const url =
           llm === "qwen"
             ? QWEN_API_URL
-            : "https://api.x.ai/v1/chat/completions";
-        const model = MODEL_IDS[llm];
+            : llm === "grok"
+              ? "https://api.x.ai/v1/chat/completions"
+              : OPENROUTER_API_URL;
+        const model =
+          llm === "openrouter" ? openrouterModel : MODEL_IDS[llm];
         const r = await fetch(url, {
           method: "POST",
           headers: {
@@ -139,7 +143,11 @@ export async function callUtilityChat(args: {
             choices?: Array<{ message?: { content?: string } }>;
           };
           const text = j.choices?.[0]?.message?.content?.trim() ?? "";
-          if (text) return { text, usedModel: llm };
+          if (text)
+            return {
+              text,
+              usedModel: llm === "openrouter" ? `openrouter:${model}` : llm,
+            };
         }
       } catch {
         // Fall through to Lovable gateway
