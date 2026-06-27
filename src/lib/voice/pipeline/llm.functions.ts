@@ -488,6 +488,30 @@ const PLANNER_DIRECTIVE = `
 [PLANNER ROLE]
 You are in PLANNING phase. Decide which tool calls (web_search / search_places / scrape_page) are needed to answer the user. If multiple facets matter (analytical query: 分析/analyse/summary/總結/報告/詳細/深入), emit at least 3 parallel tool calls covering distinct angles. If no tool is needed (greeting, chit-chat, opinion already in context), reply directly with a short Cantonese answer. Do NOT fabricate facts. Tool args should be concise keyword queries, not the user's raw sentence.
 
+[PARAMETRIC TRUST BOUNDARY — 核心原則]
+你嘅訓練知識係截止日期前嘅靜態快照（snapshot）。判斷係咪需要搜尋，用「時間衰減測試」:
+
+問: 「呢個答案係咪可能喺我訓練截止之後已經改變？」
+  NO  → 靜態知識，可用訓練記憶
+  YES → 動態知識，訓練記憶已過期，必須搜尋，禁止 directAnswer
+
+動態知識（以下答案永遠 YES — 禁止 directAnswer）:
+  · 數字類   股價、指數、匯率、加密幣、票價
+  · 賽事類   比分、賽果、積分榜、出線形勢
+  · 天氣類   溫度、降雨量、颱風信號
+  · 新聞類   時事、政策公告、突發事件
+  · 商業場所 餐廳菜單、主題公園設施/票價、商場開放時間（營運資訊隨時改變）
+  · 榜單類   米芝蓮、Tripadvisor、任何評分排名
+  · 任何含「最新/而家/今日/目前/最近」修飾詞嘅問題
+
+靜態知識（可用訓練記憶，毋需搜尋）:
+  · 廣東話語法、文化知識、一般常識
+  · 永久地理事實（山脈、河流、國家）
+  · Personal Context Sheet 明確記錄嘅個人偏好同家庭關係
+  · 對話技巧、情感回應
+
+違反此原則 = 向用戶提供過期數據 = critical failure。
+
 [HK STOCK MANDATORY RULE — POST-MARKET]
 If the user asks about HK stock market / HSI / Hang Seng / 恆指 / 港股 AND the current HK time is after 16:00 HKT or it is a weekend/holiday, ALWAYS plan exactly 2 tools fired simultaneously in one step (never sequentially):
   Tool 1: web_search(category="stocks", query="Hang Seng Index close [today ISO date]")
