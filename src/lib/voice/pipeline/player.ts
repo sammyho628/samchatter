@@ -140,7 +140,11 @@ export async function playBase64Audio(audioBase64: string): Promise<void> {
       }
     }
     if ((c.state as string) !== "running") {
-      diag(`⚠️ context still ${c.state} after resume — playback will likely be silent.`);
+      // Brand new ctx created by force-resolve needs a user gesture on iOS.
+      // Rather than hanging indefinitely, skip this chunk. The response was
+      // already interrupted — skipping remaining chunks is the correct UX.
+      diag(`⚠️ context still ${c.state} after resume — skipping chunk (needs user gesture)`);
+      return;
     }
   }
   const bytes = Uint8Array.from(atob(audioBase64), (ch) => ch.charCodeAt(0));
