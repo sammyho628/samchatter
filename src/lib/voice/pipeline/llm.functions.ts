@@ -382,7 +382,7 @@ async function callGemini(
   const body: Record<string, unknown> = {
     systemInstruction: { parts: [{ text: systemInstruction }] },
     contents,
-    generationConfig: { temperature: 0.8, maxOutputTokens: 400 },
+    generationConfig: { temperature: 0.8, maxOutputTokens: 120 },
   };
   if (withTools) body.tools = GEMINI_TOOLS;
   const resp = await fetchWithTimeout(
