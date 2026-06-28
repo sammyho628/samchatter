@@ -50,12 +50,31 @@ function getCtx(): AudioContext {
 }
 
 /** Call once inside a user gesture (pointerdown) so iOS Safari unlocks audio.
- *  Resuming alone is NOT enough on iOS — we must also play a real (silent)
- *  buffer synchronously inside the gesture, otherwise scheduled audio stays
- *  queued until the user backgrounds and foregrounds the tab. */
+ *
+ *  Key principle — ALL synchronous work happens BEFORE any await:
+ *  1. If the existing context is zombie-suspended or interrupted, destroy it
+ *     synchronously and create a fresh one. This reclaims the gesture window
+ *     budget before we spend any of it on async operations.
+ *  2. Play the silent buffer synchronously (src.start, no await). This is the
+ *     real iOS unlock key — it must fire within the gesture frame.
+ *  3. Only THEN do we await resume(). The full 1500ms budget is available.
+ *
+ *  This fixes the "suspended → suspended" failure where the old approach
+ *  wasted 1500ms waiting for a zombie resume() before attempting a fix.
+ */
 export async function unlockAudio(): Promise<void> {
-  const c = getCtx();
+  // ── SYNCHRONOUS SECTION ─────────────────────────────────────────────────
+  // Detect and destroy zombie context BEFORE any await.
+  if (ctx && (ctx.state === "suspended" || (ctx.state as string) === "interrupted")) {
+    diag("unlockAudio · zombie ctx detected — force recreate within gesture frame");
+    try { void ctx.close(); } catch { /* ignore */ }
+    ctx = null;
+  }
+
+  const c = getCtx(); // creates fresh AudioContext if ctx is null
   const before = c.state;
+
+  // Play silent buffer SYNCHRONOUSLY — no await. Must fire before any await.
   try {
     const buf = c.createBuffer(1, 1, 22050);
     const src = c.createBufferSource();
@@ -65,11 +84,16 @@ export async function unlockAudio(): Promise<void> {
   } catch (err) {
     diag(`unlock silent-buffer failed: ${(err as Error).message}`);
   }
+
+  // ── ASYNC SECTION ───────────────────────────────────────────────────────
   if (c.state === "suspended") {
     try {
-      // Race resume() with a timeout — on some iOS Safari builds resume()
-      // never resolves even from a valid user gesture.
-      await resumeWithTimeout(c, "resume");
+      await Promise.race([
+        c.resume(),
+        new Promise<void>((_, reject) =>
+          setTimeout(() => reject(new Error("resume timeout 1500ms")), 1500),
+        ),
+      ]);
     } catch (err) {
       const e = err as Error;
       if (e.name === "NotAllowedError" || /autoplay/i.test(e.message)) {
@@ -79,12 +103,14 @@ export async function unlockAudio(): Promise<void> {
       }
     }
   }
+
   if ((c.state as string) === "interrupted") {
-    diag(`⚠️ AudioContext interrupted (iOS lock/call) — recreating context`);
+    diag(`⚠️ AudioContext interrupted post-resume — marking for next-use recreate`);
     try { void c.close(); } catch { /* ignore */ }
     ctx = null;
-    return unlockAudio();
+    return;
   }
+
   diag(`unlockAudio · ${before} → ${c.state}`);
 }
 
@@ -328,7 +354,11 @@ let keepAliveNode: AudioBufferSourceNode | null = null;
 let keepAliveGain: GainNode | null = null;
 
 export function startKeepAlive(): void {
-  if (keepAliveNode) return;
+  if (keepAliveNode) return; // already running
+  if (ctx && (ctx.state === "suspended" || (ctx.state as string) === "interrupted")) {
+    diag("keepAlive · skipped (ctx is zombie — will recreate on unlock)");
+    return;
+  }
   const c = getCtx();
   if (c.state === "suspended") {
     void resumeWithTimeout(c, "keepAlive resume").then(
