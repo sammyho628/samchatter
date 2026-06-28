@@ -498,6 +498,7 @@ export function VoiceCompanion() {
     }
     if (status === "speaking") {
       stopPlayback();
+      stopKeepAlive();
       setStatus("idle");
       return;
     }
@@ -521,6 +522,7 @@ export function VoiceCompanion() {
       recorderRef.current = handle;
       setStatus("listening");
     } catch (err) {
+      stopKeepAlive();
       setErrorMsg((err as Error).message);
       setStatus("error");
       pushLog("err", `mic: ${(err as Error).message}`);
