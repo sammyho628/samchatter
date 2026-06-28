@@ -184,6 +184,35 @@ function sanitizeForTTS(raw: string): string {
   return s;
 }
 
+async function synthesizeLovableGateway(text: string) {
+  const key = process.env.LOVABLE_API_KEY;
+  if (!key) throw new Error("Missing LOVABLE_API_KEY for TTS fallback");
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 20000);
+  const resp = await fetch("https://ai.gateway.lovable.dev/v1/audio/speech", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${key}`,
+      "Lovable-API-Key": key,
+      "Content-Type": "application/json",
+      "X-Lovable-AIG-SDK": "raw-fetch",
+    },
+    body: JSON.stringify({
+      model: "openai/gpt-4o-mini-tts",
+      input: text,
+      voice: "alloy",
+      response_format: "mp3",
+    }),
+    signal: ctl.signal,
+  }).finally(() => clearTimeout(timer));
+  if (!resp.ok) {
+    const t = await resp.text().catch(() => "");
+    throw new Error(`Lovable TTS ${resp.status}: ${t.slice(0, 400)}`);
+  }
+  const buf = new Uint8Array(await resp.arrayBuffer());
+  return { audioBase64: bytesToBase64(buf), mimeType: "audio/mpeg" };
+}
+
 export const synthesizeSpeech = createServerFn({ method: "POST" })
   .inputValidator((d: SynthesizeInput) => d)
   .handler(async ({ data }) => {
@@ -191,7 +220,19 @@ export const synthesizeSpeech = createServerFn({ method: "POST" })
     if (!text) throw new Error("Empty text for synthesizeSpeech");
     const { tts } = await readProvidersServerSide();
     if (tts === "minimax") {
-      return await synthesizeMinimax(text);
+      try {
+        return await synthesizeMinimax(text);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.warn("[TTS] MiniMax failed, falling back to Lovable Gateway:", msg);
+        return await synthesizeLovableGateway(text);
+      }
     }
-    return await synthesizeGemini(text, data.voice ?? "Kore");
+    try {
+      return await synthesizeGemini(text, data.voice ?? "Kore");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn("[TTS] Gemini failed, falling back to Lovable Gateway:", msg);
+      return await synthesizeLovableGateway(text);
+    }
   });
