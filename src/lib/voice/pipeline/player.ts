@@ -167,6 +167,16 @@ export function stopPlayback() {
 
 /** Play an audio clip. Resolves when playback ends (or is stopped). */
 export async function playBase64Audio(audioBase64: string): Promise<void> {
+  // Hibernation guard: if ctx is a zombie (suspended/interrupted/closed) at
+  // play time — typically because the phone was locked or backgrounded
+  // between turns — destroy it synchronously and hot-swap a fresh one so
+  // resume() has a real chance of succeeding instead of hanging on the
+  // dead context.
+  if (ctx && (ctx.state === "suspended" || (ctx.state as string) === "interrupted" || ctx.state === "closed")) {
+    diag(`playBase64Audio · zombie ctx (${ctx.state}) — hot-swap fresh AudioContext`);
+    try { void ctx.close(); } catch { /* ignore */ }
+    ctx = null;
+  }
   const c = getCtx();
   if (c.state === "suspended") {
     diag("playBase64Audio · context suspended, attempting resume");
