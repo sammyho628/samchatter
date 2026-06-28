@@ -382,7 +382,7 @@ async function callGemini(
   const body: Record<string, unknown> = {
     systemInstruction: { parts: [{ text: systemInstruction }] },
     contents,
-    generationConfig: { temperature: 0.8, maxOutputTokens: 120 },
+    generationConfig: { temperature: 0.8, maxOutputTokens: 400 },
   };
   if (withTools) body.tools = GEMINI_TOOLS;
   const resp = await fetchWithTimeout(
@@ -446,7 +446,7 @@ async function callOpenAIChat(
     model,
     messages,
     temperature: 0.8,
-    max_tokens: 120,
+    max_tokens: 400,
   };
   if (withTools) body.tools = OPENAI_TOOLS;
   const resp = await fetchWithTimeout(
