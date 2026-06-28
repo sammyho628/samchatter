@@ -22,6 +22,19 @@ export function subscribePlayerDiagnostics(fn: DiagLogger): () => void {
   return () => diagListeners.delete(fn);
 }
 
+async function resumeWithTimeout(
+  c: AudioContext,
+  label: string,
+  timeoutMs = 1500,
+): Promise<void> {
+  await Promise.race([
+    c.resume(),
+    new Promise<void>((_, rej) =>
+      setTimeout(() => rej(new Error(`${label} timeout ${timeoutMs}ms`)), timeoutMs),
+    ),
+  ]);
+}
+
 function getCtx(): AudioContext {
   if (ctx && ctx.state !== "closed" && (ctx.state as string) !== "interrupted") return ctx;
   if (ctx) {
@@ -54,15 +67,9 @@ export async function unlockAudio(): Promise<void> {
   }
   if (c.state === "suspended") {
     try {
-      // Race resume() with a 1.5s timeout — on some iOS Safari builds
-      // resume() never resolves even from a valid user gesture, which would
-      // hang the whole splash flow forever.
-      await Promise.race([
-        c.resume(),
-        new Promise<void>((_, rej) =>
-          setTimeout(() => rej(new Error("resume timeout 1500ms")), 1500),
-        ),
-      ]);
+      // Race resume() with a timeout — on some iOS Safari builds resume()
+      // never resolves even from a valid user gesture.
+      await resumeWithTimeout(c, "resume");
     } catch (err) {
       const e = err as Error;
       if (e.name === "NotAllowedError" || /autoplay/i.test(e.message)) {
@@ -138,7 +145,7 @@ export async function playBase64Audio(audioBase64: string): Promise<void> {
   if (c.state === "suspended") {
     diag("playBase64Audio · context suspended, attempting resume");
     try {
-      await c.resume();
+      await resumeWithTimeout(c, "play resume");
     } catch (err) {
       const e = err as Error;
       if (e.name === "NotAllowedError" || /autoplay/i.test(e.message)) {
@@ -171,7 +178,7 @@ export async function playBase64Audio(audioBase64: string): Promise<void> {
   // If so, try to resume it now before scheduling playback.
   if (c.state === "suspended") {
     diag("playBase64Audio · ctx suspended post-decode — attempting resume");
-    try { await c.resume(); } catch { /* will be handled by statechange listener */ }
+    try { await resumeWithTimeout(c, "post-decode resume"); } catch { /* will be handled by statechange listener */ }
   }
   stopPlayback();
   return new Promise<void>((resolve) => {
@@ -323,20 +330,29 @@ let keepAliveGain: GainNode | null = null;
 export function startKeepAlive(): void {
   if (keepAliveNode) return;
   const c = getCtx();
-  if (c.state !== "running") return;
+  if (c.state === "suspended") {
+    void resumeWithTimeout(c, "keepAlive resume").then(
+      () => diag(`keepAlive · resume ok · ctx=${c.state}`),
+      (e) => diag(`keepAlive · resume slow/failed: ${(e as Error).message} · ctx=${c.state}`),
+    );
+  }
   try {
     const buf = c.createBuffer(1, c.sampleRate, c.sampleRate);
+    // Do not use all-zero samples + gain=0: iOS can optimise that away and
+    // still let the audio session go idle. This is a real but inaudible signal.
+    const samples = buf.getChannelData(0);
+    for (let i = 0; i < samples.length; i += 1) samples[i] = i % 2 === 0 ? 0.00005 : -0.00005;
     const src = c.createBufferSource();
     src.buffer = buf;
     src.loop = true;
     const g = c.createGain();
-    g.gain.value = 0;
+    g.gain.value = 0.0001;
     src.connect(g);
     g.connect(c.destination);
     src.start(0);
     keepAliveNode = src;
     keepAliveGain = g;
-    diag("keepAlive · started");
+    diag(`keepAlive · started · ctx=${c.state}`);
   } catch (err) {
     diag(`keepAlive start failed: ${(err as Error).message}`);
   }
