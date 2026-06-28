@@ -164,10 +164,30 @@ async function synthesizeMinimax(text: string) {
   return { audioBase64: bytesToBase64(bytes), mimeType: "audio/mpeg" };
 }
 
+/** Strip engine-bracket artifacts that occasionally leak from OpenRouter
+ *  models into the synthesized text (e.g. "[web_search(query=...)]",
+ *  "[search_places ...]"). These would otherwise be read out loud by
+ *  MiniMax / Gemini TTS as raw code, which sounds terrible. Also normalises
+ *  markdown bullet/header noise that violates the prose principle. */
+function sanitizeForTTS(raw: string): string {
+  let s = raw;
+  // Strip [tool_name ...] style artifacts (web_search/search_places/scrape_page/function/tool_call)
+  s = s.replace(/\[(?:web_search|search_places|scrape_page|function|tool[_ ]?call|tool[_ ]?result)[^\]]*\]/gi, "");
+  // Strip ```code fences``` and inline backticks
+  s = s.replace(/```[\s\S]*?```/g, "").replace(/`+/g, "");
+  // Strip markdown bold/italic/header/divider markers
+  s = s.replace(/\*\*([^*]+)\*\*/g, "$1").replace(/^#{1,6}\s+/gm, "").replace(/^\s*[-=]{3,}\s*$/gm, "");
+  // Strip leading bullet/numbered-list markers at line start
+  s = s.replace(/^\s*(?:[-*•]|\d+[.)])\s+/gm, "");
+  // Collapse residual multi-newlines / multi-spaces to natural prose spacing
+  s = s.replace(/\n{2,}/g, "\n").replace(/[ \t]{2,}/g, " ").trim();
+  return s;
+}
+
 export const synthesizeSpeech = createServerFn({ method: "POST" })
   .inputValidator((d: SynthesizeInput) => d)
   .handler(async ({ data }) => {
-    const text = data.text.trim();
+    const text = sanitizeForTTS(data.text.trim());
     if (!text) throw new Error("Empty text for synthesizeSpeech");
     const { tts } = await readProvidersServerSide();
     if (tts === "minimax") {
