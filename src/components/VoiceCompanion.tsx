@@ -391,6 +391,9 @@ export function VoiceCompanion() {
     const handle = recorderRef.current;
     if (!handle) return;
     recorderRef.current = null;
+    // Start keep-alive synchronously from the stop gesture so iOS keeps the
+    // audio session open during STT → LLM → TTS.
+    startKeepAlive();
     // Re-unlock in this gesture so playback later in the pipeline is authorized.
     try { await unlockAudio(); } catch { /* ignore */ }
     let blob: Blob;
@@ -417,68 +420,72 @@ export function VoiceCompanion() {
       `🧠 LLM history window: ${windowed.length}/${historyRef.current.length} turns`,
     );
 
-    await runTurn(
-      {
-        audio: blob,
-        mimeType,
-        systemInstruction: promptRef.current,
-        history: windowed,
-      },
-      {
-        transcribe: sttFn,
-        plan: planFn,
-        executeTool: execToolFn,
-        synthesize: synthAnswerFn,
-        synthesizeSpeech: ttsFn,
-        playAudio: (b64) => playBase64Audio(b64),
-      },
-      {
-        onTranscribing: () => setStatus("transcribing"),
-        onTranscript: (t) => {
-          pushLog("user", t);
-          transcriptLinesRef.current.push(`USER: ${t}`);
-          persistTurn("user", t);
+    try {
+      await runTurn(
+        {
+          audio: blob,
+          mimeType,
+          systemInstruction: promptRef.current,
+          history: windowed,
         },
-        onThinking: () => {
-          setStatus("thinking");
-          setSearching(false);
+        {
+          transcribe: sttFn,
+          plan: planFn,
+          executeTool: execToolFn,
+          synthesize: synthAnswerFn,
+          synthesizeSpeech: ttsFn,
+          playAudio: (b64) => playBase64Audio(b64),
         },
-        onToolCall: (t) => {
-          setSearching(true);
-          pushLog(
-            "tool",
-            `${t.name}(${JSON.stringify(t.args)}) → ${t.summary.length > 200 ? t.summary.slice(0, 200) + "…" : t.summary}`,
-          );
-          const q = t.args.query;
-          if (typeof q === "string") {
-            executedSearchesRef.current.push(`${t.name}: ${q}`);
-          }
+        {
+          onTranscribing: () => setStatus("transcribing"),
+          onTranscript: (t) => {
+            pushLog("user", t);
+            transcriptLinesRef.current.push(`USER: ${t}`);
+            persistTurn("user", t);
+          },
+          onThinking: () => {
+            setStatus("thinking");
+            setSearching(false);
+          },
+          onToolCall: (t) => {
+            setSearching(true);
+            pushLog(
+              "tool",
+              `${t.name}(${JSON.stringify(t.args)}) → ${t.summary.length > 200 ? t.summary.slice(0, 200) + "…" : t.summary}`,
+            );
+            const q = t.args.query;
+            if (typeof q === "string") {
+              executedSearchesRef.current.push(`${t.name}: ${q}`);
+            }
+          },
+          onAssistantText: (t) => {
+            pushLog("ai", t);
+            transcriptLinesRef.current.push(`AI: ${t}`);
+            persistTurn("model", t);
+          },
+          onHistory: (h) => {
+            // Update history synchronously before TTS/playback — eliminates
+            // the race where onDone fires before .then() runs.
+            historyRef.current = sanitizeHistory(h);
+          },
+          onSpeaking: () => {
+            setSearching(false);
+            setStatus("speaking");
+          },
+          onLog: (m) => pushLog("evt", m),
+          onDone: () => {
+            setStatus((s) => (s === "error" ? s : "idle"));
+          },
+          onError: (msg) => {
+            pushLog("err", msg);
+            setErrorMsg(msg);
+            setStatus("error");
+          },
         },
-        onAssistantText: (t) => {
-          pushLog("ai", t);
-          transcriptLinesRef.current.push(`AI: ${t}`);
-          persistTurn("model", t);
-        },
-        onHistory: (h) => {
-          // Update history synchronously before TTS/playback — eliminates
-          // the race where onDone fires before .then() runs.
-          historyRef.current = sanitizeHistory(h);
-        },
-        onSpeaking: () => {
-          setSearching(false);
-          setStatus("speaking");
-        },
-        onLog: (m) => pushLog("evt", m),
-        onDone: () => {
-          setStatus((s) => (s === "error" ? s : "idle"));
-        },
-        onError: (msg) => {
-          pushLog("err", msg);
-          setErrorMsg(msg);
-          setStatus("error");
-        },
-      },
-    );
+      );
+    } finally {
+      stopKeepAlive();
+    }
   }, [sttFn, planFn, execToolFn, synthAnswerFn, ttsFn, pushLog, persistTurn]);
 
   const startTalking = useCallback(async () => {
@@ -495,6 +502,9 @@ export function VoiceCompanion() {
       return;
     }
     setErrorMsg("");
+    // Must happen before any await while still in the tap gesture; this keeps
+    // iOS audio alive throughout recording and the later AI/TTS delay.
+    startKeepAlive();
     // Refresh the system prompt if its TTL has expired — guarantees voice
     // mode never uses a stale prompt even after a long idle session. The
     // guard inside loadPromptIfNeeded keeps this a no-op when still fresh.
@@ -535,6 +545,7 @@ export function VoiceCompanion() {
       const myGen = ++turnGenRef.current;
       setTextBusy(true);
       setErrorMsg("");
+      startKeepAlive();
       try {
         await unlockAudio();
         await loadPromptIfNeeded();
@@ -605,6 +616,7 @@ export function VoiceCompanion() {
           },
         );
       } finally {
+        stopKeepAlive();
         if (turnGenRef.current === myGen) {
           setTextBusy(false);
         }
@@ -691,13 +703,14 @@ export function VoiceCompanion() {
 
   const handleSplashTap = useCallback(async (e: React.PointerEvent) => {
     e.preventDefault();
+    pushLog("evt", "splash tap · priming iOS audio");
+    // Keep-alive must be started synchronously inside the pointer gesture.
+    startKeepAlive();
+    void unlockAudio().catch((err) => pushLog("err", `unlock: ${(err as Error).message}`));
     setGreeting(true);
     // Hide splash immediately so a slow/failed greeting can't trap the user
     // behind a spinning button. The orb screen has its own loading state.
     setShowSplash(false);
-    try { await unlockAudio(); } catch { /* ignore */ }
-    // Keep-alive: hold the iOS audio session open during LLM + TTS generation.
-    startKeepAlive();
     void loadPromptIfNeeded();
     try {
       let audioBase64 = greetingAudioRef.current;
@@ -742,7 +755,6 @@ export function VoiceCompanion() {
           pushLog("err", `greeting prefetch skipped: ${(e as Error).message}`);
         }
       }
-      stopKeepAlive();
       if (audioBase64) {
         try { await playBase64Audio(audioBase64); } catch (e) {
           pushLog("err", `greeting playback: ${(e as Error).message}`);
