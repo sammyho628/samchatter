@@ -126,6 +126,29 @@ export function VoiceCompanion() {
   // can tell when the browser is blocking sound after a hard refresh.
   useEffect(() => subscribePlayerDiagnostics((m) => pushLog("evt", m)), [pushLog]);
 
+  // When the user switches back to the tab (iOS often suspends the
+  // AudioContext while backgrounded), arm a one-shot unlock that fires on
+  // the next pointer/touch gesture. This flushes a fresh AudioContext so
+  // the speaker is never permanently muted after a long background.
+  useEffect(() => {
+    if (typeof document === "undefined") return;
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      pushLog("evt", "[ui] visibilitychange → visible · arming silent unlock on next gesture");
+      const armed = () => {
+        window.removeEventListener("pointerdown", armed, true);
+        window.removeEventListener("touchstart", armed, true);
+        void unlockAudio().catch((err) =>
+          pushLog("err", `rebond unlock: ${(err as Error).message}`),
+        );
+      };
+      window.addEventListener("pointerdown", armed, { capture: true, passive: true, once: true });
+      window.addEventListener("touchstart", armed, { capture: true, passive: true, once: true });
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, [pushLog]);
+
 
   const recorderRef = useRef<RecorderHandle | null>(null);
   const historyRef = useRef<GeminiTurn[]>([]);
