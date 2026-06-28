@@ -1,13 +1,25 @@
 // Single shared AudioContext + decodeAudioData. No PCM math, no chunk math.
 // stop() before each start kills overlap → never two voices at once.
+//
+// ── Single Alive Audio Track Principle ──────────────────────────────────────
+// The AudioContext is created EXACTLY ONCE inside a user-gesture frame and
+// is NEVER closed or replaced mid-session. A long-lived silent oscillator is
+// attached to the destination at unlock time and runs forever, which forces
+// iOS Safari to keep the audio session active across long idle gaps.
+//
+// When playback stalls (suspended mid-session, no onended), we DO NOT destroy
+// the context. We perform a "node refresh": briefly disconnect and reconnect
+// our master GainNode to the destination to flush the iOS hardware buffer.
+
 let ctx: AudioContext | null = null;
+let masterGain: GainNode | null = null;
+let keepAliveOsc: OscillatorNode | null = null;
 let current: AudioBufferSourceNode | null = null;
 let lastBuffer: AudioBuffer | null = null;
 const listeners = new Set<(has: boolean) => void>();
 
 // Diagnostic logger — subscribed by the UI so audio failures show up in the
-// in-app debug panel, not just devtools. Always also mirrors to console so
-// hard-refresh / mobile users can see the trail in Safari's web inspector.
+// in-app debug panel, not just devtools.
 type DiagLogger = (msg: string) => void;
 const diagListeners = new Set<DiagLogger>();
 function diag(msg: string) {
@@ -22,59 +34,41 @@ export function subscribePlayerDiagnostics(fn: DiagLogger): () => void {
   return () => diagListeners.delete(fn);
 }
 
-async function resumeWithTimeout(
-  c: AudioContext,
-  label: string,
-  timeoutMs = 1500,
-): Promise<void> {
-  await Promise.race([
-    c.resume(),
-    new Promise<void>((_, rej) =>
-      setTimeout(() => rej(new Error(`${label} timeout ${timeoutMs}ms`)), timeoutMs),
-    ),
-  ]);
-}
-
-function getCtx(): AudioContext {
-  if (ctx && ctx.state !== "closed" && (ctx.state as string) !== "interrupted") return ctx;
-  if (ctx) {
-    try { void ctx.close(); } catch { /* ignore */ }
-    ctx = null;
-  }
+function ensureCtx(): AudioContext {
+  if (ctx) return ctx;
   const AC: typeof AudioContext =
     (window as unknown as { AudioContext: typeof AudioContext; webkitAudioContext?: typeof AudioContext }).AudioContext ||
     (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
   ctx = new AC();
+  masterGain = ctx.createGain();
+  masterGain.gain.value = 1.0;
+  masterGain.connect(ctx.destination);
   diag(`AudioContext created · state=${ctx.state} · sampleRate=${ctx.sampleRate}`);
   return ctx;
 }
 
-/** Call once inside a user gesture (pointerdown) so iOS Safari unlocks audio.
- *
- *  Key principle — ALL synchronous work happens BEFORE any await:
- *  1. If the existing context is zombie-suspended or interrupted, destroy it
- *     synchronously and create a fresh one. This reclaims the gesture window
- *     budget before we spend any of it on async operations.
- *  2. Play the silent buffer synchronously (src.start, no await). This is the
- *     real iOS unlock key — it must fire within the gesture frame.
- *  3. Only THEN do we await resume(). The full 1500ms budget is available.
- *
- *  This fixes the "suspended → suspended" failure where the old approach
- *  wasted 1500ms waiting for a zombie resume() before attempting a fix.
- */
-export async function unlockAudio(): Promise<void> {
-  // ── SYNCHRONOUS SECTION ─────────────────────────────────────────────────
-  // Detect and destroy zombie context BEFORE any await.
-  if (ctx && (ctx.state === "suspended" || (ctx.state as string) === "interrupted")) {
-    diag("unlockAudio · zombie ctx detected — force recreate within gesture frame");
-    try { void ctx.close(); } catch { /* ignore */ }
-    ctx = null;
+/** Node refresh: disconnect/reconnect the master GainNode to flush the iOS
+ *  hardware buffer when audio stalls. Does NOT close or replace the context. */
+function refreshGraph(): void {
+  if (!ctx || !masterGain) return;
+  try {
+    masterGain.disconnect();
+    masterGain.connect(ctx.destination);
+    diag("node refresh · masterGain re-attached to destination");
+  } catch (err) {
+    diag(`node refresh failed: ${(err as Error).message}`);
   }
+}
 
-  const c = getCtx(); // creates fresh AudioContext if ctx is null
+/** Call once inside a user gesture (pointerdown) so iOS Safari unlocks audio.
+ *  Attaches a permanent silent oscillator that keeps the audio session alive
+ *  for the lifetime of the page. NEVER closes/recreates the context. */
+export async function unlockAudio(): Promise<void> {
+  const c = ensureCtx();
   const before = c.state;
 
-  // Play silent buffer SYNCHRONOUSLY — no await. Must fire before any await.
+  // Synchronously play a 1-sample silent buffer inside the gesture frame —
+  // this is the actual iOS unlock primitive.
   try {
     const buf = c.createBuffer(1, 1, 22050);
     const src = c.createBufferSource();
@@ -85,7 +79,6 @@ export async function unlockAudio(): Promise<void> {
     diag(`unlock silent-buffer failed: ${(err as Error).message}`);
   }
 
-  // ── ASYNC SECTION ───────────────────────────────────────────────────────
   if (c.state === "suspended") {
     try {
       await Promise.race([
@@ -95,48 +88,40 @@ export async function unlockAudio(): Promise<void> {
         ),
       ]);
     } catch (err) {
-      const e = err as Error;
-      if (e.name === "NotAllowedError" || /autoplay/i.test(e.message)) {
-        diag(`⚠️ autoplay blocked — resume() rejected (${e.message}). Need a real user gesture.`);
-      } else {
-        diag(`⚠️ AudioContext resume failed/slow: ${e.message} (continuing)`);
-      }
+      diag(`⚠️ resume failed/slow: ${(err as Error).message} (continuing)`);
     }
   }
 
-  if ((c.state as string) === "interrupted") {
-    diag(`⚠️ AudioContext interrupted post-resume — marking for next-use recreate`);
-    try { void c.close(); } catch { /* ignore */ }
-    ctx = null;
-    return;
+  // Attach the long-lived silent oscillator ONCE. Runs forever so iOS keeps
+  // the media session active across chat gaps.
+  if (!keepAliveOsc && masterGain) {
+    try {
+      const osc = c.createOscillator();
+      const g = c.createGain();
+      g.gain.value = 0.001; // completely inaudible
+      osc.connect(g);
+      g.connect(c.destination);
+      osc.start(0);
+      keepAliveOsc = osc;
+      diag(`keepAlive oscillator · attached forever · ctx=${c.state}`);
+    } catch (err) {
+      diag(`keepAlive osc start failed: ${(err as Error).message}`);
+    }
   }
 
   diag(`unlockAudio · ${before} → ${c.state}`);
 }
 
-// Resume the context when the page returns to foreground — iOS Safari
-// suspends background AudioContexts and pending playback would otherwise
-// stay silent until another user gesture.
+// Resume on foreground / gesture — context is never closed, just resumed.
 if (typeof document !== "undefined") {
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible" && ctx) {
-      if (ctx.state === "suspended") {
-        ctx.resume().then(
-          () => diag("visibility resume ok"),
-          (e) => diag(`visibility resume failed: ${(e as Error).message}`),
-        );
-      } else if ((ctx.state as string) === "interrupted") {
-        diag("visibility: interrupted context — will recreate on next use");
-        try { void ctx.close(); } catch { /* ignore */ }
-        ctx = null;
-      }
+    if (document.visibilityState === "visible" && ctx && ctx.state === "suspended") {
+      ctx.resume().then(
+        () => diag("visibility resume ok"),
+        (e) => diag(`visibility resume failed: ${(e as Error).message}`),
+      );
     }
   });
-
-  // Belt-and-suspenders: any pointer/touch/key gesture resumes a suspended
-  // context. Browsers (esp. Safari iOS, Chrome autoplay policy) sometimes
-  // re-suspend the context after a hard refresh or tab switch; without this
-  // the first synthesized TTS chunk plays silently.
   const resumeOnGesture = () => {
     if (!ctx || ctx.state !== "suspended") return;
     ctx.resume().then(
@@ -153,9 +138,6 @@ if (typeof document !== "undefined") {
 export function stopPlayback() {
   if (current) {
     try {
-      // Do NOT null onended — let stop() fire it naturally so any
-      // pending playBase64Audio promise resolves and the orchestrator
-      // loop can continue. Nulling it here causes textBusy to get stuck.
       current.stop();
       current.disconnect();
     } catch {
@@ -165,43 +147,33 @@ export function stopPlayback() {
   }
 }
 
-/** Play an audio clip. Resolves when playback ends (or is stopped). */
+/** Play an audio clip. Resolves when playback ends (or is stopped).
+ *  Never destroys the AudioContext — uses node refresh to recover from stalls. */
 export async function playBase64Audio(audioBase64: string): Promise<void> {
-  // Hibernation guard: if ctx is a zombie (suspended/interrupted/closed) at
-  // play time — typically because the phone was locked or backgrounded
-  // between turns — destroy it synchronously and hot-swap a fresh one so
-  // resume() has a real chance of succeeding instead of hanging on the
-  // dead context.
-  if (ctx && (ctx.state === "suspended" || (ctx.state as string) === "interrupted" || ctx.state === "closed")) {
-    diag(`playBase64Audio · zombie ctx (${ctx.state}) — hot-swap fresh AudioContext`);
-    try { void ctx.close(); } catch { /* ignore */ }
-    ctx = null;
-  }
-  const c = getCtx();
+  const c = ensureCtx();
   if (c.state === "suspended") {
-    diag("playBase64Audio · context suspended, attempting resume");
+    diag("playBase64Audio · context suspended, attempting resume (no recreate)");
     try {
-      await resumeWithTimeout(c, "play resume");
+      await Promise.race([
+        c.resume(),
+        new Promise<void>((_, reject) =>
+          setTimeout(() => reject(new Error("resume timeout 1500ms")), 1500),
+        ),
+      ]);
     } catch (err) {
-      const e = err as Error;
-      if (e.name === "NotAllowedError" || /autoplay/i.test(e.message)) {
-        diag(`⚠️ autoplay blocked at play time (${e.message}). Audio will be silent — user must tap to enable.`);
-      } else {
-        diag(`⚠️ resume failed at play time: ${e.message}`);
-      }
+      diag(`⚠️ resume failed at play time: ${(err as Error).message}`);
     }
     if ((c.state as string) !== "running") {
-      // Brand new ctx created by force-resolve needs a user gesture on iOS.
-      // Rather than hanging indefinitely, skip this chunk. The response was
-      // already interrupted — skipping remaining chunks is the correct UX.
-      diag(`⚠️ context still ${c.state} after resume — skipping chunk (needs user gesture)`);
-      return;
+      // Single-Alive-Track principle: do NOT recreate. Try node refresh and
+      // proceed — silent oscillator should be holding the session open.
+      refreshGraph();
+      diag(`⚠️ ctx still ${c.state} after resume; proceeding with node-refresh`);
     }
   }
+
   const bytes = Uint8Array.from(atob(audioBase64), (ch) => ch.charCodeAt(0));
   const ab = bytes.buffer.slice(0) as ArrayBuffer;
   diag(`playBase64Audio · ctx=${c.state} · inputBytes=${bytes.length}`);
-  // Capture the schedule time BEFORE the async decode so it isn't stale
   const scheduleAt = c.currentTime + 0.1;
   let buffer: AudioBuffer;
   try {
@@ -210,56 +182,44 @@ export async function playBase64Audio(audioBase64: string): Promise<void> {
     diag(`⚠️ decodeAudioData failed: ${(err as Error).message}`);
     throw err;
   }
-  // Context may have suspended during the async decodeAudioData call above.
-  // If so, try to resume it now before scheduling playback.
   if (c.state === "suspended") {
-    diag("playBase64Audio · ctx suspended post-decode — attempting resume");
-    try { await resumeWithTimeout(c, "post-decode resume"); } catch { /* will be handled by statechange listener */ }
+    diag("playBase64Audio · ctx suspended post-decode — resume + node refresh");
+    try { await c.resume(); } catch { /* ignore */ }
+    refreshGraph();
   }
   stopPlayback();
   return new Promise<void>((resolve) => {
-    // Guard against cleanup() being called twice (safety timer + stateChange racing).
     let cleaned = false;
     const src = c.createBufferSource();
     src.buffer = buffer;
+    const target: AudioNode = masterGain ?? c.destination;
     try {
-      src.connect(c.destination);
+      src.connect(target);
     } catch (err) {
       diag(`⚠️ audio node disconnected: ${(err as Error).message}`);
       resolve();
       return;
     }
-    // If the AudioContext gets interrupted mid-playback (iOS phone lock,
-    // incoming call, Siri, route change), try ctx.resume() first. If resume
-    // succeeds but onended still doesn't fire within 2s, force-resolve so the
-    // next AI response isn't blocked for 15+ seconds.
+
+    // On mid-playback suspend/interrupt: try resume + node refresh.
+    // Never close or replace the context.
     const onStateChange = () => {
-      if (c.state === "closed") {
-        cleanup();
-        diag(`⚠️ ctx closed during playback — force resolve`);
-        resolve();
-        return;
-      }
       if ((c.state as string) === "interrupted" || c.state === "suspended") {
-        diag(`⚠️ ctx ${c.state} mid-playback — attempting auto-resume`);
+        diag(`⚠️ ctx ${c.state} mid-playback — resume + node refresh`);
         c.resume().then(
           () => {
-            diag(`✓ ctx resume() resolved · state=${c.state}`);
-            // On iOS, resume() often resolves without throwing even when there
-            // is no user gesture, but the AudioContext stays suspended/interrupted
-            // and onended never fires. Give audio 2 seconds to prove it's
-            // actually playing; if it hasn't fired onended by then, force-resolve.
+            diag(`✓ ctx resume() ok · state=${c.state}`);
+            refreshGraph();
             setTimeout(() => {
-              if (cleaned) return; // onended already fired — all good
-              diag(`⚠️ onended silent 2s after resume · ctx=${c.state} — force resolve`);
+              if (cleaned) return;
+              diag(`⚠️ onended silent 2s after resume · ctx=${c.state} — force resolve (no recreate)`);
               cleanup();
-              try { void c.close(); } catch { /* ignore */ }
-              if (ctx === c) ctx = null;
               resolve();
             }, 2000);
           },
           (e) => {
-            diag(`⚠️ auto-resume failed: ${(e as Error).message} — force resolve`);
+            diag(`⚠️ auto-resume failed: ${(e as Error).message} — node refresh + force resolve`);
+            refreshGraph();
             cleanup();
             resolve();
           },
@@ -268,28 +228,23 @@ export async function playBase64Audio(audioBase64: string): Promise<void> {
     };
     c.addEventListener("statechange", onStateChange);
 
-    // Safety timer: fallback if onended AND statechange both fail to fire.
-    // Reduced from +15s to +3s — 3s tolerance after expected end is generous enough.
+    // Safety timer — force-resolve without destroying ctx.
     const safetyMs = Math.ceil((buffer.duration + 3) * 1000);
     const safetyTimer = setTimeout(() => {
       cleanup();
-      diag(`⚠️ playback safety timeout after ${(buffer.duration + 3).toFixed(1)}s · ctx=${c.state} — force resolve + recreate ctx`);
-      try { void c.close(); } catch { /* ignore */ }
-      if (ctx === c) ctx = null;
+      diag(`⚠️ playback safety timeout after ${(buffer.duration + 3).toFixed(1)}s · ctx=${c.state} — force resolve (no recreate)`);
+      refreshGraph();
       resolve();
     }, safetyMs);
 
-    // currentTime polling: detect when audio should have ended but onended
-    // hasn't fired. Catches iOS "silent playback" ~1.5s after expected end.
     const expectedEndTime = scheduleAt + buffer.duration;
     const pollTimer = setInterval(() => {
       if (cleaned) { clearInterval(pollTimer); return; }
       if (c.currentTime > expectedEndTime + 1.0) {
         clearInterval(pollTimer);
-        diag(`⚠️ onended not fired ${(c.currentTime - expectedEndTime).toFixed(1)}s past expected end — force resolve + recreate ctx`);
+        diag(`⚠️ onended not fired ${(c.currentTime - expectedEndTime).toFixed(1)}s past expected end — force resolve (no recreate)`);
+        refreshGraph();
         cleanup();
-        try { void c.close(); } catch { /* ignore */ }
-        if (ctx === c) ctx = null;
         resolve();
       }
     }, 500);
@@ -303,7 +258,6 @@ export async function playBase64Audio(audioBase64: string): Promise<void> {
       src.onended = null;
     }
 
-
     src.onended = () => {
       cleanup();
       diag(`■ ended · ctx=${c.state}`);
@@ -311,7 +265,6 @@ export async function playBase64Audio(audioBase64: string): Promise<void> {
       resolve();
     };
     try {
-      // Use max so we never schedule in the past if decode was slow
       const startAt = Math.max(scheduleAt, c.currentTime + 0.02);
       src.start(startAt);
     } catch (err) {
@@ -329,14 +282,14 @@ export async function playBase64Audio(audioBase64: string): Promise<void> {
 
 export function replayLast(onEnded?: () => void) {
   if (!lastBuffer) return;
-  const c = getCtx();
+  const c = ensureCtx();
   if (c.state === "suspended") {
     c.resume().catch((e) => diag(`replay resume failed: ${(e as Error).message}`));
   }
   stopPlayback();
   const src = c.createBufferSource();
   src.buffer = lastBuffer;
-  src.connect(c.destination);
+  src.connect(masterGain ?? c.destination);
   src.onended = () => {
     if (current === src) current = null;
     onEnded?.();
@@ -354,58 +307,16 @@ export function subscribeLastBuffer(fn: (has: boolean) => void): () => void {
   return () => listeners.delete(fn);
 }
 
-// ── Keep-alive ─────────────────────────────────────────────────────────────
-// iOS Safari de-activates the WebAudio session if no real audio is scheduled
-// within a short window after the user gesture that unlocked the context.
-// Greeting generation (LLM + TTS) takes 15–30s. Without a keep-alive, the
-// session goes stale and the first audio chunk plays silently on iPhone.
-// Solution: play a 0-volume looping silent buffer to hold the session open.
-let keepAliveNode: AudioBufferSourceNode | null = null;
-let keepAliveGain: GainNode | null = null;
-
+// ── Keep-alive shims ────────────────────────────────────────────────────────
+// The long-lived silent oscillator attached in unlockAudio() replaces the
+// old start/stop keep-alive scheme. These are kept as no-ops so existing
+// callers in VoiceCompanion don't need to change.
 export function startKeepAlive(): void {
-  if (keepAliveNode) return; // already running
-  if (ctx && (ctx.state === "suspended" || (ctx.state as string) === "interrupted")) {
-    diag("keepAlive · skipped (ctx is zombie — will recreate on unlock)");
-    return;
-  }
-  const c = getCtx();
-  if (c.state === "suspended") {
-    void resumeWithTimeout(c, "keepAlive resume").then(
-      () => diag(`keepAlive · resume ok · ctx=${c.state}`),
-      (e) => diag(`keepAlive · resume slow/failed: ${(e as Error).message} · ctx=${c.state}`),
-    );
-  }
-  try {
-    const buf = c.createBuffer(1, c.sampleRate, c.sampleRate);
-    // Do not use all-zero samples + gain=0: iOS can optimise that away and
-    // still let the audio session go idle. This is a real but inaudible signal.
-    const samples = buf.getChannelData(0);
-    for (let i = 0; i < samples.length; i += 1) samples[i] = i % 2 === 0 ? 0.00005 : -0.00005;
-    const src = c.createBufferSource();
-    src.buffer = buf;
-    src.loop = true;
-    const g = c.createGain();
-    g.gain.value = 0.0001;
-    src.connect(g);
-    g.connect(c.destination);
-    src.start(0);
-    keepAliveNode = src;
-    keepAliveGain = g;
-    diag(`keepAlive · started · ctx=${c.state}`);
-  } catch (err) {
-    diag(`keepAlive start failed: ${(err as Error).message}`);
+  if (!keepAliveOsc) {
+    diag("startKeepAlive · noop (oscillator attaches on unlockAudio)");
   }
 }
 
 export function stopKeepAlive(): void {
-  if (!keepAliveNode) return;
-  try {
-    keepAliveNode.stop();
-    keepAliveNode.disconnect();
-    keepAliveGain?.disconnect();
-  } catch { /* ignore */ }
-  keepAliveNode = null;
-  keepAliveGain = null;
-  diag("keepAlive · stopped");
+  // Intentional noop — the silent oscillator must never stop.
 }
