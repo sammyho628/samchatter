@@ -9,7 +9,7 @@
 //                  the selected provider's key is missing.
 //   - "utility"  → non-conversational helpers (translation, summarisation).
 //                  Always routed through Lovable AI Gateway.
-import { readProvidersServerSide, type LlmProvider } from "./providerSettings.functions";
+import { readProvidersServerSide, type LlmProvider, DEFAULT_GREETING_MODEL } from "./providerSettings.functions";
 
 export type MainModel =
   | { provider: "gemini"; model: string; apiKey: string }
