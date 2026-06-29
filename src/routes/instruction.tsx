@@ -89,6 +89,7 @@ function InstructionPage() {
             llm: "gemini" as LlmProvider,
             tts: "google" as TtsProvider,
             openrouterModel: DEFAULT_OPENROUTER_MODEL,
+            greetingModel: DEFAULT_GREETING_MODEL,
           })),
           loadKb().catch((e) => setKbStatus(`load failed: ${(e as Error).message}`)),
         ]);
@@ -99,9 +100,11 @@ function InstructionPage() {
         setLlmProvider(providers.llm);
         setTtsProvider(providers.tts);
         setOpenrouterModel(providers.openrouterModel ?? DEFAULT_OPENROUTER_MODEL);
+        setGreetingModel(providers.greetingModel ?? DEFAULT_GREETING_MODEL);
         setSavedLlm(providers.llm);
         setSavedTts(providers.tts);
         setSavedOrModel(providers.openrouterModel ?? DEFAULT_OPENROUTER_MODEL);
+        setSavedGrModel(providers.greetingModel ?? DEFAULT_GREETING_MODEL);
       } catch (err) {
         setStatus(`Load failed: ${(err as Error).message}`);
         setValue(DEFAULT_SYSTEM_PROMPT_TEMPLATE);
@@ -115,18 +118,20 @@ function InstructionPage() {
   const providerDirty =
     llmProvider !== savedLlm ||
     ttsProvider !== savedTts ||
-    (llmProvider === "openrouter" && openrouterModel !== savedOrModel);
+    (llmProvider === "openrouter" && openrouterModel !== savedOrModel) ||
+    greetingModel !== savedGrModel;
 
   const onSaveProviders = async () => {
     setProviderSaving(true);
     setProviderStatus("Saving…");
     try {
       await saveProviders({
-        data: { llm: llmProvider, tts: ttsProvider, openrouterModel },
+        data: { llm: llmProvider, tts: ttsProvider, openrouterModel, greetingModel },
       });
       setSavedLlm(llmProvider);
       setSavedTts(ttsProvider);
       setSavedOrModel(openrouterModel);
+      setSavedGrModel(greetingModel);
       const tag =
         llmProvider === "openrouter"
           ? `${llmProvider}:${openrouterModel}`
