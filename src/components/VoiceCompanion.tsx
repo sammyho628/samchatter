@@ -377,7 +377,6 @@ export function VoiceCompanion() {
           } catch (e) {
             pushLog("err", `greeting prefetch: ${(e as Error).message}`);
           }
-          }
         })();
       }
 
