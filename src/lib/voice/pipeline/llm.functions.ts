@@ -402,7 +402,7 @@ async function callGemini(
   const json = await Promise.race([
     resp.json() as Promise<{ candidates?: Array<{ content?: { parts?: GeminiPart[] } }> }>,
     new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("Gemini body read timeout 60000ms")), 60000),
+      setTimeout(() => reject(new Error("Gemini body read timeout 30000ms")), 30000),
     ),
   ]).catch(() => ({} as { candidates?: Array<{ content?: { parts?: GeminiPart[] } }> }));
   const parts = json.candidates?.[0]?.content?.parts ?? [];
@@ -481,7 +481,7 @@ async function callOpenAIChat(
       }>;
     }>,
     new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("OpenAI body read timeout 60000ms")), 60000),
+      setTimeout(() => reject(new Error("OpenAI body read timeout 30000ms")), 30000),
     ),
   ]);
   const msg = json.choices?.[0]?.message;
@@ -814,7 +814,7 @@ async function callSynthesiser(
         600, // synthesiser cap: ~132 s max audio at 3.5 chars/s Cantonese
       ),
       new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("synthesiser LLM timeout 60000ms")), 60000),
+        setTimeout(() => reject(new Error("synthesiser LLM timeout 30000ms")), 30000),
       ),
     ]);
     let text = "";
@@ -854,7 +854,7 @@ async function callSynthesiser(
       600, // synthesiser cap: ~132 s max audio at 3.5 chars/s Cantonese
     ),
     new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("synthesiser LLM timeout 60000ms")), 60000),
+      setTimeout(() => reject(new Error("synthesiser LLM timeout 30000ms")), 30000),
     ),
   ]);
   // Strip raw tool-call echoes and any [TOOL CALLS]/[TOOL RESULTS] blocks
