@@ -35,6 +35,19 @@ export function subscribePlayerDiagnostics(fn: DiagLogger): () => void {
 }
 
 function ensureCtx(): AudioContext {
+  // Zombie detection: keepAliveOsc !== null means the context was previously
+  // running (oscillator attached in unlockAudio). If it is now suspended or
+  // interrupted, iOS has killed it permanently — destroy it and recreate.
+  // A freshly-created context where keepAliveOsc is still null may also be
+  // suspended on iOS before the first user gesture — that is normal, not a zombie.
+  if (ctx && keepAliveOsc !== null && (ctx.state === "suspended" || (ctx.state as string) === "interrupted")) {
+    diag(`AudioContext zombie detected · state=${ctx.state} · destroying and recreating`);
+    try { keepAliveOsc.stop(); } catch { /* already stopped */ }
+    try { ctx.close(); } catch { /* ignore */ }
+    ctx = null;
+    masterGain = null;
+    keepAliveOsc = null;
+  }
   if (ctx) return ctx;
   const AC: typeof AudioContext =
     (window as unknown as { AudioContext: typeof AudioContext; webkitAudioContext?: typeof AudioContext }).AudioContext ||

@@ -377,12 +377,13 @@ async function callGemini(
   systemInstruction: string,
   contents: GeminiTurn[],
   withTools: boolean,
+  maxOutputTokens: number = 400,
 ): Promise<{ parts: GeminiPart[] }> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
   const body: Record<string, unknown> = {
     systemInstruction: { parts: [{ text: systemInstruction }] },
     contents,
-    generationConfig: { temperature: 0.8, maxOutputTokens: 400 },
+    generationConfig: { temperature: 0.8, maxOutputTokens },
   };
   if (withTools) body.tools = GEMINI_TOOLS;
   const resp = await fetchWithTimeout(
@@ -438,6 +439,7 @@ async function callOpenAIChat(
   apiKey: string,
   messages: OAMessage[],
   withTools: boolean,
+  maxTokens: number = 400,
 ): Promise<{
   content: string;
   toolCalls: OAToolCall[];
@@ -446,7 +448,7 @@ async function callOpenAIChat(
     model,
     messages,
     temperature: 0.8,
-    max_tokens: 400,
+    max_tokens: maxTokens,
   };
   if (withTools) body.tools = OPENAI_TOOLS;
   const resp = await fetchWithTimeout(
@@ -772,6 +774,7 @@ async function callSynthesiser(
       systemInstruction,
       contents,
       false,
+      600, // synthesiser cap: ~132 s max audio at 3.5 chars/s Cantonese
     );
     let text = "";
     try {
@@ -784,6 +787,8 @@ async function callSynthesiser(
     } catch {
       text = "";
     }
+    // Strip raw tool-call echoes that should never be spoken aloud.
+    text = text.replace(/\[\s*(web_search|search_places|scrape_page)\s*\([^)]*\)\s*\]/g, "").trim();
     contents.push({ role: "model", parts: [{ text }] });
     return { text, history: contents };
 
@@ -793,13 +798,18 @@ async function callSynthesiser(
     ...historyToOpenAI(history),
     { role: "user", content: userText },
   ];
-  const { content } = await callOpenAIChat(
+  const { content: rawContent } = await callOpenAIChat(
     m.apiUrl,
     m.model,
     m.apiKey,
     messages,
     false,
+    600, // synthesiser cap: ~132 s max audio at 3.5 chars/s Cantonese
   );
+  // Strip raw tool-call echoes that should never be spoken aloud.
+  const content = rawContent
+    .replace(/\[\s*(web_search|search_places|scrape_page)\s*\([^)]*\)\s*\]/g, "")
+    .trim();
   const nextHistory: GeminiTurn[] = [
     ...history,
     { role: "user", parts: [{ text: userText }] },
