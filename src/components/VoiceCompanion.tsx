@@ -734,7 +734,13 @@ export function VoiceCompanion() {
     pushLog("evt", "splash tap · priming iOS audio");
     // Keep-alive must be started synchronously inside the pointer gesture.
     startKeepAlive();
-    void unlockAudio().catch((err) => pushLog("err", `unlock: ${(err as Error).message}`));
+    // MUST await unlockAudio so iOS AudioContext is fully resumed before we
+    // try to play any audio. Using void here was the root cause of greeting silence.
+    try {
+      await unlockAudio();
+    } catch (err) {
+      pushLog("err", `unlock: ${(err as Error).message}`);
+    }
     setGreeting(true);
     // Hide splash immediately so a slow/failed greeting can't trap the user
     // behind a spinning button. The orb screen has its own loading state.
@@ -742,45 +748,30 @@ export function VoiceCompanion() {
     void loadPromptIfNeeded();
     try {
       let audioBase64 = greetingAudioRef.current;
-      if (!audioBase64) {
+      if (!audioBase64 && greetingPrefetchRef.current) {
+        // Wait up to 30 s for the background pre-fetch to finish.
+        // The full LLM+TTS pipeline takes ~17 s cold; 30 s is generous.
+        // This replaces the old inline 12-second LLM re-run which always timed out.
         try {
-          const sessData = sessionDataRef.current;
-          const hkNow = new Date(
-            new Date().toLocaleString("en-US", { timeZone: "Asia/Hong_Kong" }),
-          );
-          // Cap greeting generation at 12s — if the network/LLM hangs we'd
-          // rather skip the greeting than block the UI indefinitely.
-          const withTimeout = <T,>(p: Promise<T>, ms: number, label: string) =>
-            Promise.race<T>([
-              p,
-              new Promise<T>((_, rej) =>
-                setTimeout(() => rej(new Error(`${label} timeout ${ms}ms`)), ms),
-              ),
-            ]);
-          const greetingText = sessData
-            ? await withTimeout(
-                genGreeting({
-                  data: {
-                    personaName: sessData.personaName || "明女",
-                    hkHour: hkNow.getHours(),
-                    hkDayOfWeek: hkNow.getDay(),
-                    weatherSnippet: sessData.weatherSnippet,
-                    lastMemorySummary: sessData.lastMemorySummary ?? undefined,
-                    daysSinceLastSession: sessData.daysSinceLastSession ?? undefined,
-                  },
-                }),
-                12000,
-                "greeting",
-              )
-            : getTimeGreeting(personaNameRef.current ?? "明女");
-          const tts = await withTimeout(
-            ttsFn({ data: { text: greetingText } }),
-            12000,
-            "greeting-tts",
-          );
+          await Promise.race([
+            greetingPrefetchRef.current,
+            new Promise<void>((_, rej) =>
+              setTimeout(() => rej(new Error("prefetch wait timeout 30000ms")), 30000),
+            ),
+          ]);
+        } catch (e) {
+          pushLog("err", `greeting prefetch wait: ${(e as Error).message}`);
+        }
+        audioBase64 = greetingAudioRef.current;
+      }
+      if (!audioBase64) {
+        // Ultimate fallback: simple time-of-day greeting via TTS only (fast, no LLM).
+        try {
+          const fallbackText = getTimeGreeting(personaNameRef.current ?? "明女");
+          const tts = await ttsFn({ data: { text: fallbackText } });
           audioBase64 = tts.audioBase64;
         } catch (e) {
-          pushLog("err", `greeting prefetch skipped: ${(e as Error).message}`);
+          pushLog("err", `greeting fallback tts: ${(e as Error).message}`);
         }
       }
       if (audioBase64) {
