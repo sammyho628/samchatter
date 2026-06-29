@@ -9,6 +9,7 @@ export type TtsProvider = "google" | "minimax";
 const LLM_KEY = "voice.llmProvider";
 const TTS_KEY = "voice.ttsProvider";
 const OPENROUTER_MODEL_KEY = "voice.openrouterModel";
+const OPENROUTER_SYNTH_MODEL_KEY = "voice.openrouterSynthModel";
 const GREETING_MODEL_KEY = "voice.greetingModel";
 
 export const LLM_PROVIDERS: { value: LlmProvider; label: string; note: string }[] = [
