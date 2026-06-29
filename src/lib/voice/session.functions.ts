@@ -134,8 +134,12 @@ export const getVoiceSession = createServerFn({ method: "GET" }).handler(
         : "";
 
     // Extract first ~200 chars of hk_weather block for greeting context.
+    // Guard against placeholder strings (e.g. "@InjectWeather") left in DB.
     const weatherRow = cacheRows.find((r) => r.topic === "hk_weather");
-    const weatherSnippet = weatherRow?.content?.slice(0, 200) ?? "";
+    const rawWeatherSnippet = weatherRow?.content?.slice(0, 200) ?? "";
+    const weatherSnippet = /^@[A-Za-z]/.test(rawWeatherSnippet.trim())
+      ? ""
+      : rawWeatherSnippet;
 
     const lastMemorySummary = memRows[0]?.conversation_summary ?? null;
     const daysSinceLastSession = (() => {
