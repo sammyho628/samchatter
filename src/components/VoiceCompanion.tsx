@@ -359,8 +359,24 @@ export function VoiceCompanion() {
             pushLog("evt", msg);
             const tts = await ttsFn({ data: { text: greetingText } });
             greetingAudioRef.current = tts.audioBase64;
+            // Late delivery: if the splash was dismissed before this audio
+            // was ready and no greeting has played yet and the user hasn't
+            // spoken, play the contextual greeting now.
+            if (
+              !showSplashRef.current &&
+              !greetingPlayedRef.current &&
+              historyRef.current.length === 0
+            ) {
+              greetingPlayedRef.current = true;
+              try {
+                await playBase64Audio(tts.audioBase64);
+              } catch (lateErr) {
+                pushLog("err", `greeting late play: ${(lateErr as Error).message}`);
+              }
+            }
           } catch (e) {
             pushLog("err", `greeting prefetch: ${(e as Error).message}`);
+          }
           }
         })();
       }
