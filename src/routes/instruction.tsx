@@ -97,6 +97,7 @@ function InstructionPage() {
             llm: "gemini" as LlmProvider,
             tts: "google" as TtsProvider,
             openrouterModel: DEFAULT_OPENROUTER_MODEL,
+            openrouterSynthModel: DEFAULT_OPENROUTER_SYNTH_MODEL,
             greetingModel: DEFAULT_GREETING_MODEL,
           })),
           loadKb().catch((e) => setKbStatus(`load failed: ${(e as Error).message}`)),
@@ -108,10 +109,16 @@ function InstructionPage() {
         setLlmProvider(providers.llm);
         setTtsProvider(providers.tts);
         setOpenrouterModel(providers.openrouterModel ?? DEFAULT_OPENROUTER_MODEL);
+        setOpenrouterSynthModel(
+          providers.openrouterSynthModel ?? DEFAULT_OPENROUTER_SYNTH_MODEL,
+        );
         setGreetingModel(providers.greetingModel ?? DEFAULT_GREETING_MODEL);
         setSavedLlm(providers.llm);
         setSavedTts(providers.tts);
         setSavedOrModel(providers.openrouterModel ?? DEFAULT_OPENROUTER_MODEL);
+        setSavedOrSynthModel(
+          providers.openrouterSynthModel ?? DEFAULT_OPENROUTER_SYNTH_MODEL,
+        );
         setSavedGrModel(providers.greetingModel ?? DEFAULT_GREETING_MODEL);
       } catch (err) {
         setStatus(`Load failed: ${(err as Error).message}`);
