@@ -845,8 +845,11 @@ async function callSynthesiser(
       setTimeout(() => reject(new Error("synthesiser LLM timeout 60000ms")), 60000),
     ),
   ]);
-  // Strip raw tool-call echoes that should never be spoken aloud.
+  // Strip raw tool-call echoes and any [TOOL CALLS]/[TOOL RESULTS] blocks
+  // that should never be spoken aloud by TTS.
   const content = rawContent
+    .replace(/\[TOOL CALLS\][\s\S]*?\[\/TOOL CALLS\]/gi, "")
+    .replace(/\[TOOL RESULTS\][\s\S]*?\[\/TOOL RESULTS\]/gi, "")
     .replace(/\[\s*(web_search|search_places|scrape_page)\s*\([^)]*\)\s*\]/g, "")
     .trim();
   const nextHistory: GeminiTurn[] = [
