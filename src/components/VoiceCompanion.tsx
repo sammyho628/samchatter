@@ -160,6 +160,12 @@ export function VoiceCompanion() {
   const promptLoadingRef = useRef(false);
   const personaNameRef = useRef<string>("朋友");
   const greetingAudioRef = useRef<string | null>(null);
+  // showSplashRef mirrors showSplash state for async closures that can't
+  // capture the latest state value (e.g. inside loadPromptIfNeeded).
+  const showSplashRef = useRef<boolean>(true);
+  // greetingPlayedRef prevents the late-delivery path from double-playing
+  // if the pre-fetch audio arrives after handleSplashTap already played it.
+  const greetingPlayedRef = useRef<boolean>(false);
   // Stores the in-flight Promise of the background greeting pre-fetch so
   // handleSplashTap can await it instead of re-running the full LLM pipeline.
   const greetingPrefetchRef = useRef<Promise<void> | null>(null);
