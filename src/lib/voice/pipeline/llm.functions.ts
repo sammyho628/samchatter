@@ -399,9 +399,12 @@ async function callGemini(
     const t = await resp.text().catch(() => "");
     throw new Error(`Gemini ${resp.status}: ${t.slice(0, 500)}`);
   }
-  const json = (await resp.json().catch(() => ({}))) as {
-    candidates?: Array<{ content?: { parts?: GeminiPart[] } }>;
-  };
+  const json = await Promise.race([
+    resp.json() as Promise<{ candidates?: Array<{ content?: { parts?: GeminiPart[] } }> }>,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("Gemini body read timeout 30000ms")), 30000),
+    ),
+  ]).catch(() => ({} as { candidates?: Array<{ content?: { parts?: GeminiPart[] } }> }));
   const parts = json.candidates?.[0]?.content?.parts ?? [];
   return { parts };
 
