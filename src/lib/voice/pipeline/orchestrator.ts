@@ -124,10 +124,14 @@ function speakBrowserFallback(text: string): Promise<void> {
 // `useServerFn` calls when the edge connection blips.
 function isTransientNetworkError(err: unknown): boolean {
   const msg = (err as Error)?.message ?? "";
-  // Timeout errors must NOT be retried — if the server timed out once, a retry
-  // will also time out, doubling the user's wait for no benefit.
+  // Timeout errors: the server already spent its full time budget — retrying wastes
+  // another equal amount of time for zero gain.
   if (/timeout/i.test(msg)) return false;
-  return /load failed|network|failed to fetch|fetch failed|networkerror/i.test(msg);
+  // "Failed to fetch" after a long wait (>30 s) means the platform dropped the
+  // server-side connection (edge-function execution limit reached). Retrying
+  // causes a second identical 2-minute hang before failing again.
+  if (/failed to fetch/i.test(msg)) return false;
+  return /load failed|network|fetch failed|networkerror/i.test(msg);
 }
 
 async function retryOnce<T>(
