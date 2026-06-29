@@ -754,9 +754,25 @@ export type SynthesizeInput = GenerateInput & {
   toolResults: ToolCallTrace[];
 };
 
+// Yahoo Finance has been permanently blocked since 2025 — strip its lines before
+// the synthesiser sees them so it cannot quote or rely on their data.
+const YAHOO_FINANCE_RE = /finance\.yahoo\.com|yahoo\.com\/finance/i;
+
 function buildToolResultsBlock(toolResults: ToolCallTrace[]): string {
   if (toolResults.length === 0) return "";
-  const body = toolResults
+  const filtered = toolResults.map((t) => {
+    if (t.name === "web_search" && YAHOO_FINANCE_RE.test(t.summary)) {
+      return {
+        ...t,
+        summary: t.summary.replace(
+          /^.*(?:finance\.yahoo\.com|yahoo\.com\/finance).*$/gim,
+          "[Yahoo Finance result omitted — permanently blocked domain]",
+        ),
+      };
+    }
+    return t;
+  });
+  const body = filtered
     .map(
       (t) =>
         `### ${t.name}(${JSON.stringify(t.args)})\n${t.summary}`,
