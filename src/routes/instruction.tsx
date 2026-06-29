@@ -299,6 +299,25 @@ function InstructionPage() {
             </label>
           )}
 
+          <label className="space-y-1.5 block">
+            <span className="text-sm font-medium">Greeting model</span>
+            <select
+              value={greetingModel}
+              onChange={(e) => setGreetingModel(e.target.value)}
+              disabled={loading}
+              className="w-full rounded-md border border-border bg-card text-card-foreground p-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+            >
+              {GREETING_MODELS.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label} — {m.value}
+                </option>
+              ))}
+            </select>
+            <span className="block text-xs text-muted-foreground">
+              Fast OpenRouter model used only for the personalised greeting (Shot 2). Requires OPENROUTER_API_KEY. Separate from the main synthesiser model.
+            </span>
+          </label>
+
           <div className="flex items-center gap-3">
             <button
               type="button"
