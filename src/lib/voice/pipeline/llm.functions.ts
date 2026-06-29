@@ -754,13 +754,16 @@ export type SynthesizeInput = GenerateInput & {
   toolResults: ToolCallTrace[];
 };
 
-// Yahoo Finance has been permanently blocked since 2025 — strip its lines before
-// the synthesiser sees them so it cannot quote or rely on their data.
+// Permanently blocked / garbage-returning domains.
+// Yahoo Finance: blocked since 2025 — returns wrong data that the AI may cite as facts.
+// Reuters: Refinitiv paywall blocks server IPs — returns navigation shell only, no content.
 const YAHOO_FINANCE_RE = /finance\.yahoo\.com|yahoo\.com\/finance/i;
+const REUTERS_DOMAIN_RE = /reuters\.com/i;
 
 function buildToolResultsBlock(toolResults: ToolCallTrace[]): string {
   if (toolResults.length === 0) return "";
   const filtered = toolResults.map((t) => {
+    // Strip Yahoo Finance lines from web_search results — blocked domain, data unreliable.
     if (t.name === "web_search" && YAHOO_FINANCE_RE.test(t.summary)) {
       return {
         ...t,
@@ -768,6 +771,14 @@ function buildToolResultsBlock(toolResults: ToolCallTrace[]): string {
           /^.*(?:finance\.yahoo\.com|yahoo\.com\/finance).*$/gim,
           "[Yahoo Finance result omitted — permanently blocked domain]",
         ),
+      };
+    }
+    // Replace Reuters scrape results — Refinitiv paywall returns navigation shell only.
+    if (t.name === "scrape_page" && REUTERS_DOMAIN_RE.test(JSON.stringify(t.args))) {
+      return {
+        ...t,
+        summary:
+          "[Reuters scrape omitted — Refinitiv paywall blocks server IPs, returns navigation shell only. Use web_search or AP Sports / BBC Sport instead.]",
       };
     }
     return t;
