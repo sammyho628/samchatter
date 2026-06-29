@@ -470,15 +470,20 @@ async function callOpenAIChat(
     const t = await resp.text().catch(() => "");
     throw new Error(`${model} ${resp.status}: ${t.slice(0, 500)}`);
   }
-  const json = (await resp.json()) as {
-    choices?: Array<{
-      message?: {
-        role: "assistant";
-        content?: string | null;
-        tool_calls?: OAToolCall[];
-      };
-    }>;
-  };
+  const json = await Promise.race([
+    resp.json() as Promise<{
+      choices?: Array<{
+        message?: {
+          role: "assistant";
+          content?: string | null;
+          tool_calls?: OAToolCall[];
+        };
+      }>;
+    }>,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("OpenAI body read timeout 30000ms")), 30000),
+    ),
+  ]);
   const msg = json.choices?.[0]?.message;
   return {
     content: (msg?.content ?? "").trim(),
