@@ -322,6 +322,27 @@ function InstructionPage() {
             </label>
           )}
 
+          {llmProvider === "openrouter" && (
+            <label className="space-y-1.5 block">
+              <span className="text-sm font-medium">Synthesiser model</span>
+              <select
+                value={openrouterSynthModel}
+                onChange={(e) => setOpenrouterSynthModel(e.target.value)}
+                disabled={loading}
+                className="w-full rounded-md border border-border bg-card text-card-foreground p-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+              >
+                {OPENROUTER_SYNTH_MODELS.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label} — {m.value}
+                  </option>
+                ))}
+              </select>
+              <span className="block text-xs text-muted-foreground">
+                Fast non-reasoning model for generating answers. Separate from the planner model.
+              </span>
+            </label>
+          )}
+
           <label className="space-y-1.5 block">
             <span className="text-sm font-medium">Greeting model</span>
             <select
