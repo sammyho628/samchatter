@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { callUtilityChat } from "./modelRouter";
+import { callUtilityChat, callGreetingChat } from "./modelRouter";
 
 const SummarizeInput = z.object({
   sessionId: z.string().min(1),
@@ -71,6 +71,7 @@ export const generateContextualGreeting = createServerFn({ method: "POST" })
 
     const systemPrompt = `你係一個溫暖親切嘅廣東話助手，負責生成問候語。
 規則：
+- 必須使用繁體中文，絕對禁止輸出任何簡體字（即使廣東話口語詞彙亦必須用繁體，例如「幾」不可寫成「几」，「記」不可寫成「记」）
 - 只用自然廣東話口語，唔好用書面語或普通話
 - 稱呼用戶做 ${name}，唔好用「朋友」
 - 長度：1至2句，唔好太長
@@ -90,7 +91,7 @@ ${lastMemorySummary ? `- 上次對話摘要：${lastMemorySummary.slice(0, 150)}
 只回覆問候語本身，唔好加任何解釋。`;
 
     try {
-      const { text: greeting, usedModel: greetingModel } = await callUtilityChat({
+      const { text: greeting, usedModel: greetingModel } = await callGreetingChat({
         system: systemPrompt,
         user: userPrompt,
         maxTokens: 80,

@@ -9,7 +9,7 @@
 //                  the selected provider's key is missing.
 //   - "utility"  → non-conversational helpers (translation, summarisation).
 //                  Always routed through Lovable AI Gateway.
-import { readProvidersServerSide, type LlmProvider } from "./providerSettings.functions";
+import { readProvidersServerSide, type LlmProvider, DEFAULT_GREETING_MODEL } from "./providerSettings.functions";
 
 export type MainModel =
   | { provider: "gemini"; model: string; apiKey: string }
@@ -184,6 +184,52 @@ export async function callUtilityChat(args: {
   };
   const text = j.choices?.[0]?.message?.content?.trim() ?? "";
   return { text, usedModel: "lovable-gateway/gemini-2.5-flash" };
+}
+
+// Greeting-specific chat — uses the user-configured greeting model via OpenRouter.
+// All greeting model options are OpenRouter models, so this always routes via
+// OPENROUTER_API_KEY regardless of the main LLM provider setting.
+// Falls back to callUtilityChat (Lovable Gateway) if OPENROUTER_API_KEY is absent.
+export async function callGreetingChat(args: {
+  system: string;
+  user: string;
+  maxTokens?: number;
+}): Promise<{ text: string; usedModel: string }> {
+  const { greetingModel } = await readProvidersServerSide();
+  const key = process.env.OPENROUTER_API_KEY;
+  const model = greetingModel ?? DEFAULT_GREETING_MODEL;
+
+  if (key) {
+    try {
+      const r = await fetch(OPENROUTER_API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${key}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: "system", content: args.system },
+            { role: "user", content: args.user },
+          ],
+          max_tokens: args.maxTokens ?? 80,
+        }),
+      });
+      if (r.ok) {
+        const j = (await r.json()) as {
+          choices?: Array<{ message?: { content?: string } }>;
+        };
+        const text = j.choices?.[0]?.message?.content?.trim() ?? "";
+        if (text) return { text, usedModel: `openrouter:${model}` };
+      }
+    } catch {
+      // Fall through to utility fallback
+    }
+  }
+
+  // Fallback: callUtilityChat (Lovable Gateway or configured main LLM)
+  return callUtilityChat(args);
 }
 
 // ---- low-level simple callers (no tools, single turn) ----

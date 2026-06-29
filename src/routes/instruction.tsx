@@ -19,6 +19,8 @@ import {
   TTS_PROVIDERS,
   OPENROUTER_MODELS,
   DEFAULT_OPENROUTER_MODEL,
+  GREETING_MODELS,
+  DEFAULT_GREETING_MODEL,
   type LlmProvider,
   type TtsProvider,
 } from "@/lib/voice/providerSettings.functions";
@@ -52,9 +54,11 @@ function InstructionPage() {
   const [llmProvider, setLlmProvider] = useState<LlmProvider>("gemini");
   const [ttsProvider, setTtsProvider] = useState<TtsProvider>("google");
   const [openrouterModel, setOpenrouterModel] = useState<string>(DEFAULT_OPENROUTER_MODEL);
+  const [greetingModel, setGreetingModel] = useState<string>(DEFAULT_GREETING_MODEL);
   const [savedLlm, setSavedLlm] = useState<LlmProvider>("gemini");
   const [savedTts, setSavedTts] = useState<TtsProvider>("google");
   const [savedOrModel, setSavedOrModel] = useState<string>(DEFAULT_OPENROUTER_MODEL);
+  const [savedGrModel, setSavedGrModel] = useState<string>(DEFAULT_GREETING_MODEL);
   const [providerSaving, setProviderSaving] = useState(false);
   const [providerStatus, setProviderStatus] = useState("");
 
@@ -85,6 +89,7 @@ function InstructionPage() {
             llm: "gemini" as LlmProvider,
             tts: "google" as TtsProvider,
             openrouterModel: DEFAULT_OPENROUTER_MODEL,
+            greetingModel: DEFAULT_GREETING_MODEL,
           })),
           loadKb().catch((e) => setKbStatus(`load failed: ${(e as Error).message}`)),
         ]);
@@ -95,9 +100,11 @@ function InstructionPage() {
         setLlmProvider(providers.llm);
         setTtsProvider(providers.tts);
         setOpenrouterModel(providers.openrouterModel ?? DEFAULT_OPENROUTER_MODEL);
+        setGreetingModel(providers.greetingModel ?? DEFAULT_GREETING_MODEL);
         setSavedLlm(providers.llm);
         setSavedTts(providers.tts);
         setSavedOrModel(providers.openrouterModel ?? DEFAULT_OPENROUTER_MODEL);
+        setSavedGrModel(providers.greetingModel ?? DEFAULT_GREETING_MODEL);
       } catch (err) {
         setStatus(`Load failed: ${(err as Error).message}`);
         setValue(DEFAULT_SYSTEM_PROMPT_TEMPLATE);
@@ -111,18 +118,20 @@ function InstructionPage() {
   const providerDirty =
     llmProvider !== savedLlm ||
     ttsProvider !== savedTts ||
-    (llmProvider === "openrouter" && openrouterModel !== savedOrModel);
+    (llmProvider === "openrouter" && openrouterModel !== savedOrModel) ||
+    greetingModel !== savedGrModel;
 
   const onSaveProviders = async () => {
     setProviderSaving(true);
     setProviderStatus("Saving…");
     try {
       await saveProviders({
-        data: { llm: llmProvider, tts: ttsProvider, openrouterModel },
+        data: { llm: llmProvider, tts: ttsProvider, openrouterModel, greetingModel },
       });
       setSavedLlm(llmProvider);
       setSavedTts(ttsProvider);
       setSavedOrModel(openrouterModel);
+      setSavedGrModel(greetingModel);
       const tag =
         llmProvider === "openrouter"
           ? `${llmProvider}:${openrouterModel}`
@@ -289,6 +298,25 @@ function InstructionPage() {
               </span>
             </label>
           )}
+
+          <label className="space-y-1.5 block">
+            <span className="text-sm font-medium">Greeting model</span>
+            <select
+              value={greetingModel}
+              onChange={(e) => setGreetingModel(e.target.value)}
+              disabled={loading}
+              className="w-full rounded-md border border-border bg-card text-card-foreground p-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+            >
+              {GREETING_MODELS.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label} — {m.value}
+                </option>
+              ))}
+            </select>
+            <span className="block text-xs text-muted-foreground">
+              Fast OpenRouter model used only for the personalised greeting (Shot 2). Requires OPENROUTER_API_KEY. Separate from the main synthesiser model.
+            </span>
+          </label>
 
           <div className="flex items-center gap-3">
             <button

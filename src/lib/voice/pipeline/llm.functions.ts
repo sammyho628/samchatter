@@ -399,9 +399,12 @@ async function callGemini(
     const t = await resp.text().catch(() => "");
     throw new Error(`Gemini ${resp.status}: ${t.slice(0, 500)}`);
   }
-  const json = (await resp.json().catch(() => ({}))) as {
-    candidates?: Array<{ content?: { parts?: GeminiPart[] } }>;
-  };
+  const json = await Promise.race([
+    resp.json() as Promise<{ candidates?: Array<{ content?: { parts?: GeminiPart[] } }> }>,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("Gemini body read timeout 30000ms")), 30000),
+    ),
+  ]).catch(() => ({} as { candidates?: Array<{ content?: { parts?: GeminiPart[] } }> }));
   const parts = json.candidates?.[0]?.content?.parts ?? [];
   return { parts };
 
@@ -467,15 +470,20 @@ async function callOpenAIChat(
     const t = await resp.text().catch(() => "");
     throw new Error(`${model} ${resp.status}: ${t.slice(0, 500)}`);
   }
-  const json = (await resp.json()) as {
-    choices?: Array<{
-      message?: {
-        role: "assistant";
-        content?: string | null;
-        tool_calls?: OAToolCall[];
-      };
-    }>;
-  };
+  const json = await Promise.race([
+    resp.json() as Promise<{
+      choices?: Array<{
+        message?: {
+          role: "assistant";
+          content?: string | null;
+          tool_calls?: OAToolCall[];
+        };
+      }>;
+    }>,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("OpenAI body read timeout 30000ms")), 30000),
+    ),
+  ]);
   const msg = json.choices?.[0]?.message;
   return {
     content: (msg?.content ?? "").trim(),
@@ -746,9 +754,25 @@ export type SynthesizeInput = GenerateInput & {
   toolResults: ToolCallTrace[];
 };
 
+// Yahoo Finance has been permanently blocked since 2025 — strip its lines before
+// the synthesiser sees them so it cannot quote or rely on their data.
+const YAHOO_FINANCE_RE = /finance\.yahoo\.com|yahoo\.com\/finance/i;
+
 function buildToolResultsBlock(toolResults: ToolCallTrace[]): string {
   if (toolResults.length === 0) return "";
-  const body = toolResults
+  const filtered = toolResults.map((t) => {
+    if (t.name === "web_search" && YAHOO_FINANCE_RE.test(t.summary)) {
+      return {
+        ...t,
+        summary: t.summary.replace(
+          /^.*(?:finance\.yahoo\.com|yahoo\.com\/finance).*$/gim,
+          "[Yahoo Finance result omitted — permanently blocked domain]",
+        ),
+      };
+    }
+    return t;
+  });
+  const body = filtered
     .map(
       (t) =>
         `### ${t.name}(${JSON.stringify(t.args)})\n${t.summary}`,
@@ -778,7 +802,7 @@ async function callSynthesiser(
         600, // synthesiser cap: ~132 s max audio at 3.5 chars/s Cantonese
       ),
       new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("synthesiser LLM timeout 60000ms")), 60000),
+        setTimeout(() => reject(new Error("synthesiser LLM timeout 30000ms")), 30000),
       ),
     ]);
     let text = "";
@@ -813,7 +837,7 @@ async function callSynthesiser(
       600, // synthesiser cap: ~132 s max audio at 3.5 chars/s Cantonese
     ),
     new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("synthesiser LLM timeout 60000ms")), 60000),
+      setTimeout(() => reject(new Error("synthesiser LLM timeout 30000ms")), 30000),
     ),
   ]);
   // Strip raw tool-call echoes that should never be spoken aloud.

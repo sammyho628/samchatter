@@ -124,6 +124,9 @@ function speakBrowserFallback(text: string): Promise<void> {
 // `useServerFn` calls when the edge connection blips.
 function isTransientNetworkError(err: unknown): boolean {
   const msg = (err as Error)?.message ?? "";
+  // Timeout errors must NOT be retried — if the server timed out once, a retry
+  // will also time out, doubling the user's wait for no benefit.
+  if (/timeout/i.test(msg)) return false;
   return /load failed|network|failed to fetch|fetch failed|networkerror/i.test(msg);
 }
 
