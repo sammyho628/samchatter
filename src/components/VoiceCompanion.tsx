@@ -766,6 +766,7 @@ export function VoiceCompanion() {
     // Hide splash immediately so a slow/failed greeting can't trap the user
     // behind a spinning button. The orb screen has its own loading state.
     setShowSplash(false);
+    showSplashRef.current = false;
     void loadPromptIfNeeded();
     try {
       // SHOT 1: Play instant "你好呀！" immediately — gives the user immediate audio
