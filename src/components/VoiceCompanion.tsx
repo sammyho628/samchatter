@@ -803,6 +803,7 @@ export function VoiceCompanion() {
         }
       }
       if (audioBase64) {
+        greetingPlayedRef.current = true;
         try { await playBase64Audio(audioBase64); } catch (e) {
           pushLog("err", `greeting playback: ${(e as Error).message}`);
         }
