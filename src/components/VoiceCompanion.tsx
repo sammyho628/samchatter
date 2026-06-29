@@ -160,6 +160,12 @@ export function VoiceCompanion() {
   const promptLoadingRef = useRef(false);
   const personaNameRef = useRef<string>("朋友");
   const greetingAudioRef = useRef<string | null>(null);
+  // showSplashRef mirrors showSplash state for async closures that can't
+  // capture the latest state value (e.g. inside loadPromptIfNeeded).
+  const showSplashRef = useRef<boolean>(true);
+  // greetingPlayedRef prevents the late-delivery path from double-playing
+  // if the pre-fetch audio arrives after handleSplashTap already played it.
+  const greetingPlayedRef = useRef<boolean>(false);
   // Stores the in-flight Promise of the background greeting pre-fetch so
   // handleSplashTap can await it instead of re-running the full LLM pipeline.
   const greetingPrefetchRef = useRef<Promise<void> | null>(null);
@@ -353,6 +359,21 @@ export function VoiceCompanion() {
             pushLog("evt", msg);
             const tts = await ttsFn({ data: { text: greetingText } });
             greetingAudioRef.current = tts.audioBase64;
+            // Late delivery: if the splash was dismissed before this audio
+            // was ready and no greeting has played yet and the user hasn't
+            // spoken, play the contextual greeting now.
+            if (
+              !showSplashRef.current &&
+              !greetingPlayedRef.current &&
+              historyRef.current.length === 0
+            ) {
+              greetingPlayedRef.current = true;
+              try {
+                await playBase64Audio(tts.audioBase64);
+              } catch (lateErr) {
+                pushLog("err", `greeting late play: ${(lateErr as Error).message}`);
+              }
+            }
           } catch (e) {
             pushLog("err", `greeting prefetch: ${(e as Error).message}`);
           }
@@ -760,6 +781,7 @@ export function VoiceCompanion() {
     // Hide splash immediately so a slow/failed greeting can't trap the user
     // behind a spinning button. The orb screen has its own loading state.
     setShowSplash(false);
+    showSplashRef.current = false;
     void loadPromptIfNeeded();
     try {
       // SHOT 1: Play instant "你好呀！" immediately — gives the user immediate audio
@@ -796,6 +818,7 @@ export function VoiceCompanion() {
         }
       }
       if (audioBase64) {
+        greetingPlayedRef.current = true;
         try { await playBase64Audio(audioBase64); } catch (e) {
           pushLog("err", `greeting playback: ${(e as Error).message}`);
         }
