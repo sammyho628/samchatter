@@ -816,8 +816,13 @@ async function callSynthesiser(
     } catch {
       text = "";
     }
-    // Strip raw tool-call echoes that should never be spoken aloud.
-    text = text.replace(/\[\s*(web_search|search_places|scrape_page)\s*\([^)]*\)\s*\]/g, "").trim();
+    // Strip raw tool-call echoes and any [TOOL CALLS]/[TOOL RESULTS] blocks
+    // that should never be spoken aloud by TTS.
+    text = text
+      .replace(/\[TOOL CALLS\][\s\S]*?\[\/TOOL CALLS\]/gi, "")
+      .replace(/\[TOOL RESULTS\][\s\S]*?\[\/TOOL RESULTS\]/gi, "")
+      .replace(/\[\s*(web_search|search_places|scrape_page)\s*\([^)]*\)\s*\]/g, "")
+      .trim();
     contents.push({ role: "model", parts: [{ text }] });
     return { text, history: contents };
 
