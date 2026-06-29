@@ -91,7 +91,7 @@ ${lastMemorySummary ? `- 上次對話摘要：${lastMemorySummary.slice(0, 150)}
 只回覆問候語本身，唔好加任何解釋。`;
 
     try {
-      const { text: greeting, usedModel: greetingModel } = await callUtilityChat({
+      const { text: greeting, usedModel: greetingModel } = await callGreetingChat({
         system: systemPrompt,
         user: userPrompt,
         maxTokens: 80,
