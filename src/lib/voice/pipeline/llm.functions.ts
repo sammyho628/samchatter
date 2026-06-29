@@ -377,12 +377,13 @@ async function callGemini(
   systemInstruction: string,
   contents: GeminiTurn[],
   withTools: boolean,
+  maxOutputTokens: number = 400,
 ): Promise<{ parts: GeminiPart[] }> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`;
   const body: Record<string, unknown> = {
     systemInstruction: { parts: [{ text: systemInstruction }] },
     contents,
-    generationConfig: { temperature: 0.8, maxOutputTokens: 400 },
+    generationConfig: { temperature: 0.8, maxOutputTokens },
   };
   if (withTools) body.tools = GEMINI_TOOLS;
   const resp = await fetchWithTimeout(
