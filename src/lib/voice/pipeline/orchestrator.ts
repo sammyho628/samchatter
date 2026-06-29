@@ -249,17 +249,34 @@ export async function runTurn(
         { role: "model", parts: [{ text: finalText }] },
       ];
     } else {
+      // 35 s hard cap on the synthesise round-trip (orchestrator / client level).
+      // This fires even when the server-side timeout fails to fire — e.g. when the
+      // OpenRouter provider holds the edge-function connection open past its own
+      // 30 s body-read limit. The race rejects with a "timeout" message so
+      // isTransientNetworkError correctly treats it as non-retryable.
+      const SYNTH_CLIENT_TIMEOUT_MS = 35_000;
       const syn = await retryOnce(
         "synthesize",
         () =>
-          deps.synthesize({
-            data: {
-              systemInstruction: input.systemInstruction,
-              history: input.history,
-              userText: transcript,
-              toolResults,
-            },
-          }),
+          Promise.race([
+            deps.synthesize({
+              data: {
+                systemInstruction: input.systemInstruction,
+                history: input.history,
+                userText: transcript,
+                toolResults,
+              },
+            }),
+            new Promise<never>((_, reject) =>
+              setTimeout(
+                () =>
+                  reject(
+                    new Error(`synthesiser client timeout ${SYNTH_CLIENT_TIMEOUT_MS}ms`),
+                  ),
+                SYNTH_CLIENT_TIMEOUT_MS,
+              ),
+            ),
+          ]),
         cbs.onLog,
       );
       finalText = syn.text;
