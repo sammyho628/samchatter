@@ -40,8 +40,10 @@ function getKey(provider: LlmProvider): string | undefined {
   return undefined;
 }
 
-export async function resolveLlmModel(): Promise<MainModel> {
-  const { llm, openrouterModel } = await readProvidersServerSide();
+export async function resolveLlmModel(
+  role: "planner" | "synth" = "planner",
+): Promise<MainModel> {
+  const { llm, openrouterModel, openrouterSynthModel } = await readProvidersServerSide();
   const key = getKey(llm);
   if (!key) throw new Error(`Missing API key for selected LLM provider '${llm}'.`);
   if (llm === "qwen") {
@@ -63,7 +65,9 @@ export async function resolveLlmModel(): Promise<MainModel> {
   if (llm === "openrouter") {
     return {
       provider: "openrouter",
-      model: openrouterModel,
+      // Synthesiser uses a separate non-reasoning model so it doesn't burn
+      // 40-120 s on an internal thinking chain before emitting the first token.
+      model: role === "synth" ? openrouterSynthModel : openrouterModel,
       apiKey: key,
       apiUrl: OPENROUTER_API_URL,
     };

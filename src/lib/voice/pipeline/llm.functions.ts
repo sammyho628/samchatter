@@ -798,7 +798,7 @@ async function callSynthesiser(
   history: GeminiTurn[],
   userText: string,
 ): Promise<{ text: string; history: GeminiTurn[] }> {
-  const m = await resolveLlmModel();
+  const m = await resolveLlmModel("synth");
   if (m.provider === "gemini") {
     const contents: GeminiTurn[] = [
       ...history,

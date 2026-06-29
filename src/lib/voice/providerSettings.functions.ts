@@ -9,6 +9,7 @@ export type TtsProvider = "google" | "minimax";
 const LLM_KEY = "voice.llmProvider";
 const TTS_KEY = "voice.ttsProvider";
 const OPENROUTER_MODEL_KEY = "voice.openrouterModel";
+const OPENROUTER_SYNTH_MODEL_KEY = "voice.openrouterSynthModel";
 const GREETING_MODEL_KEY = "voice.greetingModel";
 
 export const LLM_PROVIDERS: { value: LlmProvider; label: string; note: string }[] = [
@@ -42,8 +43,20 @@ export const OPENROUTER_MODELS: { value: string; label: string }[] = [
 ];
 
 export const DEFAULT_OPENROUTER_MODEL = "qwen/qwen3-max";
+// Synthesiser uses a non-reasoning model: no thinking chain → 2–4 s response.
+export const DEFAULT_OPENROUTER_SYNTH_MODEL = "qwen/qwen-2.5-72b-instruct";
 
 export const DEFAULT_GREETING_MODEL = "qwen/qwen-2.5-7b-instruct";
+
+// Synthesiser-specific model list (fast, non-reasoning models preferred).
+// These are presented in a separate dropdown from the planner model.
+export const OPENROUTER_SYNTH_MODELS: { value: string; label: string }[] = [
+  { value: "qwen/qwen-2.5-72b-instruct", label: "Qwen 2.5 72B Instruct (recommended — fast, no reasoning)" },
+  { value: "deepseek/deepseek-chat", label: "DeepSeek V3 (fast, no reasoning)" },
+  { value: "meta-llama/llama-3.3-70b-instruct", label: "Llama 3.3 70B Instruct (fast, no reasoning)" },
+  { value: "openai/gpt-4o-mini", label: "OpenAI GPT-4o Mini (fast, no reasoning)" },
+  { value: "qwen/qwen3-max", label: "Qwen3 Max (reasoning — slow for synthesis, not recommended)" },
+];
 
 // Fast greeting-specific models, all via OpenRouter.
 // Kept separate from OPENROUTER_MODELS so the user can pick a cheap/fast model
@@ -56,7 +69,13 @@ export const GREETING_MODELS: { value: string; label: string }[] = [
 
 // Module-level provider cache — avoids repeated Supabase reads per pipeline run.
 let _providerCache: {
-  value: { llm: LlmProvider; tts: TtsProvider; openrouterModel: string; greetingModel: string };
+  value: {
+    llm: LlmProvider;
+    tts: TtsProvider;
+    openrouterModel: string;
+    openrouterSynthModel: string;
+    greetingModel: string;
+  };
   exp: number;
 } | null = null;
 
@@ -68,6 +87,7 @@ export async function readProvidersServerSide(): Promise<{
   llm: LlmProvider;
   tts: TtsProvider;
   openrouterModel: string;
+  openrouterSynthModel: string;
   greetingModel: string;
 }> {
   if (_providerCache && Date.now() < _providerCache.exp) {
@@ -77,13 +97,14 @@ export async function readProvidersServerSide(): Promise<{
   const { data } = await supabaseAdmin
     .from("app_settings")
     .select("key, value")
-    .in("key", [LLM_KEY, TTS_KEY, OPENROUTER_MODEL_KEY, GREETING_MODEL_KEY]);
+    .in("key", [LLM_KEY, TTS_KEY, OPENROUTER_MODEL_KEY, OPENROUTER_SYNTH_MODEL_KEY, GREETING_MODEL_KEY]);
   const map = new Map<string, string>(
     (data ?? []).map((r) => [r.key as string, r.value as string]),
   );
   const llmRaw = map.get(LLM_KEY) as LlmProvider | undefined;
   const ttsRaw = map.get(TTS_KEY) as TtsProvider | undefined;
   const orRaw = map.get(OPENROUTER_MODEL_KEY);
+  const orSynthRaw = map.get(OPENROUTER_SYNTH_MODEL_KEY);
   const grRaw = map.get(GREETING_MODEL_KEY);
   const value = {
     llm: (["gemini", "qwen", "grok", "openrouter"] as const).includes(llmRaw as LlmProvider)
@@ -93,6 +114,8 @@ export async function readProvidersServerSide(): Promise<{
       ? (ttsRaw as TtsProvider)
       : "google",
     openrouterModel: orRaw && orRaw.trim() ? orRaw : DEFAULT_OPENROUTER_MODEL,
+    openrouterSynthModel:
+      orSynthRaw && orSynthRaw.trim() ? orSynthRaw : DEFAULT_OPENROUTER_SYNTH_MODEL,
     greetingModel: grRaw && grRaw.trim() ? grRaw : DEFAULT_GREETING_MODEL,
   };
   _providerCache = { value, exp: Date.now() + 5 * 60 * 1000 };
@@ -110,6 +133,7 @@ export const saveProviderSettings = createServerFn({ method: "POST" })
         llm: z.enum(["gemini", "qwen", "grok", "openrouter"]).optional(),
         tts: z.enum(["google", "minimax"]).optional(),
         openrouterModel: z.string().min(1).max(200).optional(),
+        openrouterSynthModel: z.string().min(1).max(200).optional(),
         greetingModel: z.string().min(1).max(200).optional(),
       })
       .parse(d),
@@ -122,6 +146,8 @@ export const saveProviderSettings = createServerFn({ method: "POST" })
     if (data.tts) rows.push({ key: TTS_KEY, value: data.tts, updated_at: now });
     if (data.openrouterModel)
       rows.push({ key: OPENROUTER_MODEL_KEY, value: data.openrouterModel, updated_at: now });
+    if (data.openrouterSynthModel)
+      rows.push({ key: OPENROUTER_SYNTH_MODEL_KEY, value: data.openrouterSynthModel, updated_at: now });
     if (data.greetingModel)
       rows.push({ key: GREETING_MODEL_KEY, value: data.greetingModel, updated_at: now });
     if (rows.length === 0) return { ok: true };

@@ -19,6 +19,8 @@ import {
   TTS_PROVIDERS,
   OPENROUTER_MODELS,
   DEFAULT_OPENROUTER_MODEL,
+  OPENROUTER_SYNTH_MODELS,
+  DEFAULT_OPENROUTER_SYNTH_MODEL,
   GREETING_MODELS,
   DEFAULT_GREETING_MODEL,
   type LlmProvider,
@@ -54,10 +56,16 @@ function InstructionPage() {
   const [llmProvider, setLlmProvider] = useState<LlmProvider>("gemini");
   const [ttsProvider, setTtsProvider] = useState<TtsProvider>("google");
   const [openrouterModel, setOpenrouterModel] = useState<string>(DEFAULT_OPENROUTER_MODEL);
+  const [openrouterSynthModel, setOpenrouterSynthModel] = useState<string>(
+    DEFAULT_OPENROUTER_SYNTH_MODEL,
+  );
   const [greetingModel, setGreetingModel] = useState<string>(DEFAULT_GREETING_MODEL);
   const [savedLlm, setSavedLlm] = useState<LlmProvider>("gemini");
   const [savedTts, setSavedTts] = useState<TtsProvider>("google");
   const [savedOrModel, setSavedOrModel] = useState<string>(DEFAULT_OPENROUTER_MODEL);
+  const [savedOrSynthModel, setSavedOrSynthModel] = useState<string>(
+    DEFAULT_OPENROUTER_SYNTH_MODEL,
+  );
   const [savedGrModel, setSavedGrModel] = useState<string>(DEFAULT_GREETING_MODEL);
   const [providerSaving, setProviderSaving] = useState(false);
   const [providerStatus, setProviderStatus] = useState("");
@@ -89,6 +97,7 @@ function InstructionPage() {
             llm: "gemini" as LlmProvider,
             tts: "google" as TtsProvider,
             openrouterModel: DEFAULT_OPENROUTER_MODEL,
+            openrouterSynthModel: DEFAULT_OPENROUTER_SYNTH_MODEL,
             greetingModel: DEFAULT_GREETING_MODEL,
           })),
           loadKb().catch((e) => setKbStatus(`load failed: ${(e as Error).message}`)),
@@ -100,10 +109,16 @@ function InstructionPage() {
         setLlmProvider(providers.llm);
         setTtsProvider(providers.tts);
         setOpenrouterModel(providers.openrouterModel ?? DEFAULT_OPENROUTER_MODEL);
+        setOpenrouterSynthModel(
+          providers.openrouterSynthModel ?? DEFAULT_OPENROUTER_SYNTH_MODEL,
+        );
         setGreetingModel(providers.greetingModel ?? DEFAULT_GREETING_MODEL);
         setSavedLlm(providers.llm);
         setSavedTts(providers.tts);
         setSavedOrModel(providers.openrouterModel ?? DEFAULT_OPENROUTER_MODEL);
+        setSavedOrSynthModel(
+          providers.openrouterSynthModel ?? DEFAULT_OPENROUTER_SYNTH_MODEL,
+        );
         setSavedGrModel(providers.greetingModel ?? DEFAULT_GREETING_MODEL);
       } catch (err) {
         setStatus(`Load failed: ${(err as Error).message}`);
@@ -119,6 +134,7 @@ function InstructionPage() {
     llmProvider !== savedLlm ||
     ttsProvider !== savedTts ||
     (llmProvider === "openrouter" && openrouterModel !== savedOrModel) ||
+    (llmProvider === "openrouter" && openrouterSynthModel !== savedOrSynthModel) ||
     greetingModel !== savedGrModel;
 
   const onSaveProviders = async () => {
@@ -126,15 +142,22 @@ function InstructionPage() {
     setProviderStatus("Saving…");
     try {
       await saveProviders({
-        data: { llm: llmProvider, tts: ttsProvider, openrouterModel, greetingModel },
+        data: {
+          llm: llmProvider,
+          tts: ttsProvider,
+          openrouterModel,
+          openrouterSynthModel,
+          greetingModel,
+        },
       });
       setSavedLlm(llmProvider);
       setSavedTts(ttsProvider);
       setSavedOrModel(openrouterModel);
+      setSavedOrSynthModel(openrouterSynthModel);
       setSavedGrModel(greetingModel);
       const tag =
         llmProvider === "openrouter"
-          ? `${llmProvider}:${openrouterModel}`
+          ? `${llmProvider}:${openrouterModel}/synth:${openrouterSynthModel}`
           : llmProvider;
       setProviderStatus(
         `Saved (LLM=${tag}, TTS=${ttsProvider}) at ${new Date().toLocaleTimeString()}.`,
@@ -295,6 +318,27 @@ function InstructionPage() {
               </select>
               <span className="block text-xs text-muted-foreground">
                 Routed via openrouter.ai. Pricing depends on the selected model — see openrouter.ai/models.
+              </span>
+            </label>
+          )}
+
+          {llmProvider === "openrouter" && (
+            <label className="space-y-1.5 block">
+              <span className="text-sm font-medium">Synthesiser model</span>
+              <select
+                value={openrouterSynthModel}
+                onChange={(e) => setOpenrouterSynthModel(e.target.value)}
+                disabled={loading}
+                className="w-full rounded-md border border-border bg-card text-card-foreground p-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+              >
+                {OPENROUTER_SYNTH_MODELS.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label} — {m.value}
+                  </option>
+                ))}
+              </select>
+              <span className="block text-xs text-muted-foreground">
+                Fast non-reasoning model for generating answers. Separate from the planner model.
               </span>
             </label>
           )}
