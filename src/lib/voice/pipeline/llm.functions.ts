@@ -439,6 +439,7 @@ async function callOpenAIChat(
   apiKey: string,
   messages: OAMessage[],
   withTools: boolean,
+  maxTokens: number = 400,
 ): Promise<{
   content: string;
   toolCalls: OAToolCall[];
@@ -447,7 +448,7 @@ async function callOpenAIChat(
     model,
     messages,
     temperature: 0.8,
-    max_tokens: 400,
+    max_tokens: maxTokens,
   };
   if (withTools) body.tools = OPENAI_TOOLS;
   const resp = await fetchWithTimeout(
