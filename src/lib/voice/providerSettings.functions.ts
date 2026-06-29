@@ -9,6 +9,7 @@ export type TtsProvider = "google" | "minimax";
 const LLM_KEY = "voice.llmProvider";
 const TTS_KEY = "voice.ttsProvider";
 const OPENROUTER_MODEL_KEY = "voice.openrouterModel";
+const GREETING_MODEL_KEY = "voice.greetingModel";
 
 export const LLM_PROVIDERS: { value: LlmProvider; label: string; note: string }[] = [
   { value: "gemini", label: "Google Gemini 2.5 Flash", note: "Default. Strong Cantonese + tool use." },
