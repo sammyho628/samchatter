@@ -639,12 +639,13 @@ and asks for additional venues, food, or activity suggestions (e.g. 「邊度食
 If the user asks for live/current match results, group standings, tournament rankings, or "who is eliminated/qualified" from an ongoing tournament:
   ALWAYS fire BOTH tools simultaneously in a single plan step:
     Tool 1: web_search(category="sports", query="[tournament] match results [today date]")
-    Tool 2: scrape_page(url="https://www.reuters.com/sports/soccer/", reason="Reuters soccer news page — text-based, not JS-rendered, accessible from server IPs")
+    Tool 2: scrape_page(url="https://apnews.com/hub/soccer", reason="AP Sports soccer hub — text-based wire service, no paywall, accessible from server IPs")
   Scrape target selection — IMPORTANT: FIFA.com, FotMob, SofaScore are JavaScript dashboards
-  that block server IP scraping (ERR_BLOCKED_BY_CLIENT). Use text-based news pages only:
-    World Cup 2026 news (text): https://www.reuters.com/sports/soccer/
+  that block server IP scraping (ERR_BLOCKED_BY_CLIENT). Reuters blocks server IPs with a
+  Refinitiv paywall (returns empty navigation shell — never use). Use text-based news pages only:
+    World Cup 2026 news (text): https://apnews.com/hub/soccer
     BBC Sport text page:        https://www.bbc.com/sport/football
-    AP Sports:                  https://apnews.com/hub/soccer
+    NEVER scrape:               https://www.reuters.com/sports/soccer/ — paywall, always empty
   The web_search(category="sports") self-healing loop will already retry with a
   "match report result summary" query if the first pass has no scores — rely on that.
   If scrape also returns nothing → apply [TOURNAMENT IN PROGRESS — PARTIAL SUMMARY RULE].
