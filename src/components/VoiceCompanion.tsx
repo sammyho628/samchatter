@@ -318,7 +318,7 @@ export function VoiceCompanion() {
       // Pre-fetch the contextual greeting + TTS so splash tap can play it
       // synchronously inside the user gesture (avoids iOS audio-gesture gap).
       if (!greetingAudioRef.current) {
-        void (async () => {
+        greetingPrefetchRef.current = (async () => {
           try {
             const hkNow = new Date(
               new Date().toLocaleString("en-US", { timeZone: "Asia/Hong_Kong" }),
