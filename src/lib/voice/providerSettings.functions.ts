@@ -43,8 +43,20 @@ export const OPENROUTER_MODELS: { value: string; label: string }[] = [
 ];
 
 export const DEFAULT_OPENROUTER_MODEL = "qwen/qwen3-max";
+// Synthesiser uses a non-reasoning model: no thinking chain → 2–4 s response.
+export const DEFAULT_OPENROUTER_SYNTH_MODEL = "qwen/qwen-2.5-72b-instruct";
 
 export const DEFAULT_GREETING_MODEL = "qwen/qwen-2.5-7b-instruct";
+
+// Synthesiser-specific model list (fast, non-reasoning models preferred).
+// These are presented in a separate dropdown from the planner model.
+export const OPENROUTER_SYNTH_MODELS: { value: string; label: string }[] = [
+  { value: "qwen/qwen-2.5-72b-instruct", label: "Qwen 2.5 72B Instruct (recommended — fast, no reasoning)" },
+  { value: "deepseek/deepseek-chat", label: "DeepSeek V3 (fast, no reasoning)" },
+  { value: "meta-llama/llama-3.3-70b-instruct", label: "Llama 3.3 70B Instruct (fast, no reasoning)" },
+  { value: "openai/gpt-4o-mini", label: "OpenAI GPT-4o Mini (fast, no reasoning)" },
+  { value: "qwen/qwen3-max", label: "Qwen3 Max (reasoning — slow for synthesis, not recommended)" },
+];
 
 // Fast greeting-specific models, all via OpenRouter.
 // Kept separate from OPENROUTER_MODELS so the user can pick a cheap/fast model
