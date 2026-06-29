@@ -160,6 +160,9 @@ export function VoiceCompanion() {
   const promptLoadingRef = useRef(false);
   const personaNameRef = useRef<string>("朋友");
   const greetingAudioRef = useRef<string | null>(null);
+  // Stores the in-flight Promise of the background greeting pre-fetch so
+  // handleSplashTap can await it instead of re-running the full LLM pipeline.
+  const greetingPrefetchRef = useRef<Promise<void> | null>(null);
   const turnCountRef = useRef(0);
   const lastMemorySaveRef = useRef(0);
   const sessionDataRef = useRef<{
