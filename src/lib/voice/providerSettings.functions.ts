@@ -133,6 +133,7 @@ export const saveProviderSettings = createServerFn({ method: "POST" })
         llm: z.enum(["gemini", "qwen", "grok", "openrouter"]).optional(),
         tts: z.enum(["google", "minimax"]).optional(),
         openrouterModel: z.string().min(1).max(200).optional(),
+        openrouterSynthModel: z.string().min(1).max(200).optional(),
         greetingModel: z.string().min(1).max(200).optional(),
       })
       .parse(d),
@@ -145,6 +146,8 @@ export const saveProviderSettings = createServerFn({ method: "POST" })
     if (data.tts) rows.push({ key: TTS_KEY, value: data.tts, updated_at: now });
     if (data.openrouterModel)
       rows.push({ key: OPENROUTER_MODEL_KEY, value: data.openrouterModel, updated_at: now });
+    if (data.openrouterSynthModel)
+      rows.push({ key: OPENROUTER_SYNTH_MODEL_KEY, value: data.openrouterSynthModel, updated_at: now });
     if (data.greetingModel)
       rows.push({ key: GREETING_MODEL_KEY, value: data.greetingModel, updated_at: now });
     if (rows.length === 0) return { ok: true };
