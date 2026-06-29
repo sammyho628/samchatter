@@ -481,7 +481,7 @@ async function callOpenAIChat(
       }>;
     }>,
     new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("OpenAI body read timeout 30000ms")), 30000),
+      setTimeout(() => reject(new Error("OpenAI body read timeout 60000ms")), 60000),
     ),
   ]);
   const msg = json.choices?.[0]?.message;
