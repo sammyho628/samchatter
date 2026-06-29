@@ -69,7 +69,13 @@ export const GREETING_MODELS: { value: string; label: string }[] = [
 
 // Module-level provider cache — avoids repeated Supabase reads per pipeline run.
 let _providerCache: {
-  value: { llm: LlmProvider; tts: TtsProvider; openrouterModel: string; greetingModel: string };
+  value: {
+    llm: LlmProvider;
+    tts: TtsProvider;
+    openrouterModel: string;
+    openrouterSynthModel: string;
+    greetingModel: string;
+  };
   exp: number;
 } | null = null;
 
@@ -81,6 +87,7 @@ export async function readProvidersServerSide(): Promise<{
   llm: LlmProvider;
   tts: TtsProvider;
   openrouterModel: string;
+  openrouterSynthModel: string;
   greetingModel: string;
 }> {
   if (_providerCache && Date.now() < _providerCache.exp) {
@@ -90,13 +97,14 @@ export async function readProvidersServerSide(): Promise<{
   const { data } = await supabaseAdmin
     .from("app_settings")
     .select("key, value")
-    .in("key", [LLM_KEY, TTS_KEY, OPENROUTER_MODEL_KEY, GREETING_MODEL_KEY]);
+    .in("key", [LLM_KEY, TTS_KEY, OPENROUTER_MODEL_KEY, OPENROUTER_SYNTH_MODEL_KEY, GREETING_MODEL_KEY]);
   const map = new Map<string, string>(
     (data ?? []).map((r) => [r.key as string, r.value as string]),
   );
   const llmRaw = map.get(LLM_KEY) as LlmProvider | undefined;
   const ttsRaw = map.get(TTS_KEY) as TtsProvider | undefined;
   const orRaw = map.get(OPENROUTER_MODEL_KEY);
+  const orSynthRaw = map.get(OPENROUTER_SYNTH_MODEL_KEY);
   const grRaw = map.get(GREETING_MODEL_KEY);
   const value = {
     llm: (["gemini", "qwen", "grok", "openrouter"] as const).includes(llmRaw as LlmProvider)
@@ -106,6 +114,8 @@ export async function readProvidersServerSide(): Promise<{
       ? (ttsRaw as TtsProvider)
       : "google",
     openrouterModel: orRaw && orRaw.trim() ? orRaw : DEFAULT_OPENROUTER_MODEL,
+    openrouterSynthModel:
+      orSynthRaw && orSynthRaw.trim() ? orSynthRaw : DEFAULT_OPENROUTER_SYNTH_MODEL,
     greetingModel: grRaw && grRaw.trim() ? grRaw : DEFAULT_GREETING_MODEL,
   };
   _providerCache = { value, exp: Date.now() + 5 * 60 * 1000 };
