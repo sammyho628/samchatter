@@ -639,12 +639,13 @@ and asks for additional venues, food, or activity suggestions (e.g. 「邊度食
 If the user asks for live/current match results, group standings, tournament rankings, or "who is eliminated/qualified" from an ongoing tournament:
   ALWAYS fire BOTH tools simultaneously in a single plan step:
     Tool 1: web_search(category="sports", query="[tournament] match results [today date]")
-    Tool 2: scrape_page(url="https://www.reuters.com/sports/soccer/", reason="Reuters soccer news page — text-based, not JS-rendered, accessible from server IPs")
+    Tool 2: scrape_page(url="https://apnews.com/hub/soccer", reason="AP Sports soccer hub — text-based wire service, no paywall, accessible from server IPs")
   Scrape target selection — IMPORTANT: FIFA.com, FotMob, SofaScore are JavaScript dashboards
-  that block server IP scraping (ERR_BLOCKED_BY_CLIENT). Use text-based news pages only:
-    World Cup 2026 news (text): https://www.reuters.com/sports/soccer/
+  that block server IP scraping (ERR_BLOCKED_BY_CLIENT). Reuters blocks server IPs with a
+  Refinitiv paywall (returns empty navigation shell — never use). Use text-based news pages only:
+    World Cup 2026 news (text): https://apnews.com/hub/soccer
     BBC Sport text page:        https://www.bbc.com/sport/football
-    AP Sports:                  https://apnews.com/hub/soccer
+    NEVER scrape:               https://www.reuters.com/sports/soccer/ — paywall, always empty
   The web_search(category="sports") self-healing loop will already retry with a
   "match report result summary" query if the first pass has no scores — rely on that.
   If scrape also returns nothing → apply [TOURNAMENT IN PROGRESS — PARTIAL SUMMARY RULE].
@@ -754,13 +755,16 @@ export type SynthesizeInput = GenerateInput & {
   toolResults: ToolCallTrace[];
 };
 
-// Yahoo Finance has been permanently blocked since 2025 — strip its lines before
-// the synthesiser sees them so it cannot quote or rely on their data.
+// Permanently blocked / garbage-returning domains.
+// Yahoo Finance: blocked since 2025 — returns wrong data that the AI may cite as facts.
+// Reuters: Refinitiv paywall blocks server IPs — returns navigation shell only, no content.
 const YAHOO_FINANCE_RE = /finance\.yahoo\.com|yahoo\.com\/finance/i;
+const REUTERS_DOMAIN_RE = /reuters\.com/i;
 
 function buildToolResultsBlock(toolResults: ToolCallTrace[]): string {
   if (toolResults.length === 0) return "";
   const filtered = toolResults.map((t) => {
+    // Strip Yahoo Finance lines from web_search results — blocked domain, data unreliable.
     if (t.name === "web_search" && YAHOO_FINANCE_RE.test(t.summary)) {
       return {
         ...t,
@@ -768,6 +772,14 @@ function buildToolResultsBlock(toolResults: ToolCallTrace[]): string {
           /^.*(?:finance\.yahoo\.com|yahoo\.com\/finance).*$/gim,
           "[Yahoo Finance result omitted — permanently blocked domain]",
         ),
+      };
+    }
+    // Replace Reuters scrape results — Refinitiv paywall returns navigation shell only.
+    if (t.name === "scrape_page" && REUTERS_DOMAIN_RE.test(JSON.stringify(t.args))) {
+      return {
+        ...t,
+        summary:
+          "[Reuters scrape omitted — Refinitiv paywall blocks server IPs, returns navigation shell only. Use web_search or AP Sports / BBC Sport instead.]",
       };
     }
     return t;
@@ -816,8 +828,13 @@ async function callSynthesiser(
     } catch {
       text = "";
     }
-    // Strip raw tool-call echoes that should never be spoken aloud.
-    text = text.replace(/\[\s*(web_search|search_places|scrape_page)\s*\([^)]*\)\s*\]/g, "").trim();
+    // Strip raw tool-call echoes and any [TOOL CALLS]/[TOOL RESULTS] blocks
+    // that should never be spoken aloud by TTS.
+    text = text
+      .replace(/\[TOOL CALLS\][\s\S]*?\[\/TOOL CALLS\]/gi, "")
+      .replace(/\[TOOL RESULTS\][\s\S]*?\[\/TOOL RESULTS\]/gi, "")
+      .replace(/\[\s*(web_search|search_places|scrape_page)\s*\([^)]*\)\s*\]/g, "")
+      .trim();
     contents.push({ role: "model", parts: [{ text }] });
     return { text, history: contents };
 
@@ -840,8 +857,11 @@ async function callSynthesiser(
       setTimeout(() => reject(new Error("synthesiser LLM timeout 60000ms")), 60000),
     ),
   ]);
-  // Strip raw tool-call echoes that should never be spoken aloud.
+  // Strip raw tool-call echoes and any [TOOL CALLS]/[TOOL RESULTS] blocks
+  // that should never be spoken aloud by TTS.
   const content = rawContent
+    .replace(/\[TOOL CALLS\][\s\S]*?\[\/TOOL CALLS\]/gi, "")
+    .replace(/\[TOOL RESULTS\][\s\S]*?\[\/TOOL RESULTS\]/gi, "")
     .replace(/\[\s*(web_search|search_places|scrape_page)\s*\([^)]*\)\s*\]/g, "")
     .trim();
   const nextHistory: GeminiTurn[] = [
