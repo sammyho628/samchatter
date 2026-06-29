@@ -235,7 +235,10 @@ export async function runTurn(
     let finalText: string;
     let finalHistory: GeminiTurn[];
     if (plan.toolCalls.length === 0 && plan.directAnswer) {
-      finalText = plan.directAnswer;
+      finalText = plan.directAnswer
+        .replace(/\[TOOL CALLS\][\s\S]*?\[\/TOOL CALLS\]/gi, "")
+        .replace(/\[TOOL RESULTS\][\s\S]*?\[\/TOOL RESULTS\]/gi, "")
+        .trim();
       finalHistory = [
         ...input.history,
         { role: "user", parts: [{ text: transcript }] },
