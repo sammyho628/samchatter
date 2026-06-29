@@ -56,10 +56,16 @@ function InstructionPage() {
   const [llmProvider, setLlmProvider] = useState<LlmProvider>("gemini");
   const [ttsProvider, setTtsProvider] = useState<TtsProvider>("google");
   const [openrouterModel, setOpenrouterModel] = useState<string>(DEFAULT_OPENROUTER_MODEL);
+  const [openrouterSynthModel, setOpenrouterSynthModel] = useState<string>(
+    DEFAULT_OPENROUTER_SYNTH_MODEL,
+  );
   const [greetingModel, setGreetingModel] = useState<string>(DEFAULT_GREETING_MODEL);
   const [savedLlm, setSavedLlm] = useState<LlmProvider>("gemini");
   const [savedTts, setSavedTts] = useState<TtsProvider>("google");
   const [savedOrModel, setSavedOrModel] = useState<string>(DEFAULT_OPENROUTER_MODEL);
+  const [savedOrSynthModel, setSavedOrSynthModel] = useState<string>(
+    DEFAULT_OPENROUTER_SYNTH_MODEL,
+  );
   const [savedGrModel, setSavedGrModel] = useState<string>(DEFAULT_GREETING_MODEL);
   const [providerSaving, setProviderSaving] = useState(false);
   const [providerStatus, setProviderStatus] = useState("");
