@@ -1,6 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { z } from "zod";
-import { callUtilityChat } from "./modelRouter";
+import { callUtilityChat, callGreetingChat } from "./modelRouter";
 
 const SummarizeInput = z.object({
   sessionId: z.string().min(1),
