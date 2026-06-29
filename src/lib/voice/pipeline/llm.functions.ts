@@ -402,7 +402,7 @@ async function callGemini(
   const json = await Promise.race([
     resp.json() as Promise<{ candidates?: Array<{ content?: { parts?: GeminiPart[] } }> }>,
     new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("Gemini body read timeout 30000ms")), 30000),
+      setTimeout(() => reject(new Error("Gemini body read timeout 60000ms")), 60000),
     ),
   ]).catch(() => ({} as { candidates?: Array<{ content?: { parts?: GeminiPart[] } }> }));
   const parts = json.candidates?.[0]?.content?.parts ?? [];
