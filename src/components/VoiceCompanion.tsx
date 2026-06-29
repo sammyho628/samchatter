@@ -163,6 +163,9 @@ export function VoiceCompanion() {
   // Stores the in-flight Promise of the background greeting pre-fetch so
   // handleSplashTap can await it instead of re-running the full LLM pipeline.
   const greetingPrefetchRef = useRef<Promise<void> | null>(null);
+  // Shot 1: instant "你好呀！" audio pre-fetched at mount. Plays immediately on tap
+  // while the full personalized greeting loads in the background.
+  const shot1AudioRef = useRef<string | null>(null);
   const turnCountRef = useRef(0);
   const lastMemorySaveRef = useRef(0);
   const sessionDataRef = useRef<{
@@ -317,6 +320,18 @@ export function VoiceCompanion() {
 
       // Pre-fetch the contextual greeting + TTS so splash tap can play it
       // synchronously inside the user gesture (avoids iOS audio-gesture gap).
+      // Shot 1: pre-fetch instant greeting ("你好呀！") — 3 chars, ready in ~1 s.
+      if (!shot1AudioRef.current) {
+        void (async () => {
+          try {
+            const tts1 = await ttsFn({ data: { text: "你好呀！" } });
+            shot1AudioRef.current = tts1.audioBase64;
+            pushLog("evt", "shot1 prefetch · ready");
+          } catch (e) {
+            pushLog("err", `shot1 prefetch: ${(e as Error).message}`);
+          }
+        })();
+      }
       if (!greetingAudioRef.current) {
         greetingPrefetchRef.current = (async () => {
           try {
@@ -747,16 +762,22 @@ export function VoiceCompanion() {
     setShowSplash(false);
     void loadPromptIfNeeded();
     try {
+      // SHOT 1: Play instant "你好呀！" immediately — gives the user immediate audio
+      // feedback in the gesture window while the full LLM greeting loads.
+      if (shot1AudioRef.current) {
+        try { await playBase64Audio(shot1AudioRef.current); } catch (e) {
+          pushLog("err", `shot1 playback: ${(e as Error).message}`);
+        }
+      }
+      // SHOT 2: Wait for the personalized LLM greeting from the background pre-fetch.
       let audioBase64 = greetingAudioRef.current;
       if (!audioBase64 && greetingPrefetchRef.current) {
-        // Wait up to 30 s for the background pre-fetch to finish.
-        // The full LLM+TTS pipeline takes ~17 s cold; 30 s is generous.
-        // This replaces the old inline 12-second LLM re-run which always timed out.
+        // Wait up to 45 s — observed LLM greeting call takes ~27 s; 45 s covers slow networks.
         try {
           await Promise.race([
             greetingPrefetchRef.current,
             new Promise<void>((_, rej) =>
-              setTimeout(() => rej(new Error("prefetch wait timeout 30000ms")), 30000),
+              setTimeout(() => rej(new Error("prefetch wait timeout 45000ms")), 45000),
             ),
           ]);
         } catch (e) {

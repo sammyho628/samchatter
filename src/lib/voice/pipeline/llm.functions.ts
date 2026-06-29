@@ -768,14 +768,19 @@ async function callSynthesiser(
       ...history,
       { role: "user", parts: [{ text: userText }] },
     ];
-    const { parts } = await callGemini(
-      m.apiKey,
-      m.model,
-      systemInstruction,
-      contents,
-      false,
-      600, // synthesiser cap: ~132 s max audio at 3.5 chars/s Cantonese
-    );
+    const { parts } = await Promise.race([
+      callGemini(
+        m.apiKey,
+        m.model,
+        systemInstruction,
+        contents,
+        false,
+        600, // synthesiser cap: ~132 s max audio at 3.5 chars/s Cantonese
+      ),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("synthesiser LLM timeout 60000ms")), 60000),
+      ),
+    ]);
     let text = "";
     try {
       text =
@@ -798,14 +803,19 @@ async function callSynthesiser(
     ...historyToOpenAI(history),
     { role: "user", content: userText },
   ];
-  const { content: rawContent } = await callOpenAIChat(
-    m.apiUrl,
-    m.model,
-    m.apiKey,
-    messages,
-    false,
-    600, // synthesiser cap: ~132 s max audio at 3.5 chars/s Cantonese
-  );
+  const { content: rawContent } = await Promise.race([
+    callOpenAIChat(
+      m.apiUrl,
+      m.model,
+      m.apiKey,
+      messages,
+      false,
+      600, // synthesiser cap: ~132 s max audio at 3.5 chars/s Cantonese
+    ),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("synthesiser LLM timeout 60000ms")), 60000),
+    ),
+  ]);
   // Strip raw tool-call echoes that should never be spoken aloud.
   const content = rawContent
     .replace(/\[\s*(web_search|search_places|scrape_page)\s*\([^)]*\)\s*\]/g, "")
