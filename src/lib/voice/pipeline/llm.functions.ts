@@ -616,6 +616,7 @@ SYNTHESISER RULES (both time windows):
   source priority) live in systemPrompt.ts [HK STOCKS SYNTHESISER — 強制] where the
   synthesiser LLM can actually read them. Rules here are for the PLANNER only.
 
+When emitting scrape_page, only include the url parameter. Do not add a reason field.
 
 [TOOL DATA SUPREMACY — 強制硬鎖 #0]
 工具返回嘅實時數據永遠優先於對話歷史、訓練記憶、或其他來源。
@@ -1056,7 +1057,7 @@ async function callSynthesiser(
         600, // synthesiser cap: ~132 s max audio at 3.5 chars/s Cantonese
       ),
       new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("synthesiser LLM timeout 30000ms")), 30000),
+        setTimeout(() => reject(new Error("synthesiser LLM timeout 60000ms")), 60000),
       ),
     ]);
     let text = "";
@@ -1100,7 +1101,7 @@ async function callSynthesiser(
       600, // synthesiser cap: ~132 s max audio at 3.5 chars/s Cantonese
     ),
     new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("synthesiser LLM timeout 30000ms")), 30000),
+      setTimeout(() => reject(new Error("synthesiser LLM timeout 60000ms")), 60000),
     ),
   ]);
   // Strip raw tool-call echoes and any [TOOL CALLS]/[TOOL RESULTS] blocks
