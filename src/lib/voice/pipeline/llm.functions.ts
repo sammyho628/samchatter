@@ -1056,7 +1056,7 @@ async function callSynthesiser(
         600, // synthesiser cap: ~132 s max audio at 3.5 chars/s Cantonese
       ),
       new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("synthesiser LLM timeout 30000ms")), 30000),
+        setTimeout(() => reject(new Error("synthesiser LLM timeout 60000ms")), 60000),
       ),
     ]);
     let text = "";
@@ -1100,7 +1100,7 @@ async function callSynthesiser(
       600, // synthesiser cap: ~132 s max audio at 3.5 chars/s Cantonese
     ),
     new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("synthesiser LLM timeout 30000ms")), 30000),
+      setTimeout(() => reject(new Error("synthesiser LLM timeout 60000ms")), 60000),
     ),
   ]);
   // Strip raw tool-call echoes and any [TOOL CALLS]/[TOOL RESULTS] blocks

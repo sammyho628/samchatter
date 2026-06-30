@@ -264,6 +264,10 @@ Rule 3 [全球豁免 — 嚴禁加「香港」]: 若 query 含以下任何關鍵
 [HK STOCKS SYNTHESISER — 強制]
 當恆生指數 / 港股 工具結果出現後，synthesiser 必須遵守：
 
+Key extraction rule:
+  · Look for the number next to "Hang Seng Index" in tool results → that is the correct figure (e.g. "close at 22,881")
+  · Do NOT use the number next to "HK50" → HK50 is a CFD futures product, not the Hang Seng Index spot price
+
 數字來源優先次序（由高至低）：
   1. firecrawl_search description 入面嘅 Yahoo Finance metadata 數字
      格式例：「22,881.02 -145.66 (-0.63%) At close: June 24 at 4:08 PM HKT」
