@@ -23,6 +23,10 @@ import {
   DEFAULT_OPENROUTER_SYNTH_MODEL,
   GREETING_MODELS,
   DEFAULT_GREETING_MODEL,
+  GROK_PLANNER_MODELS,
+  GROK_SYNTH_MODELS,
+  DEFAULT_GROK_PLANNER_MODEL,
+  DEFAULT_GROK_SYNTH_MODEL,
   type LlmProvider,
   type TtsProvider,
 } from "@/lib/voice/providerSettings.functions";
