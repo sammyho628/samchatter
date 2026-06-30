@@ -123,6 +123,8 @@ function InstructionPage() {
           providers.openrouterSynthModel ?? DEFAULT_OPENROUTER_SYNTH_MODEL,
         );
         setGreetingModel(providers.greetingModel ?? DEFAULT_GREETING_MODEL);
+        setGrokPlannerModel(providers.grokPlannerModel ?? DEFAULT_GROK_PLANNER_MODEL);
+        setGrokSynthModel(providers.grokSynthModel ?? DEFAULT_GROK_SYNTH_MODEL);
         setSavedLlm(providers.llm);
         setSavedTts(providers.tts);
         setSavedOrModel(providers.openrouterModel ?? DEFAULT_OPENROUTER_MODEL);
@@ -130,6 +132,8 @@ function InstructionPage() {
           providers.openrouterSynthModel ?? DEFAULT_OPENROUTER_SYNTH_MODEL,
         );
         setSavedGrModel(providers.greetingModel ?? DEFAULT_GREETING_MODEL);
+        setSavedGrokPlannerModel(providers.grokPlannerModel ?? DEFAULT_GROK_PLANNER_MODEL);
+        setSavedGrokSynthModel(providers.grokSynthModel ?? DEFAULT_GROK_SYNTH_MODEL);
       } catch (err) {
         setStatus(`Load failed: ${(err as Error).message}`);
         setValue(DEFAULT_SYSTEM_PROMPT_TEMPLATE);
