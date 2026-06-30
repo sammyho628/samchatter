@@ -336,6 +336,19 @@ async function runTool(
     }
   }
 
+  // firecrawl_search — Firecrawl Search API, parallel companion to web_search.
+  if (name === "firecrawl_search") {
+    if (!query) return `Error: missing 'query' for firecrawl_search.`;
+    const category = String(args.category ?? "");
+    const refinedQ = refineQuery(query, category);
+    const body: Record<string, string | number> = { query: refinedQ };
+    if (category) {
+      body.category = category;
+      body.priority = 1;
+    }
+    return callEdgeSearch("firecrawl-search", body);
+  }
+
   if (!query) return `Error: missing 'query' for ${name}.`;
   const fn =
     name === "search_places"
