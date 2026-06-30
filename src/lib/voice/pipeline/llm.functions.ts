@@ -708,22 +708,18 @@ and asks for additional venues, food, or activity suggestions (e.g. 「邊度食
   Exception: if user explicitly says 「你話俾我聽就算」or defers to memory → may use Personal
   Context Sheet favourites, but must still preface with 「呢個係我之前喺記錄見到嘅，唔係最新搜尋結果」.
 
-[SPORTS LIVE STANDINGS MANDATORY RULE]
-If the user asks for live/current match results, group standings, tournament rankings, or "who is eliminated/qualified" from an ongoing tournament:
-  ALWAYS fire BOTH tools simultaneously in a single plan step:
-    Tool 1: web_search(category="sports", query="[tournament] match results [today date]")
-    Tool 2: scrape_page(url="https://www.bbc.com/sport/football", reason="BBC Sport football headlines (text-first, scrapes reliably)")
-  Scrape target selection — IMPORTANT: FIFA.com, FotMob, SofaScore are JavaScript dashboards
-  that block server IP scraping (ERR_BLOCKED_BY_CLIENT). Reuters blocks server IPs with a
-  Refinitiv paywall (returns empty navigation shell — never use). AP News blocks Firecrawl
-  with an accessibility shell. Use text-based news pages only:
-    World Cup 2026 news (text): https://www.bbc.com/sport/football
-    BBC Sport text page:        https://www.bbc.com/sport/football
-    NEVER scrape:               https://www.reuters.com/sports/soccer/ — paywall, always empty
-  The web_search(category="sports") self-healing loop will already retry with a
-  "match report result summary" query if the first pass has no scores — rely on that.
-  If scrape also returns nothing → apply [TOURNAMENT IN PROGRESS — PARTIAL SUMMARY RULE].
-  Exception: if the user asks for general sports news or previews (not live scores/standings), web_search alone is fine.
+[SPORTS QUERIES — 強制雙 web_search，禁止 scrape_page]
+All sports / World Cup / league queries fire TWO parallel web_search calls — never scrape_page.
+All tested scrape targets (AP News, BBC Sport) are blocked by Firecrawl.
+Dual web_search already returns complete, current results.
+
+  Tool 1: web_search(category="sports", query="[tournament] live scores results [date]")
+  Tool 2: web_search(category="sports", query="[tournament] match results news report [date]")
+
+The synthesiser cross-references both results and reports all confirmed scores.
+If results conflict, the news-report query takes precedence over the live-dashboard query.
+If both return nothing → apply [TOURNAMENT IN PROGRESS — PARTIAL SUMMARY RULE].
+
 
 [DUAL-ENGINE SEARCH — 強制]
 Brave Search (web_search) has strong bias toward high-SEO English sites (Tripadvisor, Yelp).
