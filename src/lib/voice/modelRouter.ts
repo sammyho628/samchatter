@@ -45,7 +45,8 @@ function getKey(provider: LlmProvider): string | undefined {
 export async function resolveLlmModel(
   role: "planner" | "synth" = "planner",
 ): Promise<MainModel> {
-  const { llm, openrouterModel, openrouterSynthModel } = await readProvidersServerSide();
+  const { llm, openrouterModel, openrouterSynthModel, grokPlannerModel, grokSynthModel } =
+    await readProvidersServerSide();
   const key = getKey(llm);
   if (!key) throw new Error(`Missing API key for selected LLM provider '${llm}'.`);
   if (llm === "qwen") {
@@ -59,9 +60,9 @@ export async function resolveLlmModel(
   if (llm === "grok") {
     return {
       provider: "grok",
-      // Synthesiser uses GROK_SYNTH_MODEL (fast, non-reasoning) so it responds
-      // in 2-4 s. Planner keeps grok-4-latest for better tool-selection reasoning.
-      model: role === "synth" ? GROK_SYNTH_MODEL : MODEL_IDS.grok,
+      // Both models are configurable from /instruction.
+      // Default planner=grok-4-latest (reasoning), synth=grok-3-mini (fast).
+      model: role === "synth" ? grokSynthModel : grokPlannerModel,
       apiKey: key,
       apiUrl: "https://api.x.ai/v1/chat/completions",
     };
