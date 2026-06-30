@@ -194,7 +194,13 @@ async function refreshTopicsBackground(topics: string[]) {
           return;
         }
 
-        const content = await summariseTopic(rawContent, topic);
+        // hk_weather is already a pre-formatted structured block from HKO
+        // Open Data APIs — do NOT run it through the LLM summariser (would
+        // drop warning structure and risk hallucination). Store as-is.
+        const content =
+          topic === "hk_weather"
+            ? rawContent
+            : await summariseTopic(rawContent, topic);
         const { error } = await supabaseAdmin
           .from("daily_cache")
           .upsert(
@@ -218,67 +224,121 @@ async function refreshTopicsBackground(topics: string[]) {
   );
 }
 
+// Fetch HK weather as a pre-formatted structured block via three official
+// HKO Open Data JSON endpoints (rhrread / warningInfo / flw). Replaces the
+// previous web_search / textonly scrape which returned stale Brave-cached
+// data. Returned string is stored directly into daily_cache.hk_weather
+// without LLM summarisation.
 async function fetchHKOWeather(): Promise<string> {
-  const BASE = "https://data.weather.gov.hk/weatherAPI/opendata/weather.php";
-  const [flwResp, fndResp, rhrResp] = await Promise.all([
-    fetch(`${BASE}?dataType=flw&lang=tc`),
-    fetch(`${BASE}?dataType=fnd&lang=tc`),
-    fetch(`${BASE}?dataType=rhrread&lang=tc`),
+  const HKO_BASE =
+    "https://data.weather.gov.hk/weatherAPI/opendata/weather.php";
+
+  async function fetchHkoApi(
+    dataType: string,
+  ): Promise<Record<string, unknown>> {
+    try {
+      const res = await fetch(`${HKO_BASE}?dataType=${dataType}&lang=tc`);
+      if (!res.ok) return {};
+      return (await res.json()) as Record<string, unknown>;
+    } catch {
+      return {};
+    }
+  }
+
+  const [rhrread, warningInfo, flw] = await Promise.all([
+    fetchHkoApi("rhrread"),
+    fetchHkoApi("warningInfo"),
+    fetchHkoApi("flw"),
   ]);
 
-  const TARGET_DISTRICTS = ["東區", "赤柱", "沙田", "西貢", "中西區"];
-  const parts: string[] = [];
+  // ── Active warnings ─────────────────────────────────────────────────
+  const WARNING_NAMES: Record<string, Record<string, string>> = {
+    WRAIN: {
+      AMBER: "黃色暴雨警告",
+      RED: "紅色暴雨警告",
+      BLACK: "黑色暴雨警告",
+    },
+    TC: {
+      ONE: "一號戒備信號",
+      THREE: "三號強風信號",
+      EIGHT: "八號烈風或暴風信號",
+      NINE: "九號烈風或暴風風力增強信號",
+      TEN: "十號颶風信號",
+    },
+    HOT: { "": "酷熱天氣警告" },
+    COLD: { "": "寒冷天氣警告" },
+    FIRE: { "": "火災危險警告" },
+    SWIND: { "": "強烈季候風信號" },
+    FNTSA: { "": "霜凍警告" },
+  };
 
-  if (flwResp.ok) {
-    const flw = (await flwResp.json()) as {
-      generalSituation?: string;
-      forecastPeriod?: string;
-      forecastDesc?: string;
-      outlook?: string;
-    };
-    parts.push(
-      `[本港天氣預報]\n${flw.generalSituation ?? ""}\n${flw.forecastPeriod ?? ""}: ${flw.forecastDesc ?? ""}\n展望: ${flw.outlook ?? ""}`,
-    );
-  }
-
-  if (fndResp.ok) {
-    const fnd = (await fndResp.json()) as {
-      weatherForecast?: Array<{
-        forecastDate?: string;
-        week?: string;
-        forecastWeather?: string;
-        forecastMaxtemp?: { value?: number };
-        forecastMintemp?: { value?: number };
-        PSR?: string;
-      }>;
-    };
-    const days = (fnd.weatherForecast ?? [])
-      .slice(0, 4)
-      .map(
-        (d) =>
-          `${d.forecastDate} (${d.week}): ${d.forecastWeather} 最高${d.forecastMaxtemp?.value}°C 最低${d.forecastMintemp?.value}°C 降雨概率:${d.PSR}`,
+  type WarnDetail = {
+    warningStatementCode?: string;
+    subtype?: string;
+    actionCode?: string;
+  };
+  const details = (warningInfo.details ?? []) as WarnDetail[];
+  const activeWarnings = details
+    .filter((d) => d.actionCode !== "CANCEL")
+    .map((d) => {
+      const names = WARNING_NAMES[d.warningStatementCode ?? ""] ?? {};
+      return (
+        names[d.subtype ?? ""] ??
+        names[""] ??
+        d.warningStatementCode ??
+        ""
       );
-    parts.push(`[九天預報(首4天)]\n${days.join("\n")}`);
-  }
+    })
+    .filter(Boolean);
 
-  if (rhrResp.ok) {
-    const rhr = (await rhrResp.json()) as {
-      temperature?: { data?: Array<{ place?: string; value?: number }> };
-      humidity?: { data?: Array<{ place?: string; value?: number }> };
-    };
-    const tempArr = rhr.temperature?.data ?? [];
-    const humArr = rhr.humidity?.data ?? [];
-    const temps = tempArr
-      .filter((t) => TARGET_DISTRICTS.some((d) => t.place?.includes(d)))
-      .map((t) => `${t.place}: ${t.value}°C`);
-    const hums = humArr
-      .filter((h) => TARGET_DISTRICTS.some((d) => h.place?.includes(d)))
-      .map((h) => `${h.place}: ${h.value}%`);
-    if (temps.length > 0) parts.push(`[各區氣溫]\n${temps.join(", ")}`);
-    if (hums.length > 0) parts.push(`[各區濕度]\n${hums.join(", ")}`);
-  }
+  const warningBlock =
+    activeWarnings.length > 0
+      ? `\n⚠️ 生效警告：${activeWarnings.join("、")}`
+      : "";
 
-  return parts.join("\n\n");
+  // ── Current readings ────────────────────────────────────────────────
+  type Reading = { place?: string; value?: number; desc?: string };
+  const temps =
+    ((rhrread.temperature as { data?: Reading[] } | undefined)?.data ??
+      []) as Reading[];
+  const observatory = temps.find((t) => t.place === "香港天文台");
+  const humidity = (
+    (rhrread.humidity as { data?: Reading[] } | undefined)?.data ?? []
+  )[0]?.value;
+  const uv = (
+    (rhrread.uvindex as { data?: Reading[] } | undefined)?.data ?? []
+  )[0];
+
+  const readingsBlock = [
+    observatory ? `現時氣溫（天文台）：${observatory.value}°C` : "",
+    humidity != null ? `相對濕度：${humidity}%` : "",
+    uv ? `紫外線指數：${uv.value}（${uv.desc}）` : "",
+  ]
+    .filter(Boolean)
+    .join("，");
+
+  // ── Forecast narrative ──────────────────────────────────────────────
+  const generalSituation = (flw.generalSituation as string | undefined) ?? "";
+  const forecastDesc = (flw.forecastDesc as string | undefined) ?? "";
+  const outlook = (flw.outlook as string | undefined) ?? "";
+  const updateTime = (flw.updateTime as string | undefined) ?? "";
+
+  const forecastBlock = [
+    generalSituation,
+    forecastDesc,
+    outlook ? `展望：${outlook}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  return [
+    `【hk_weather】${warningBlock}`,
+    readingsBlock,
+    forecastBlock,
+    updateTime ? `（更新時間：${updateTime}）` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 async function scrapeViaEdge(urls: string[]): Promise<string> {
