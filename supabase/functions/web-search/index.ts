@@ -63,7 +63,12 @@ async function lookupCategoryDomains(
     const rows = (await r.json()) as Array<{ domain_query_string?: string }>;
     const all: string[] = [];
     for (const row of rows) {
-      const ext = extractSiteDomains(row.domain_query_string ?? "");
+      const raw = (row.domain_query_string ?? "").trim();
+      // Defensive normalisation: if the stored value is a bare domain
+      // (e.g. "m.dianping.com") without a site: prefix, wrap it so
+      // extractSiteDomains can parse it correctly.
+      const normalised = /^site:/i.test(raw) ? raw : raw ? `site:${raw}` : "";
+      const ext = extractSiteDomains(normalised);
       all.push(...ext.domains);
     }
     return Array.from(new Set(all));
