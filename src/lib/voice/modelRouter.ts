@@ -85,7 +85,7 @@ export async function resolveLlmModel(
 export type CriticCaller = (prompt: string) => Promise<string>;
 
 export async function resolveCriticCaller(): Promise<CriticCaller | null> {
-  const { llm, openrouterModel, openrouterSynthModel, grokSynthModel } =
+  const { llm, openrouterSynthModel, grokSynthModel } =
     await readProvidersServerSide();
   const key = getKey(llm);
   if (key) {
