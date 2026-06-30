@@ -85,7 +85,8 @@ export async function resolveLlmModel(
 export type CriticCaller = (prompt: string) => Promise<string>;
 
 export async function resolveCriticCaller(): Promise<CriticCaller | null> {
-  const { llm, openrouterModel } = await readProvidersServerSide();
+  const { llm, openrouterModel, openrouterSynthModel, grokSynthModel } =
+    await readProvidersServerSide();
   const key = getKey(llm);
   if (key) {
     if (llm === "gemini") return (p) => callGeminiSimple(key, MODEL_IDS.gemini, p);
@@ -93,9 +94,11 @@ export async function resolveCriticCaller(): Promise<CriticCaller | null> {
       return (p) => callOpenAISimple(QWEN_API_URL, MODEL_IDS.qwen, key, p);
     if (llm === "grok")
       return (p) =>
-        callOpenAISimple("https://api.x.ai/v1/chat/completions", GROK_SYNTH_MODEL, key, p);
+        callOpenAISimple("https://api.x.ai/v1/chat/completions", grokSynthModel, key, p);
     if (llm === "openrouter")
-      return (p) => callOpenAISimple(OPENROUTER_API_URL, openrouterModel, key, p);
+      // Critic uses the fast synth model (non-reasoning) — no need for reasoning
+      // on a short JSON verdict over an existing draft.
+      return (p) => callOpenAISimple(OPENROUTER_API_URL, openrouterSynthModel, key, p);
   }
   // Fallback: Lovable AI Gateway
   const lovableKey = process.env.LOVABLE_API_KEY;
