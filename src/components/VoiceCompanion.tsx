@@ -962,7 +962,7 @@ export function VoiceCompanion() {
             type="button"
             onPointerDown={handleSplashTap}
             disabled={greeting}
-            className="flex h-56 w-56 items-center justify-center rounded-full bg-gradient-to-br from-amber-300 to-orange-400 text-orange-950 shadow-2xl transition-transform active:scale-95 disabled:opacity-80"
+            className="flex h-56 w-56 items-center justify-center rounded-full bg-gradient-to-br from-amber-300 to-orange-400 text-orange-950 shadow-2xl transition-all active:scale-95 active:from-emerald-400 active:to-emerald-600 active:text-white disabled:from-emerald-400 disabled:to-emerald-600 disabled:text-white disabled:opacity-100"
             style={{ touchAction: "manipulation" }}
             aria-label="Start"
           >
