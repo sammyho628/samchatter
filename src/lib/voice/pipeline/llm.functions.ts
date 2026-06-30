@@ -839,10 +839,15 @@ function buildToolResultsBlock(toolResults: ToolCallTrace[]): string {
     return t;
   });
   const body = filtered
-    .map(
-      (t) =>
-        `### ${t.name}(${JSON.stringify(t.args)})\n${t.summary}`,
-    )
+    .map((t) => {
+      const engineTag =
+        t.name === "firecrawl_search"
+          ? " [FIRECRAWL — trusted-domain / Chinese sites]"
+          : t.name === "web_search"
+            ? " [BRAVE — general web]"
+            : "";
+      return `### ${t.name}(${JSON.stringify(t.args)})${engineTag}\n${t.summary}`;
+    })
     .join("\n\n");
   // Sports fallback: if sports tools returned thin/empty data, remind the
   // synthesiser to check the [hk_news] preloaded cache before giving up.
