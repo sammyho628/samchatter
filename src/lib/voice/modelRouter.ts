@@ -95,7 +95,7 @@ export async function resolveCriticCaller(): Promise<CriticCaller | null> {
       return (p) => callOpenAISimple(QWEN_API_URL, MODEL_IDS.qwen, key, p);
     if (llm === "grok")
       return (p) =>
-        callOpenAISimple("https://api.x.ai/v1/chat/completions", MODEL_IDS.grok, key, p);
+        callOpenAISimple("https://api.x.ai/v1/chat/completions", GROK_SYNTH_MODEL, key, p);
     if (llm === "openrouter")
       return (p) => callOpenAISimple(OPENROUTER_API_URL, openrouterModel, key, p);
   }
