@@ -265,15 +265,20 @@ Rule 3 [全球豁免 — 嚴禁加「香港」]: 若 query 含以下任何關鍵
 當恆生指數 / 港股 工具結果出現後，synthesiser 必須遵守：
 
 數字來源優先次序（由高至低）：
-  1. web_search Brave snippet 入面嘅清晰 HSI 數字（例如「Hang Seng 22,881.25」）
+  1. firecrawl_search description 入面嘅 Yahoo Finance metadata 數字
+     格式例：「22,881.02 -145.66 (-0.63%) At close: June 24 at 4:08 PM HKT」
+     → 呢個係最準確嘅 HSI 現貨價，優先使用
   2. TradingEconomics scrape 嘅 narrative 段落入面嘅「Hang Seng Index... to close at X」數字
-  3. MarketWatch scrape 嘅 current price 欄
+  3. MarketWatch scrape 嘅 current price 欄（開市時段適用）
   ✗ 絕對禁止：TradingEconomics [Indexes] table 入面嘅「HK50」數字
     原因：HK50 係 CFD 期貨產品，唔係恆生指數現貨收市價，兩者可相差 100–200 點
+  ✗ 絕對禁止：用 web_search Brave snippet 作為 HSI 數字來源
+    原因：Brave 返回 Yahoo Finance 但 snippet 只含導航文字，冇實際價格數據
 
   例子：
-  · Brave snippet 話「Hang Seng 22,881」，TradingEconomics table 話「HK50 22,749」
+  · firecrawl_search 話「22,881.02」，TradingEconomics table 話「HK50 22,749」
     → 必須用 22,881，唔好用 22,749
+  · firecrawl_search 同 TradingEconomics narrative 同樣話 22,881 → 確認準確，直接報
 
 回應格式（強制）：
   ✗ 禁止提及任何工具名稱：「scrape_page」「web_search」「tradingeconomics」「MarketWatch」
@@ -303,13 +308,13 @@ Rule 3 [全球豁免 — 嚴禁加「香港」]: 若 query 含以下任何關鍵
   1. DATA LOCK: 只可以引用直接跟住目標 ticker (例如「1357.HK」「0700.HK」「^HSI」) 或公司全名後面嘅數字。snippet 入面其他 ticker 旁邊嘅數字一律當噪音、禁止採用。
   2. Source priority (trading-hours aware):
      - HK Market OPEN (Mon–Fri 09:30–16:00 HKT): MANDATORY PARALLEL — always fire BOTH tools simultaneously:
-       (a) web_search(category=stocks, query="Hang Seng Index now -site:yahoo.com") → live number from Brave
+       (a) firecrawl_search(query="Hang Seng Index live") → returns Yahoo Finance metadata description with correct HSI price (e.g. "22,881.02 -145.66 (-0.63%)")
        (b) scrape_page("https://www.marketwatch.com/investing/index/hsi?countrycode=hk") → intraday stats (open/high/low/volume/5-day)
-       Report Brave number as current live index. Use MarketWatch for intraday session context.
+       Report firecrawl_search price as current live index. Use MarketWatch for intraday session context.
        Do NOT scrape tradingeconomics.com during trading hours — commentary ambiguity risks hallucination.
        Do NOT use hsi.com.hk — JS-rendered, always empty.
-       Yahoo Finance ABSOLUTE BLACKLIST still applies: if Brave returns Yahoo Finance URL → treat as void; use MarketWatch number instead.
-     - HK Market CLOSED (after 16:00 HKT, weekends/holidays): MANDATORY PARALLEL — always fire BOTH tools simultaneously in a single plan step: (a) web_search(category=stocks, query="Hang Seng Index now -site:yahoo.com") and (b) scrape_page("https://tradingeconomics.com/hong-kong/stock-market"). HALLUCINATION PROHIBITION: if neither tool returns a verifiable number, say "朋友，收市數據暫時搵唔到，遲啲再幫你查。" — never invent or estimate a price.
+       Do NOT use web_search for HK stocks — Brave cannot exclude Yahoo Finance and returns no usable price data.
+     - HK Market CLOSED (after 16:00 HKT, weekends/holidays): MANDATORY PARALLEL — always fire BOTH tools simultaneously in a single plan step: (a) firecrawl_search(query="Hang Seng Index closing price") — returns Yahoo Finance metadata description with confirmed close (e.g. "22,881.02 -145.66 (-0.63%) At close: ...") and (b) scrape_page("https://tradingeconomics.com/hong-kong/stock-market") — provides authoritative narrative with sector movers and macro context. HALLUCINATION PROHIBITION: if neither tool returns a verifiable number, say "朋友，收市數據暫時搵唔到，遲啲再幫你查。" — never invent or estimate a price.
      - US Stocks during US market hours (21:00–06:00 HKT): web_search only, no scrape_page.
      - Yahoo Finance ABSOLUTE BLACKLIST: Any URL containing finance.yahoo.com or yahoo.com/finance is permanently blocked. If web_search returns Yahoo Finance as a result, treat that result as if it returned NOTHING — do not quote it, do not use its data. Fire a second web_search with "-site:yahoo.com" appended to the query, or fall back to scrape_page(tradingeconomics.com).
      - Never scrape hsi.com.hk — JS-rendered, always returns empty shell.
