@@ -770,18 +770,18 @@ export function VoiceCompanion() {
     pushLog("evt", "splash tap · priming iOS audio");
     // Keep-alive must be started synchronously inside the pointer gesture.
     startKeepAlive();
-    // MUST await unlockAudio so iOS AudioContext is fully resumed before we
-    // try to play any audio. Using void here was the root cause of greeting silence.
+    setGreeting(true);
+    // Hide splash IMMEDIATELY (before awaiting audio unlock) so the user sees
+    // instant feedback on tap. The orb screen has its own loading state.
+    setShowSplash(false);
+    showSplashRef.current = false;
+    // Unlock audio in the background — still inside the pointer gesture window,
+    // so iOS will accept the resume() call.
     try {
       await unlockAudio();
     } catch (err) {
       pushLog("err", `unlock: ${(err as Error).message}`);
     }
-    setGreeting(true);
-    // Hide splash immediately so a slow/failed greeting can't trap the user
-    // behind a spinning button. The orb screen has its own loading state.
-    setShowSplash(false);
-    showSplashRef.current = false;
     void loadPromptIfNeeded();
     try {
       // SHOT 1: Play instant "你好呀！" immediately — gives the user immediate audio
@@ -830,6 +830,7 @@ export function VoiceCompanion() {
       setGreeting(false);
     }
   }, [ttsFn, pushLog, loadPromptIfNeeded, genGreeting]);
+
 
 
   return (
