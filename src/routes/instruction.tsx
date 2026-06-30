@@ -365,6 +365,49 @@ function InstructionPage() {
             </label>
           )}
 
+          {llmProvider === "grok" && (
+            <label className="space-y-1.5 block">
+              <span className="text-sm font-medium">Planner model</span>
+              <select
+                value={grokPlannerModel}
+                onChange={(e) => setGrokPlannerModel(e.target.value)}
+                disabled={loading}
+                className="w-full rounded-md border border-border bg-card text-card-foreground p-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+              >
+                {GROK_PLANNER_MODELS.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label} — {m.value}
+                  </option>
+                ))}
+              </select>
+              <span className="block text-xs text-muted-foreground">
+                Used for tool selection. Grok 4 Latest gives the best reasoning.
+              </span>
+            </label>
+          )}
+
+          {llmProvider === "grok" && (
+            <label className="space-y-1.5 block">
+              <span className="text-sm font-medium">Synthesis model</span>
+              <select
+                value={grokSynthModel}
+                onChange={(e) => setGrokSynthModel(e.target.value)}
+                disabled={loading}
+                className="w-full rounded-md border border-border bg-card text-card-foreground p-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+              >
+                {GROK_SYNTH_MODELS.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label} — {m.value}
+                  </option>
+                ))}
+              </select>
+              <span className="block text-xs text-muted-foreground">
+                Used for generating the spoken response and critic. Use a fast, non-reasoning model.
+              </span>
+            </label>
+          )}
+
+
           <label className="space-y-1.5 block">
             <span className="text-sm font-medium">Greeting model</span>
             <select
