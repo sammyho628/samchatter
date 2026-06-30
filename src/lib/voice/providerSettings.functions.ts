@@ -11,6 +11,25 @@ const TTS_KEY = "voice.ttsProvider";
 const OPENROUTER_MODEL_KEY = "voice.openrouterModel";
 const OPENROUTER_SYNTH_MODEL_KEY = "voice.openrouterSynthModel";
 const GREETING_MODEL_KEY = "voice.greetingModel";
+export const GROK_PLANNER_MODEL_KEY = "voice.grokPlannerModel";
+export const GROK_SYNTH_MODEL_KEY = "voice.grokSynthModel";
+
+export const DEFAULT_GROK_PLANNER_MODEL = "grok-4-latest";
+export const DEFAULT_GROK_SYNTH_MODEL = "grok-3-mini";
+
+/** Models suitable for the planner role (tool selection, JSON output). */
+export const GROK_PLANNER_MODELS: { value: string; label: string }[] = [
+  { value: "grok-4-latest", label: "Grok 4 Latest (recommended — best tool reasoning)" },
+  { value: "grok-3-latest", label: "Grok 3 Latest (balanced)" },
+  { value: "grok-3-mini", label: "Grok 3 Mini (fast — less reasoning)" },
+];
+
+/** Models suitable for synthesis and critic (fast prose, no deep reasoning). */
+export const GROK_SYNTH_MODELS: { value: string; label: string }[] = [
+  { value: "grok-3-mini", label: "Grok 3 Mini (recommended — fast, non-reasoning)" },
+  { value: "grok-3-latest", label: "Grok 3 Latest (balanced)" },
+  { value: "grok-2-latest", label: "Grok 2 Latest (stable)" },
+];
 
 export const LLM_PROVIDERS: { value: LlmProvider; label: string; note: string }[] = [
   { value: "gemini", label: "Google Gemini 2.5 Flash", note: "Default. Strong Cantonese + tool use." },
