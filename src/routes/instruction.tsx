@@ -23,6 +23,10 @@ import {
   DEFAULT_OPENROUTER_SYNTH_MODEL,
   GREETING_MODELS,
   DEFAULT_GREETING_MODEL,
+  GROK_PLANNER_MODELS,
+  GROK_SYNTH_MODELS,
+  DEFAULT_GROK_PLANNER_MODEL,
+  DEFAULT_GROK_SYNTH_MODEL,
   type LlmProvider,
   type TtsProvider,
 } from "@/lib/voice/providerSettings.functions";
@@ -67,6 +71,10 @@ function InstructionPage() {
     DEFAULT_OPENROUTER_SYNTH_MODEL,
   );
   const [savedGrModel, setSavedGrModel] = useState<string>(DEFAULT_GREETING_MODEL);
+  const [grokPlannerModel, setGrokPlannerModel] = useState<string>(DEFAULT_GROK_PLANNER_MODEL);
+  const [grokSynthModel, setGrokSynthModel] = useState<string>(DEFAULT_GROK_SYNTH_MODEL);
+  const [savedGrokPlannerModel, setSavedGrokPlannerModel] = useState<string>(DEFAULT_GROK_PLANNER_MODEL);
+  const [savedGrokSynthModel, setSavedGrokSynthModel] = useState<string>(DEFAULT_GROK_SYNTH_MODEL);
   const [providerSaving, setProviderSaving] = useState(false);
   const [providerStatus, setProviderStatus] = useState("");
 
@@ -99,6 +107,8 @@ function InstructionPage() {
             openrouterModel: DEFAULT_OPENROUTER_MODEL,
             openrouterSynthModel: DEFAULT_OPENROUTER_SYNTH_MODEL,
             greetingModel: DEFAULT_GREETING_MODEL,
+            grokPlannerModel: DEFAULT_GROK_PLANNER_MODEL,
+            grokSynthModel: DEFAULT_GROK_SYNTH_MODEL,
           })),
           loadKb().catch((e) => setKbStatus(`load failed: ${(e as Error).message}`)),
         ]);
@@ -113,6 +123,8 @@ function InstructionPage() {
           providers.openrouterSynthModel ?? DEFAULT_OPENROUTER_SYNTH_MODEL,
         );
         setGreetingModel(providers.greetingModel ?? DEFAULT_GREETING_MODEL);
+        setGrokPlannerModel(providers.grokPlannerModel ?? DEFAULT_GROK_PLANNER_MODEL);
+        setGrokSynthModel(providers.grokSynthModel ?? DEFAULT_GROK_SYNTH_MODEL);
         setSavedLlm(providers.llm);
         setSavedTts(providers.tts);
         setSavedOrModel(providers.openrouterModel ?? DEFAULT_OPENROUTER_MODEL);
@@ -120,6 +132,8 @@ function InstructionPage() {
           providers.openrouterSynthModel ?? DEFAULT_OPENROUTER_SYNTH_MODEL,
         );
         setSavedGrModel(providers.greetingModel ?? DEFAULT_GREETING_MODEL);
+        setSavedGrokPlannerModel(providers.grokPlannerModel ?? DEFAULT_GROK_PLANNER_MODEL);
+        setSavedGrokSynthModel(providers.grokSynthModel ?? DEFAULT_GROK_SYNTH_MODEL);
       } catch (err) {
         setStatus(`Load failed: ${(err as Error).message}`);
         setValue(DEFAULT_SYSTEM_PROMPT_TEMPLATE);
@@ -135,6 +149,8 @@ function InstructionPage() {
     ttsProvider !== savedTts ||
     (llmProvider === "openrouter" && openrouterModel !== savedOrModel) ||
     (llmProvider === "openrouter" && openrouterSynthModel !== savedOrSynthModel) ||
+    (llmProvider === "grok" && grokPlannerModel !== savedGrokPlannerModel) ||
+    (llmProvider === "grok" && grokSynthModel !== savedGrokSynthModel) ||
     greetingModel !== savedGrModel;
 
   const onSaveProviders = async () => {
@@ -148,6 +164,8 @@ function InstructionPage() {
           openrouterModel,
           openrouterSynthModel,
           greetingModel,
+          grokPlannerModel,
+          grokSynthModel,
         },
       });
       setSavedLlm(llmProvider);
@@ -155,10 +173,14 @@ function InstructionPage() {
       setSavedOrModel(openrouterModel);
       setSavedOrSynthModel(openrouterSynthModel);
       setSavedGrModel(greetingModel);
+      setSavedGrokPlannerModel(grokPlannerModel);
+      setSavedGrokSynthModel(grokSynthModel);
       const tag =
         llmProvider === "openrouter"
           ? `${llmProvider}:${openrouterModel}/synth:${openrouterSynthModel}`
-          : llmProvider;
+          : llmProvider === "grok"
+            ? `${llmProvider}:${grokPlannerModel}/synth:${grokSynthModel}`
+            : llmProvider;
       setProviderStatus(
         `Saved (LLM=${tag}, TTS=${ttsProvider}) at ${new Date().toLocaleTimeString()}.`,
       );
@@ -342,6 +364,49 @@ function InstructionPage() {
               </span>
             </label>
           )}
+
+          {llmProvider === "grok" && (
+            <label className="space-y-1.5 block">
+              <span className="text-sm font-medium">Planner model</span>
+              <select
+                value={grokPlannerModel}
+                onChange={(e) => setGrokPlannerModel(e.target.value)}
+                disabled={loading}
+                className="w-full rounded-md border border-border bg-card text-card-foreground p-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+              >
+                {GROK_PLANNER_MODELS.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label} — {m.value}
+                  </option>
+                ))}
+              </select>
+              <span className="block text-xs text-muted-foreground">
+                Used for tool selection. Grok 4 Latest gives the best reasoning.
+              </span>
+            </label>
+          )}
+
+          {llmProvider === "grok" && (
+            <label className="space-y-1.5 block">
+              <span className="text-sm font-medium">Synthesis model</span>
+              <select
+                value={grokSynthModel}
+                onChange={(e) => setGrokSynthModel(e.target.value)}
+                disabled={loading}
+                className="w-full rounded-md border border-border bg-card text-card-foreground p-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+              >
+                {GROK_SYNTH_MODELS.map((m) => (
+                  <option key={m.value} value={m.value}>
+                    {m.label} — {m.value}
+                  </option>
+                ))}
+              </select>
+              <span className="block text-xs text-muted-foreground">
+                Used for generating the spoken response and critic. Use a fast, non-reasoning model.
+              </span>
+            </label>
+          )}
+
 
           <label className="space-y-1.5 block">
             <span className="text-sm font-medium">Greeting model</span>

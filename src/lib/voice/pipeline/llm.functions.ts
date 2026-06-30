@@ -809,7 +809,32 @@ function buildToolResultsBlock(toolResults: ToolCallTrace[]): string {
         `### ${t.name}(${JSON.stringify(t.args)})\n${t.summary}`,
     )
     .join("\n\n");
-  return `\n\n[TOOL RESULTS — use these as the sole source of factual claims]\n${body}\n[/TOOL RESULTS]`;
+  // Sports fallback: if sports tools returned thin/empty data, remind the
+  // synthesiser to check the [hk_news] preloaded cache before giving up.
+  const sportsTools = filtered.filter((t) => {
+    const cat = String((t.args as Record<string, unknown>).category ?? "");
+    const q = String((t.args as Record<string, unknown>).query ?? "");
+    return cat === "sports" || SPORTS_RE.test(q);
+  });
+  const sportsFailed =
+    sportsTools.length > 0 &&
+    sportsTools.every(
+      (t) =>
+        t.summary.trim().length < 300 ||
+        /enable accessibility|no results found|threw:/i.test(t.summary),
+    );
+
+  const sportsFallbackNote = sportsFailed
+    ? "\n\n[SPORTS CACHE FALLBACK — 強制]\n" +
+      "以上體育工具結果空白或冇有效比分數據。在話「搵唔到」之前，必須先閱讀系統提示入面嘅" +
+      "【hk_news】預載 block，查找相關世界盃 / 賽事結果。如【hk_news】有相關資訊，以" +
+      "「根據今早預載新聞，」為前綴回答。只有【hk_news】都冇相關數據先可以話「搵唔到」。"
+    : "";
+
+  return (
+    `\n\n[TOOL RESULTS — use these as the sole source of factual claims]\n${body}\n[/TOOL RESULTS]` +
+    sportsFallbackNote
+  );
 }
 
 async function callSynthesiser(

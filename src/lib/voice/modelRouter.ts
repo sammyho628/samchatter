@@ -32,10 +32,7 @@ const QWEN_API_URL =
 // OpenRouter — OpenAI-compatible chat completions endpoint.
 const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
 
-// Grok synthesis model — fast, non-reasoning. Planner keeps grok-4-latest
-// (reasoning helpful for tool selection). Synthesiser uses a lightweight
-// model so the response arrives in 2-4 s rather than 40-120 s.
-const GROK_SYNTH_MODEL = "grok-3-mini";
+
 
 function getKey(provider: LlmProvider): string | undefined {
   if (provider === "gemini") return process.env.GEMINI_API_KEY;
@@ -48,7 +45,8 @@ function getKey(provider: LlmProvider): string | undefined {
 export async function resolveLlmModel(
   role: "planner" | "synth" = "planner",
 ): Promise<MainModel> {
-  const { llm, openrouterModel, openrouterSynthModel } = await readProvidersServerSide();
+  const { llm, openrouterModel, openrouterSynthModel, grokPlannerModel, grokSynthModel } =
+    await readProvidersServerSide();
   const key = getKey(llm);
   if (!key) throw new Error(`Missing API key for selected LLM provider '${llm}'.`);
   if (llm === "qwen") {
@@ -62,9 +60,9 @@ export async function resolveLlmModel(
   if (llm === "grok") {
     return {
       provider: "grok",
-      // Synthesiser uses GROK_SYNTH_MODEL (fast, non-reasoning) so it responds
-      // in 2-4 s. Planner keeps grok-4-latest for better tool-selection reasoning.
-      model: role === "synth" ? GROK_SYNTH_MODEL : MODEL_IDS.grok,
+      // Both models are configurable from /instruction.
+      // Default planner=grok-4-latest (reasoning), synth=grok-3-mini (fast).
+      model: role === "synth" ? grokSynthModel : grokPlannerModel,
       apiKey: key,
       apiUrl: "https://api.x.ai/v1/chat/completions",
     };
@@ -87,7 +85,8 @@ export async function resolveLlmModel(
 export type CriticCaller = (prompt: string) => Promise<string>;
 
 export async function resolveCriticCaller(): Promise<CriticCaller | null> {
-  const { llm, openrouterModel } = await readProvidersServerSide();
+  const { llm, openrouterSynthModel, grokSynthModel } =
+    await readProvidersServerSide();
   const key = getKey(llm);
   if (key) {
     if (llm === "gemini") return (p) => callGeminiSimple(key, MODEL_IDS.gemini, p);
@@ -95,9 +94,11 @@ export async function resolveCriticCaller(): Promise<CriticCaller | null> {
       return (p) => callOpenAISimple(QWEN_API_URL, MODEL_IDS.qwen, key, p);
     if (llm === "grok")
       return (p) =>
-        callOpenAISimple("https://api.x.ai/v1/chat/completions", GROK_SYNTH_MODEL, key, p);
+        callOpenAISimple("https://api.x.ai/v1/chat/completions", grokSynthModel, key, p);
     if (llm === "openrouter")
-      return (p) => callOpenAISimple(OPENROUTER_API_URL, openrouterModel, key, p);
+      // Critic uses the fast synth model (non-reasoning) — no need for reasoning
+      // on a short JSON verdict over an existing draft.
+      return (p) => callOpenAISimple(OPENROUTER_API_URL, openrouterSynthModel, key, p);
   }
   // Fallback: Lovable AI Gateway
   const lovableKey = process.env.LOVABLE_API_KEY;
