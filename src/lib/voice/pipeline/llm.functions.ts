@@ -588,26 +588,27 @@ You are in PLANNING phase. Decide which tool calls (web_search / firecrawl_searc
 Which pair to fire depends on current HKT time — DO NOT use the wrong pair.
 
 MARKET OPEN (Mon–Fri 09:30–16:00 HKT):
-  Tool 1: web_search(category="stocks", query="Hang Seng Index now -site:yahoo.com")
+  Tool 1: firecrawl_search(query="Hang Seng Index live")
   Tool 2: scrape_page("https://www.marketwatch.com/investing/index/hsi?countrycode=hk")
-  Synthesiser: report live number from Tool 1 as current index.
+  Synthesiser: report the HSI price from the firecrawl_search description (Yahoo Finance metadata format: "22,881.02 -145.66 (-0.63%)") as the live index number.
   Use Tool 2 (MarketWatch) for intraday context: today's open, session high, session low, volume.
   Example output: 「恆指而家22,654點，跌緊1.2%，今日開市係23,100，最低跌到22,620。」
   Do NOT scrape tradingeconomics.com during trading hours — its commentary may be
   the previous day's closing recap and the LLM cannot reliably distinguish this.
 
 MARKET CLOSED (after 16:00 HKT, weekends, public holidays):
-  Tool 1: web_search(category="stocks", query="Hang Seng Index now -site:yahoo.com")
+  Tool 1: firecrawl_search(query="Hang Seng Index closing price")
   Tool 2: scrape_page("https://tradingeconomics.com/hong-kong/stock-market")
-  Synthesiser: use Tool 2 confirmed close number as AUTHORITATIVE figure.
-  If Tool 1 Brave snippet contradicts Tool 2 → use Tool 2 number only.
-  TradingEconomics post-close commentary is rich same-day narrative — always use it
-  for qualitative colour (sector movers, macro drivers, monthly/quarterly context).
+  Synthesiser: use the HSI close from firecrawl_search description as primary figure.
+  Cross-check with TradingEconomics narrative paragraph ("Hang Seng Index... to close at X").
+  Both should agree. TradingEconomics post-close commentary is rich same-day narrative —
+  always use it for qualitative colour (sector movers, macro drivers, monthly/quarterly context).
   Example output: 「恆指收報22,881，跌146點跌0.6%，科技同醫藥股領跌，
   本月累跌9.1%係今年最差月份。」
 
 SYNTHESISER RULES (both time windows):
-  · Do NOT add firecrawl_search — two sources already present (EXCEPTION to DUAL-ENGINE rule)
+  · Do NOT add web_search — two sources already present (EXCEPTION to DUAL-ENGINE rule)
+  · firecrawl_search is the price source; scrape_page is the narrative/context source
   · NEVER quote any number from conversation history when tool results are present
   · NEVER invent or estimate a figure if tools return empty
   · If all tools fail: 「今次恆指數據搵唔到，遲啲再試吓。」
@@ -830,7 +831,7 @@ answer. It must:
   · For factual conflicts: apply the existing [TOOL DATA SUPREMACY] timestamp rules
 
 EXCEPTION — do NOT add firecrawl_search when the plan already has a mandatory scrape_page:
-  · HK stock queries (web_search + scrape_page tradingeconomics)
+  · HK stock queries (firecrawl_search + scrape_page) — do NOT add web_search; firecrawl_search IS the price source
   · US broad market queries (web_search + scrape_page tradingeconomics US)
   · Non-HK weather queries (web_search + scrape_page wttr.in)
   · Sports queries (dual web_search — see SPORTS QUERIES rule above)
@@ -969,25 +970,16 @@ const REUTERS_DOMAIN_RE = /reuters\.com/i;
 function buildToolResultsBlock(toolResults: ToolCallTrace[]): string {
   if (toolResults.length === 0) return "";
   const filtered = toolResults.map((t) => {
-    // Strip Yahoo Finance lines from web_search results — blocked domain, data unreliable.
-    // If Yahoo Finance dominates the result (< 80 usable chars remain after stripping),
-    // void the entire summary so no Yahoo-adjacent content (e.g. "U.S. markets closed")
-    // bleeds into the synthesiser context.
+    // Void any web_search result containing Yahoo Finance — unconditionally.
+    // Yahoo Finance snippets contain no price data (only navigation text).
+    // HK stock queries now use firecrawl_search so this is a safety net only.
     if (t.name === "web_search" && YAHOO_FINANCE_RE.test(t.summary)) {
-      const stripped = t.summary.replace(
-        /^.*(?:finance\.yahoo\.com|yahoo\.com\/finance).*$/gim,
-        "",
-      ).replace(/\n{2,}/g, "\n").trim();
-      if (stripped.length < 80) {
-        // Yahoo Finance was the only meaningful result — void entirely.
-        return {
-          ...t,
-          summary:
-            "[web_search result voided — Yahoo Finance dominated response. " +
-            "Permanently blocked domain. Use scrape_page or firecrawl_search instead.]",
-        };
-      }
-      return { ...t, summary: stripped };
+      return {
+        ...t,
+        summary:
+          "[web_search result voided — Yahoo Finance returned. " +
+          "No price data in snippet. Use firecrawl_search for HK stock price queries.]",
+      };
     }
     // Replace Reuters scrape results — Refinitiv paywall returns navigation shell only.
     if (t.name === "scrape_page" && REUTERS_DOMAIN_RE.test(JSON.stringify(t.args))) {
