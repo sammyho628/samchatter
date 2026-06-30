@@ -196,6 +196,13 @@ const LOCAL_CATEGORIES = new Set([
 const SPORTS_RE =
   /(世界盃|世界杯|歐國盃|歐冠|英超|西甲|意甲|德甲|法甲|港超|nba|epl|mlb|nfl|ufc|世錦|奧運|溫網|美網|法網|澳網|f1|grand prix|決賽|準決賽|分組賽|vs |對|球賽|比分|賽果|score|match)/i;
 
+/** Maximum number of history messages sent to the synthesiser.
+ *  Keeps context bounded so grok-3-mini responds in < 10 s even on long sessions.
+ *  8 messages = 4 complete user/assistant turn pairs — more than enough for a
+ *  voice chatbot. The planner still receives the full history for tool selection. */
+const MAX_SYNTH_HISTORY = 8;
+
+
 
 const CONVERSATIONAL_RE =
   /(你好|哈囉|hello|hi|唔該|請問|我想|我要|可唔可以|可以唔可以|幫我|同我|搵下|睇下|睇吓|查下|查吓|了解一下|最新情況|情況|啦|呀|喎|啊|㗎|喺度|而家|宜家|依家|^\s*嗯+|嗯+\s*$)/gi;
@@ -576,18 +583,25 @@ You are in PLANNING phase. Decide which tool calls (web_search / firecrawl_searc
 
 違反此原則 = 向用戶提供過期數據 = critical failure。
 
-[HK STOCK MANDATORY RULE — POST-MARKET]
-If the user asks about HK stock market / HSI / Hang Seng / 恆指 / 港股 AND the current HK time is after 16:00 HKT or it is a weekend/holiday, ALWAYS plan exactly 2 tools fired simultaneously in one step (never sequentially):
-  Tool 1: web_search(category="stocks", query="Hang Seng Index close [today ISO date]")
-  Tool 2: scrape_page(url="https://tradingeconomics.com/hong-kong/stock-market", reason="Get authoritative HK50 closing price from Indexes table")
-The scraped [Indexes] table value is the AUTHORITATIVE closing price — it overrides any number from the Brave snippet. Brave snippets carry stale CFD values that frequently differ from the actual HSI close.
-NEVER say "data not available" post-market — tradingeconomics.com always has the confirmed close by 16:30 HKT.
-NEVER invent or estimate a price if neither tool returns a clear number — say "數據暫時攞唔到" instead.
+[HK STOCKS — 強制雙步驟]
+恆生指數 / 港股 queries ALWAYS fire BOTH tools in the same parallel step, regardless
+of market hours. The scrape gives a 15-minute-delayed real number; web_search gives
+context. A 15-minute-delayed number is always better than a stale history number.
 
-[HK STOCK RULE — OPEN MARKET]
-If the user asks about HK stocks during trading hours (Mon–Fri 09:30–16:00 HKT):
-  Fire ONLY web_search(category="stocks", query="Hang Seng Index live [today ISO date]").
-  Do NOT fire scrape_page — tradingeconomics.com times out during live trading hours (5–19 second delay).
+  Step 1 (parallel):
+    web_search(category="stocks", query="恆生指數 <today's context>")
+    scrape_page("https://tradingeconomics.com/hong-kong/stock-market")
+
+  Step 2 — synthesiser response rules:
+    · Always quote the numeric value from scrape_page (e.g. 指數：23,145 點)
+    · If current HKT time is 09:30–16:00: append "（約15分鐘延遲）" after the number
+    · If current HKT time is outside 09:30–16:00: append "（上一個交易日收市價）"
+    · NEVER quote any number from conversation history when a scrape_page result is present
+    · If scrape_page returned an error or empty: say "暫時未能取得最新數據" and do not
+      invent or quote any figure
+
+IMPORTANT: This mandatory pair (web_search + scrape_page) is an EXCEPTION to the
+[DUAL-ENGINE SEARCH] rule. Do NOT also add firecrawl_search for stocks queries.
 
 [NON-HK WEATHER MANDATORY RULE — 強制]
 If the user asks about weather for a location OUTSIDE Hong Kong:
@@ -698,11 +712,12 @@ and asks for additional venues, food, or activity suggestions (e.g. 「邊度食
 If the user asks for live/current match results, group standings, tournament rankings, or "who is eliminated/qualified" from an ongoing tournament:
   ALWAYS fire BOTH tools simultaneously in a single plan step:
     Tool 1: web_search(category="sports", query="[tournament] match results [today date]")
-    Tool 2: scrape_page(url="https://apnews.com/hub/soccer", reason="AP Sports soccer hub — text-based wire service, no paywall, accessible from server IPs")
+    Tool 2: scrape_page(url="https://www.bbc.com/sport/football", reason="BBC Sport football headlines (text-first, scrapes reliably)")
   Scrape target selection — IMPORTANT: FIFA.com, FotMob, SofaScore are JavaScript dashboards
   that block server IP scraping (ERR_BLOCKED_BY_CLIENT). Reuters blocks server IPs with a
-  Refinitiv paywall (returns empty navigation shell — never use). Use text-based news pages only:
-    World Cup 2026 news (text): https://apnews.com/hub/soccer
+  Refinitiv paywall (returns empty navigation shell — never use). AP News blocks Firecrawl
+  with an accessibility shell. Use text-based news pages only:
+    World Cup 2026 news (text): https://www.bbc.com/sport/football
     BBC Sport text page:        https://www.bbc.com/sport/football
     NEVER scrape:               https://www.reuters.com/sports/soccer/ — paywall, always empty
   The web_search(category="sports") self-healing loop will already retry with a
@@ -731,7 +746,7 @@ EXCEPTION — do NOT add firecrawl_search when the plan already has a mandatory 
   · HK stock queries (web_search + scrape_page tradingeconomics)
   · US broad market queries (web_search + scrape_page tradingeconomics US)
   · Non-HK weather queries (web_search + scrape_page wttr.in)
-  · Sports live scores (web_search + scrape_page apnews)
+  · Sports live scores (web_search + scrape_page bbc sport)
   · search_places queries (Google Maps — different tool type, not a web search)
   These categories already have a second parallel source. Adding firecrawl_search would
   create unnecessary triple parallelism.
@@ -932,9 +947,14 @@ async function callSynthesiser(
   userText: string,
 ): Promise<{ text: string; history: GeminiTurn[] }> {
   const m = await resolveLlmModel("synth");
+  // Truncate history to the most recent MAX_SYNTH_HISTORY messages to prevent
+  // context-size timeouts on long sessions. The planner retains full history;
+  // only what we feed the synthesiser LLM is truncated. The returned history
+  // is rebuilt from the full original history so caller state stays intact.
+  const truncatedHistory = history.slice(-MAX_SYNTH_HISTORY);
   if (m.provider === "gemini") {
     const contents: GeminiTurn[] = [
-      ...history,
+      ...truncatedHistory,
       { role: "user", parts: [{ text: userText }] },
     ];
     const { parts } = await Promise.race([
@@ -968,13 +988,17 @@ async function callSynthesiser(
       .replace(/\[TOOL RESULTS\][\s\S]*?\[\/TOOL RESULTS\]/gi, "")
       .replace(/\[\s*(web_search|search_places|scrape_page)\s*\([^)]*\)\s*\]/g, "")
       .trim();
-    contents.push({ role: "model", parts: [{ text }] });
-    return { text, history: contents };
+    const nextHistory: GeminiTurn[] = [
+      ...history,
+      { role: "user", parts: [{ text: userText }] },
+      { role: "model", parts: [{ text }] },
+    ];
+    return { text, history: nextHistory };
 
   }
   const messages: OAMessage[] = [
     { role: "system", content: systemInstruction },
-    ...historyToOpenAI(history),
+    ...historyToOpenAI(truncatedHistory),
     { role: "user", content: userText },
   ];
   const { content: rawContent } = await Promise.race([
