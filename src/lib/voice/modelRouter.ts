@@ -32,6 +32,11 @@ const QWEN_API_URL =
 // OpenRouter — OpenAI-compatible chat completions endpoint.
 const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
 
+// Grok synthesis model — fast, non-reasoning. Planner keeps grok-4-latest
+// (reasoning helpful for tool selection). Synthesiser uses a lightweight
+// model so the response arrives in 2-4 s rather than 40-120 s.
+const GROK_SYNTH_MODEL = "grok-3-mini";
+
 function getKey(provider: LlmProvider): string | undefined {
   if (provider === "gemini") return process.env.GEMINI_API_KEY;
   if (provider === "qwen") return process.env.DASHSCOPE_API_KEY;
