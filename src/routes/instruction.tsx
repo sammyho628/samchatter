@@ -107,6 +107,8 @@ function InstructionPage() {
             openrouterModel: DEFAULT_OPENROUTER_MODEL,
             openrouterSynthModel: DEFAULT_OPENROUTER_SYNTH_MODEL,
             greetingModel: DEFAULT_GREETING_MODEL,
+            grokPlannerModel: DEFAULT_GROK_PLANNER_MODEL,
+            grokSynthModel: DEFAULT_GROK_SYNTH_MODEL,
           })),
           loadKb().catch((e) => setKbStatus(`load failed: ${(e as Error).message}`)),
         ]);
