@@ -95,7 +95,29 @@ const TOOL_DECLS = [
       required: ["url"],
     },
   },
-
+  {
+    name: "firecrawl_search",
+    description:
+      "Search the web using Firecrawl — a second parallel search engine that penetrates " +
+      "JS-rendered pages and Chinese-language sites (Dianping, local review sites) that " +
+      "Brave Search cannot index. Always fire alongside web_search for food/restaurant " +
+      "queries and general information queries. Use category='food' for restaurant " +
+      "searches to activate the Dianping trusted-domain filter.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "What to look up." },
+        category: {
+          type: "string",
+          description:
+            "Optional. Same values as web_search: food | travel_global | world_news | " +
+            "sports | health | stocks | weather | technology | etc. " +
+            "Use 'food' for restaurant/dining queries — activates Dianping trusted domain.",
+        },
+      },
+      required: ["query"],
+    },
+  },
 ];
 
 const GEMINI_TOOLS = [
@@ -314,6 +336,19 @@ async function runTool(
     }
   }
 
+  // firecrawl_search — Firecrawl Search API, parallel companion to web_search.
+  if (name === "firecrawl_search") {
+    if (!query) return `Error: missing 'query' for firecrawl_search.`;
+    const category = String(args.category ?? "");
+    const refinedQ = refineQuery(query, category);
+    const body: Record<string, string | number> = { query: refinedQ };
+    if (category) {
+      body.category = category;
+      body.priority = 1;
+    }
+    return callEdgeSearch("firecrawl-search", body);
+  }
+
   if (!query) return `Error: missing 'query' for ${name}.`;
   const fn =
     name === "search_places"
@@ -515,7 +550,7 @@ Violation example (FORBIDDEN):
   CORRECT plan: web_search(weather) only — or web_search(weather) + scrape_page(wttr.in)
 
 [PLANNER ROLE]
-You are in PLANNING phase. Decide which tool calls (web_search / search_places / scrape_page) are needed to answer the user. If multiple facets matter (analytical query: 分析/analyse/summary/總結/報告/詳細/深入), emit at least 3 parallel tool calls covering distinct angles. If no tool is needed (greeting, chit-chat, opinion already in context), reply directly with a short Cantonese answer. Do NOT fabricate facts. Tool args should be concise keyword queries, not the user's raw sentence.
+You are in PLANNING phase. Decide which tool calls (web_search / firecrawl_search / search_places / scrape_page) are needed to answer the user. If multiple facets matter (analytical query: 分析/analyse/summary/總結/報告/詳細/深入), emit at least 3 parallel tool calls covering distinct angles. If no tool is needed (greeting, chit-chat, opinion already in context), reply directly with a short Cantonese answer. Do NOT fabricate facts. Tool args should be concise keyword queries, not the user's raw sentence.
 
 [PARAMETRIC TRUST BOUNDARY — 核心原則]
 你嘅訓練知識係截止日期前嘅靜態快照（snapshot）。判斷係咪需要搜尋，用「時間衰減測試」:
@@ -611,9 +646,14 @@ When firing web_search for travel/itinerary queries, always route by destination
   Routing rule: Is destination Hong Kong? → "travel". Anywhere else? → "travel_global".
   Examples:
     Akasaka Tokyo restaurants → web_search(category="travel_global", query="Akasaka Tokyo restaurant recommendations")
+                                + firecrawl_search(category="food", query="東京 赤坂 餐廳推薦")
     Shenzhen Futian SPA       → search_places(query="福田區 SPA 按摩")
+    Shenzhen seafood          → web_search(category="travel_global", query="深圳 海鮮餐廳 推薦")
+                                + firecrawl_search(category="food", query="深圳 海鮮餐廳 推薦")
     Paris Marais shopping     → web_search(category="travel_global", query="Le Marais Paris shopping guide")
     HK hiking trails          → web_search(category="travel", query="香港郊野公園行山路線推薦")
+    HK restaurant search      → web_search(category="food", query="銅鑼灣 粵菜 餐廳推薦")
+                                + firecrawl_search(category="food", query="銅鑼灣 粵菜 餐廳推薦")
 
 [RESTAURANT / VENUE REVIEW QUERIES — 強制]
 When user asks about a specific restaurant, café, bar, spa, or venue ("X好唔好食？" "X點樣？"
@@ -669,6 +709,50 @@ If the user asks for live/current match results, group standings, tournament ran
   "match report result summary" query if the first pass has no scores — rely on that.
   If scrape also returns nothing → apply [TOURNAMENT IN PROGRESS — PARTIAL SUMMARY RULE].
   Exception: if the user asks for general sports news or previews (not live scores/standings), web_search alone is fine.
+
+[DUAL-ENGINE SEARCH — 強制]
+Brave Search (web_search) has strong bias toward high-SEO English sites (Tripadvisor, Yelp).
+Firecrawl (firecrawl_search) penetrates JS-rendered pages and Chinese-language sites
+(Dianping, local review platforms) that Brave cannot index.
+
+RULE: For food/restaurant queries AND general information queries, ALWAYS fire BOTH engines
+in the same parallel step:
+  Engine 1: web_search(query, category=<best Brave category>)
+  Engine 2: firecrawl_search(query, category="food" for restaurants, else same as Engine 1)
+
+The synthesiser receives both [BRAVE] and [FIRECRAWL] result blocks and decides the best
+answer. It must:
+  · Lead with whichever source has richer, more specific data
+  · For opinion/rating differences (e.g. Tripadvisor 3.5 vs Dianping 4.8): explain the
+    audience difference ("本地人評分" vs "外國遊客評分")
+  · For factual conflicts: apply the existing [TOOL DATA SUPREMACY] timestamp rules
+
+EXCEPTION — do NOT add firecrawl_search when the plan already has a mandatory scrape_page:
+  · HK stock queries (web_search + scrape_page tradingeconomics)
+  · US broad market queries (web_search + scrape_page tradingeconomics US)
+  · Non-HK weather queries (web_search + scrape_page wttr.in)
+  · Sports live scores (web_search + scrape_page apnews)
+  · search_places queries (Google Maps — different tool type, not a web search)
+  These categories already have a second parallel source. Adding firecrawl_search would
+  create unnecessary triple parallelism.
+
+EXAMPLES:
+  深圳海鮮餐廳:
+    ✓ web_search(category="travel_global", query="深圳 海鮮餐廳 推薦")
+    ✓ firecrawl_search(category="food", query="深圳 海鮮餐廳 推薦")
+    ✗ single web_search only — misses Dianping
+
+  秘魯大選新聞:
+    ✓ web_search(category="world_news", query="秘魯大選結果 2026")
+    ✓ firecrawl_search(category="world_news", query="秘魯大選結果 2026")
+
+  銅鑼灣粵菜推薦:
+    ✓ web_search(category="food", query="銅鑼灣 粵菜餐廳")
+    ✓ firecrawl_search(category="food", query="銅鑼灣 粵菜餐廳")
+
+  恆指今日收市:
+    ✓ web_search(category="stocks") + scrape_page(tradingeconomics) — mandatory pair
+    ✗ do NOT add firecrawl_search
 
 [VOICE FORMAT — 所有回覆強制 — 包括 directAnswer]
 samchatter 係聲音介面，唔係 chat UI。所有回覆（包括 directAnswer）必須：
@@ -804,10 +888,15 @@ function buildToolResultsBlock(toolResults: ToolCallTrace[]): string {
     return t;
   });
   const body = filtered
-    .map(
-      (t) =>
-        `### ${t.name}(${JSON.stringify(t.args)})\n${t.summary}`,
-    )
+    .map((t) => {
+      const engineTag =
+        t.name === "firecrawl_search"
+          ? " [FIRECRAWL — trusted-domain / Chinese sites]"
+          : t.name === "web_search"
+            ? " [BRAVE — general web]"
+            : "";
+      return `### ${t.name}(${JSON.stringify(t.args)})${engineTag}\n${t.summary}`;
+    })
     .join("\n\n");
   // Sports fallback: if sports tools returned thin/empty data, remind the
   // synthesiser to check the [hk_news] preloaded cache before giving up.
