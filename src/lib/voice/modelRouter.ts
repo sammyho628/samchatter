@@ -32,6 +32,11 @@ const QWEN_API_URL =
 // OpenRouter — OpenAI-compatible chat completions endpoint.
 const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
 
+// Grok synthesis model — fast, non-reasoning. Planner keeps grok-4-latest
+// (reasoning helpful for tool selection). Synthesiser uses a lightweight
+// model so the response arrives in 2-4 s rather than 40-120 s.
+const GROK_SYNTH_MODEL = "grok-3-mini";
+
 function getKey(provider: LlmProvider): string | undefined {
   if (provider === "gemini") return process.env.GEMINI_API_KEY;
   if (provider === "qwen") return process.env.DASHSCOPE_API_KEY;
@@ -57,7 +62,9 @@ export async function resolveLlmModel(
   if (llm === "grok") {
     return {
       provider: "grok",
-      model: MODEL_IDS.grok,
+      // Synthesiser uses GROK_SYNTH_MODEL (fast, non-reasoning) so it responds
+      // in 2-4 s. Planner keeps grok-4-latest for better tool-selection reasoning.
+      model: role === "synth" ? GROK_SYNTH_MODEL : MODEL_IDS.grok,
       apiKey: key,
       apiUrl: "https://api.x.ai/v1/chat/completions",
     };
@@ -88,7 +95,7 @@ export async function resolveCriticCaller(): Promise<CriticCaller | null> {
       return (p) => callOpenAISimple(QWEN_API_URL, MODEL_IDS.qwen, key, p);
     if (llm === "grok")
       return (p) =>
-        callOpenAISimple("https://api.x.ai/v1/chat/completions", MODEL_IDS.grok, key, p);
+        callOpenAISimple("https://api.x.ai/v1/chat/completions", GROK_SYNTH_MODEL, key, p);
     if (llm === "openrouter")
       return (p) => callOpenAISimple(OPENROUTER_API_URL, openrouterModel, key, p);
   }
