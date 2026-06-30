@@ -588,7 +588,7 @@ You are in PLANNING phase. Decide which tool calls (web_search / firecrawl_searc
 Which pair to fire depends on current HKT time — DO NOT use the wrong pair.
 
 MARKET OPEN (Mon–Fri 09:30–16:00 HKT):
-  Tool 1: web_search(category="stocks", query="Hang Seng Index now")
+  Tool 1: web_search(category="stocks", query="Hang Seng Index now -site:yahoo.com")
   Tool 2: scrape_page("https://www.marketwatch.com/investing/index/hsi?countrycode=hk")
   Synthesiser: report live number from Tool 1 as current index.
   Use Tool 2 (MarketWatch) for intraday context: today's open, session high, session low, volume.
@@ -597,7 +597,7 @@ MARKET OPEN (Mon–Fri 09:30–16:00 HKT):
   the previous day's closing recap and the LLM cannot reliably distinguish this.
 
 MARKET CLOSED (after 16:00 HKT, weekends, public holidays):
-  Tool 1: web_search(category="stocks", query="Hang Seng Index close today")
+  Tool 1: web_search(category="stocks", query="Hang Seng Index now -site:yahoo.com")
   Tool 2: scrape_page("https://tradingeconomics.com/hong-kong/stock-market")
   Synthesiser: use Tool 2 confirmed close number as AUTHORITATIVE figure.
   If Tool 1 Brave snippet contradicts Tool 2 → use Tool 2 number only.
@@ -607,10 +607,13 @@ MARKET CLOSED (after 16:00 HKT, weekends, public holidays):
   本月累跌9.1%係今年最差月份。」
 
 SYNTHESISER RULES (both time windows):
+  · Do NOT add firecrawl_search — two sources already present (EXCEPTION to DUAL-ENGINE rule)
   · NEVER quote any number from conversation history when tool results are present
   · NEVER invent or estimate a figure if tools return empty
   · If all tools fail: 「今次恆指數據搵唔到，遲啲再試吓。」
-  · Do NOT add firecrawl_search — two sources already present (EXCEPTION to DUAL-ENGINE rule)
+  NOTE: The full synthesiser response format rules (tool name ban, length limit, number
+  source priority) live in systemPrompt.ts [HK STOCKS SYNTHESISER — 強制] where the
+  synthesiser LLM can actually read them. Rules here are for the PLANNER only.
 
 
 [TOOL DATA SUPREMACY — 強制硬鎖 #0]
@@ -967,14 +970,24 @@ function buildToolResultsBlock(toolResults: ToolCallTrace[]): string {
   if (toolResults.length === 0) return "";
   const filtered = toolResults.map((t) => {
     // Strip Yahoo Finance lines from web_search results — blocked domain, data unreliable.
+    // If Yahoo Finance dominates the result (< 80 usable chars remain after stripping),
+    // void the entire summary so no Yahoo-adjacent content (e.g. "U.S. markets closed")
+    // bleeds into the synthesiser context.
     if (t.name === "web_search" && YAHOO_FINANCE_RE.test(t.summary)) {
-      return {
-        ...t,
-        summary: t.summary.replace(
-          /^.*(?:finance\.yahoo\.com|yahoo\.com\/finance).*$/gim,
-          "[Yahoo Finance result omitted — permanently blocked domain]",
-        ),
-      };
+      const stripped = t.summary.replace(
+        /^.*(?:finance\.yahoo\.com|yahoo\.com\/finance).*$/gim,
+        "",
+      ).replace(/\n{2,}/g, "\n").trim();
+      if (stripped.length < 80) {
+        // Yahoo Finance was the only meaningful result — void entirely.
+        return {
+          ...t,
+          summary:
+            "[web_search result voided — Yahoo Finance dominated response. " +
+            "Permanently blocked domain. Use scrape_page or firecrawl_search instead.]",
+        };
+      }
+      return { ...t, summary: stripped };
     }
     // Replace Reuters scrape results — Refinitiv paywall returns navigation shell only.
     if (t.name === "scrape_page" && REUTERS_DOMAIN_RE.test(JSON.stringify(t.args))) {
