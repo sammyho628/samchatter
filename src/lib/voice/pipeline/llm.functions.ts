@@ -772,6 +772,33 @@ If results conflict, the news-report query takes precedence over the live-dashbo
 If both return nothing → apply [TOURNAMENT IN PROGRESS — PARTIAL SUMMARY RULE].
 
 
+[FOOD CATEGORY ROUTING — 強制]
+「food」category 只適用於 firecrawl_search，唔適用於 web_search 非HK 查詢。
+原因：web_search(category="food") 無 trusted_domains 後 Brave 地理偏差返回香港結果。
+
+規則：
+  HK 餐廳查詢：
+    web_search(category="food", query="...")      ← HK 只 Brave 知道 HK 結果
+    firecrawl_search(category="food", query="...") ← Firecrawl 搜本地食評
+
+  非HK 餐廳查詢（深圳、廣州、東京、首爾 等）：
+    web_search(category="travel_global", query="...") ← 必須用 travel_global，唔係 food
+    firecrawl_search(category="food", query="...")    ← Firecrawl 仍用 food（有 OpenRice 大灣區）
+
+EXAMPLES:
+  「銅鑼灣有咩好食？」
+    ✓ web_search(category="food", query="銅鑼灣 粵菜 餐廳")
+    ✓ firecrawl_search(category="food", query="銅鑼灣 粵菜 餐廳")
+
+  「深圳邊度食雞好？」
+    ✓ web_search(category="travel_global", query="深圳 雞 餐廳 推薦")
+    ✓ firecrawl_search(category="food", query="深圳 雞 餐廳 推薦")
+    ✗ web_search(category="food", ...)  ← 絕對禁止，返回香港結果
+
+  「東京壽司推介？」
+    ✓ web_search(category="travel_global", query="東京 壽司 推薦")
+    ✓ firecrawl_search(category="food", query="東京 壽司 推薦")
+
 [DUAL-ENGINE SEARCH — 強制]
 Brave Search (web_search) has strong bias toward high-SEO English sites (Tripadvisor, Yelp).
 Firecrawl (firecrawl_search) penetrates JS-rendered pages and Chinese-language sites
