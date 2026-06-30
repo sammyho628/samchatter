@@ -742,7 +742,7 @@ EXCEPTION — do NOT add firecrawl_search when the plan already has a mandatory 
   · HK stock queries (web_search + scrape_page tradingeconomics)
   · US broad market queries (web_search + scrape_page tradingeconomics US)
   · Non-HK weather queries (web_search + scrape_page wttr.in)
-  · Sports live scores (web_search + scrape_page bbc sport)
+  · Sports queries (dual web_search — see SPORTS QUERIES rule above)
   · search_places queries (Google Maps — different tool type, not a web search)
   These categories already have a second parallel source. Adding firecrawl_search would
   create unnecessary triple parallelism.
