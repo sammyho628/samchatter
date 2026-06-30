@@ -149,6 +149,8 @@ function InstructionPage() {
     ttsProvider !== savedTts ||
     (llmProvider === "openrouter" && openrouterModel !== savedOrModel) ||
     (llmProvider === "openrouter" && openrouterSynthModel !== savedOrSynthModel) ||
+    (llmProvider === "grok" && grokPlannerModel !== savedGrokPlannerModel) ||
+    (llmProvider === "grok" && grokSynthModel !== savedGrokSynthModel) ||
     greetingModel !== savedGrModel;
 
   const onSaveProviders = async () => {
@@ -162,6 +164,8 @@ function InstructionPage() {
           openrouterModel,
           openrouterSynthModel,
           greetingModel,
+          grokPlannerModel,
+          grokSynthModel,
         },
       });
       setSavedLlm(llmProvider);
@@ -169,10 +173,14 @@ function InstructionPage() {
       setSavedOrModel(openrouterModel);
       setSavedOrSynthModel(openrouterSynthModel);
       setSavedGrModel(greetingModel);
+      setSavedGrokPlannerModel(grokPlannerModel);
+      setSavedGrokSynthModel(grokSynthModel);
       const tag =
         llmProvider === "openrouter"
           ? `${llmProvider}:${openrouterModel}/synth:${openrouterSynthModel}`
-          : llmProvider;
+          : llmProvider === "grok"
+            ? `${llmProvider}:${grokPlannerModel}/synth:${grokSynthModel}`
+            : llmProvider;
       setProviderStatus(
         `Saved (LLM=${tag}, TTS=${ttsProvider}) at ${new Date().toLocaleTimeString()}.`,
       );
