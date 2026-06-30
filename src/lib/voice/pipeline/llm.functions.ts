@@ -95,7 +95,29 @@ const TOOL_DECLS = [
       required: ["url"],
     },
   },
-
+  {
+    name: "firecrawl_search",
+    description:
+      "Search the web using Firecrawl — a second parallel search engine that penetrates " +
+      "JS-rendered pages and Chinese-language sites (Dianping, local review sites) that " +
+      "Brave Search cannot index. Always fire alongside web_search for food/restaurant " +
+      "queries and general information queries. Use category='food' for restaurant " +
+      "searches to activate the Dianping trusted-domain filter.",
+    parameters: {
+      type: "object",
+      properties: {
+        query: { type: "string", description: "What to look up." },
+        category: {
+          type: "string",
+          description:
+            "Optional. Same values as web_search: food | travel_global | world_news | " +
+            "sports | health | stocks | weather | technology | etc. " +
+            "Use 'food' for restaurant/dining queries — activates Dianping trusted domain.",
+        },
+      },
+      required: ["query"],
+    },
+  },
 ];
 
 const GEMINI_TOOLS = [
