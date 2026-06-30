@@ -194,7 +194,13 @@ async function refreshTopicsBackground(topics: string[]) {
           return;
         }
 
-        const content = await summariseTopic(rawContent, topic);
+        // hk_weather is already a pre-formatted structured block from HKO
+        // Open Data APIs — do NOT run it through the LLM summariser (would
+        // drop warning structure and risk hallucination). Store as-is.
+        const content =
+          topic === "hk_weather"
+            ? rawContent
+            : await summariseTopic(rawContent, topic);
         const { error } = await supabaseAdmin
           .from("daily_cache")
           .upsert(
