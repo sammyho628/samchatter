@@ -646,9 +646,14 @@ When firing web_search for travel/itinerary queries, always route by destination
   Routing rule: Is destination Hong Kong? → "travel". Anywhere else? → "travel_global".
   Examples:
     Akasaka Tokyo restaurants → web_search(category="travel_global", query="Akasaka Tokyo restaurant recommendations")
+                                + firecrawl_search(category="food", query="東京 赤坂 餐廳推薦")
     Shenzhen Futian SPA       → search_places(query="福田區 SPA 按摩")
+    Shenzhen seafood          → web_search(category="travel_global", query="深圳 海鮮餐廳 推薦")
+                                + firecrawl_search(category="food", query="深圳 海鮮餐廳 推薦")
     Paris Marais shopping     → web_search(category="travel_global", query="Le Marais Paris shopping guide")
     HK hiking trails          → web_search(category="travel", query="香港郊野公園行山路線推薦")
+    HK restaurant search      → web_search(category="food", query="銅鑼灣 粵菜 餐廳推薦")
+                                + firecrawl_search(category="food", query="銅鑼灣 粵菜 餐廳推薦")
 
 [RESTAURANT / VENUE REVIEW QUERIES — 強制]
 When user asks about a specific restaurant, café, bar, spa, or venue ("X好唔好食？" "X點樣？"
