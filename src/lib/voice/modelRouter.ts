@@ -62,7 +62,9 @@ export async function resolveLlmModel(
   if (llm === "grok") {
     return {
       provider: "grok",
-      model: MODEL_IDS.grok,
+      // Synthesiser uses GROK_SYNTH_MODEL (fast, non-reasoning) so it responds
+      // in 2-4 s. Planner keeps grok-4-latest for better tool-selection reasoning.
+      model: role === "synth" ? GROK_SYNTH_MODEL : MODEL_IDS.grok,
       apiKey: key,
       apiUrl: "https://api.x.ai/v1/chat/completions",
     };
