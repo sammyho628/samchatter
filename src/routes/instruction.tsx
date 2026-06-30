@@ -71,6 +71,10 @@ function InstructionPage() {
     DEFAULT_OPENROUTER_SYNTH_MODEL,
   );
   const [savedGrModel, setSavedGrModel] = useState<string>(DEFAULT_GREETING_MODEL);
+  const [grokPlannerModel, setGrokPlannerModel] = useState<string>(DEFAULT_GROK_PLANNER_MODEL);
+  const [grokSynthModel, setGrokSynthModel] = useState<string>(DEFAULT_GROK_SYNTH_MODEL);
+  const [savedGrokPlannerModel, setSavedGrokPlannerModel] = useState<string>(DEFAULT_GROK_PLANNER_MODEL);
+  const [savedGrokSynthModel, setSavedGrokSynthModel] = useState<string>(DEFAULT_GROK_SYNTH_MODEL);
   const [providerSaving, setProviderSaving] = useState(false);
   const [providerStatus, setProviderStatus] = useState("");
 
