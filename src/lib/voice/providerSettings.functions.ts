@@ -94,6 +94,8 @@ let _providerCache: {
     openrouterModel: string;
     openrouterSynthModel: string;
     greetingModel: string;
+    grokPlannerModel: string;
+    grokSynthModel: string;
   };
   exp: number;
 } | null = null;
@@ -108,6 +110,8 @@ export async function readProvidersServerSide(): Promise<{
   openrouterModel: string;
   openrouterSynthModel: string;
   greetingModel: string;
+  grokPlannerModel: string;
+  grokSynthModel: string;
 }> {
   if (_providerCache && Date.now() < _providerCache.exp) {
     return _providerCache.value;
@@ -116,7 +120,15 @@ export async function readProvidersServerSide(): Promise<{
   const { data } = await supabaseAdmin
     .from("app_settings")
     .select("key, value")
-    .in("key", [LLM_KEY, TTS_KEY, OPENROUTER_MODEL_KEY, OPENROUTER_SYNTH_MODEL_KEY, GREETING_MODEL_KEY]);
+    .in("key", [
+      LLM_KEY,
+      TTS_KEY,
+      OPENROUTER_MODEL_KEY,
+      OPENROUTER_SYNTH_MODEL_KEY,
+      GREETING_MODEL_KEY,
+      GROK_PLANNER_MODEL_KEY,
+      GROK_SYNTH_MODEL_KEY,
+    ]);
   const map = new Map<string, string>(
     (data ?? []).map((r) => [r.key as string, r.value as string]),
   );
@@ -125,6 +137,8 @@ export async function readProvidersServerSide(): Promise<{
   const orRaw = map.get(OPENROUTER_MODEL_KEY);
   const orSynthRaw = map.get(OPENROUTER_SYNTH_MODEL_KEY);
   const grRaw = map.get(GREETING_MODEL_KEY);
+  const grokPlannerRaw = map.get(GROK_PLANNER_MODEL_KEY);
+  const grokSynthRaw = map.get(GROK_SYNTH_MODEL_KEY);
   const value = {
     llm: (["gemini", "qwen", "grok", "openrouter"] as const).includes(llmRaw as LlmProvider)
       ? (llmRaw as LlmProvider)
@@ -136,6 +150,10 @@ export async function readProvidersServerSide(): Promise<{
     openrouterSynthModel:
       orSynthRaw && orSynthRaw.trim() ? orSynthRaw : DEFAULT_OPENROUTER_SYNTH_MODEL,
     greetingModel: grRaw && grRaw.trim() ? grRaw : DEFAULT_GREETING_MODEL,
+    grokPlannerModel:
+      grokPlannerRaw && grokPlannerRaw.trim() ? grokPlannerRaw : DEFAULT_GROK_PLANNER_MODEL,
+    grokSynthModel:
+      grokSynthRaw && grokSynthRaw.trim() ? grokSynthRaw : DEFAULT_GROK_SYNTH_MODEL,
   };
   _providerCache = { value, exp: Date.now() + 5 * 60 * 1000 };
   return value;
@@ -154,6 +172,8 @@ export const saveProviderSettings = createServerFn({ method: "POST" })
         openrouterModel: z.string().min(1).max(200).optional(),
         openrouterSynthModel: z.string().min(1).max(200).optional(),
         greetingModel: z.string().min(1).max(200).optional(),
+        grokPlannerModel: z.string().min(1).max(200).optional(),
+        grokSynthModel: z.string().min(1).max(200).optional(),
       })
       .parse(d),
   )
@@ -169,6 +189,10 @@ export const saveProviderSettings = createServerFn({ method: "POST" })
       rows.push({ key: OPENROUTER_SYNTH_MODEL_KEY, value: data.openrouterSynthModel, updated_at: now });
     if (data.greetingModel)
       rows.push({ key: GREETING_MODEL_KEY, value: data.greetingModel, updated_at: now });
+    if (data.grokPlannerModel)
+      rows.push({ key: GROK_PLANNER_MODEL_KEY, value: data.grokPlannerModel, updated_at: now });
+    if (data.grokSynthModel)
+      rows.push({ key: GROK_SYNTH_MODEL_KEY, value: data.grokSynthModel, updated_at: now });
     if (rows.length === 0) return { ok: true };
     const { error } = await supabaseAdmin
       .from("app_settings")
@@ -177,3 +201,4 @@ export const saveProviderSettings = createServerFn({ method: "POST" })
     clearProviderCache();
     return { ok: true };
   });
+
