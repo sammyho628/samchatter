@@ -583,25 +583,35 @@ You are in PLANNING phase. Decide which tool calls (web_search / firecrawl_searc
 
 違反此原則 = 向用戶提供過期數據 = critical failure。
 
-[HK STOCKS — 強制雙步驟]
-恆生指數 / 港股 queries ALWAYS fire BOTH tools in the same parallel step, regardless
-of market hours. The scrape gives a 15-minute-delayed real number; web_search gives
-context. A 15-minute-delayed number is always better than a stale history number.
+[HK STOCKS — 強制雙步驟 — 市場時段分流]
+恆生指數 / 港股 queries ALWAYS fire BOTH tools in a single parallel step.
+Which pair to fire depends on current HKT time — DO NOT use the wrong pair.
 
-  Step 1 (parallel):
-    web_search(category="stocks", query="恆生指數 <today's context>")
-    scrape_page("https://tradingeconomics.com/hong-kong/stock-market")
+MARKET OPEN (Mon–Fri 09:30–16:00 HKT):
+  Tool 1: web_search(category="stocks", query="Hang Seng Index now")
+  Tool 2: scrape_page("https://www.marketwatch.com/investing/index/hsi?countrycode=hk")
+  Synthesiser: report live number from Tool 1 as current index.
+  Use Tool 2 (MarketWatch) for intraday context: today's open, session high, session low, volume.
+  Example output: 「恆指而家22,654點，跌緊1.2%，今日開市係23,100，最低跌到22,620。」
+  Do NOT scrape tradingeconomics.com during trading hours — its commentary may be
+  the previous day's closing recap and the LLM cannot reliably distinguish this.
 
-  Step 2 — synthesiser response rules:
-    · Always quote the numeric value from scrape_page (e.g. 指數：23,145 點)
-    · If current HKT time is 09:30–16:00: append "（約15分鐘延遲）" after the number
-    · If current HKT time is outside 09:30–16:00: append "（上一個交易日收市價）"
-    · NEVER quote any number from conversation history when a scrape_page result is present
-    · If scrape_page returned an error or empty: say "暫時未能取得最新數據" and do not
-      invent or quote any figure
+MARKET CLOSED (after 16:00 HKT, weekends, public holidays):
+  Tool 1: web_search(category="stocks", query="Hang Seng Index close today")
+  Tool 2: scrape_page("https://tradingeconomics.com/hong-kong/stock-market")
+  Synthesiser: use Tool 2 confirmed close number as AUTHORITATIVE figure.
+  If Tool 1 Brave snippet contradicts Tool 2 → use Tool 2 number only.
+  TradingEconomics post-close commentary is rich same-day narrative — always use it
+  for qualitative colour (sector movers, macro drivers, monthly/quarterly context).
+  Example output: 「恆指收報22,881，跌146點跌0.6%，科技同醫藥股領跌，
+  本月累跌9.1%係今年最差月份。」
 
-IMPORTANT: This mandatory pair (web_search + scrape_page) is an EXCEPTION to the
-[DUAL-ENGINE SEARCH] rule. Do NOT also add firecrawl_search for stocks queries.
+SYNTHESISER RULES (both time windows):
+  · NEVER quote any number from conversation history when tool results are present
+  · NEVER invent or estimate a figure if tools return empty
+  · If all tools fail: 「今次恆指數據搵唔到，遲啲再試吓。」
+  · Do NOT add firecrawl_search — two sources already present (EXCEPTION to DUAL-ENGINE rule)
+
 
 [TOOL DATA SUPREMACY — 強制硬鎖 #0]
 工具返回嘅實時數據永遠優先於對話歷史、訓練記憶、或其他來源。
