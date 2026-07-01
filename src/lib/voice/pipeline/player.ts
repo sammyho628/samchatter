@@ -125,28 +125,61 @@ export async function unlockAudio(): Promise<void> {
   diag(`unlockAudio · ${before} → ${c.state}`);
 }
 
-// Resume on foreground / gesture — context is never closed, just resumed.
-if (typeof document !== "undefined") {
-  document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "visible" && ctx && ctx.state === "suspended") {
-      ctx.resume().then(
-        () => diag("visibility resume ok"),
-        (e) => diag(`visibility resume failed: ${(e as Error).message}`),
-      );
+// Single-listener gesture gate — prevents accumulation of resume listeners.
+let gestureListenerArmed = false;
+let pendingBuffer: AudioBuffer | null = null;
+let pendingResolvers: Array<() => void> = [];
+
+function armGestureUnlock(onUnlocked: () => void): void {
+  if (gestureListenerArmed) {
+    // A gesture handler is already in flight — chain the callback.
+    pendingResolvers.push(onUnlocked);
+    return;
+  }
+  gestureListenerArmed = true;
+  pendingResolvers.push(onUnlocked);
+  const handler = async () => {
+    window.removeEventListener("pointerdown", handler, true);
+    window.removeEventListener("touchstart", handler, true);
+    window.removeEventListener("keydown", handler, true);
+    gestureListenerArmed = false;
+    if (ctx && ctx.state !== "running") {
+      try { await ctx.resume(); diag("gesture resume ok"); }
+      catch (e) { diag(`gesture resume failed: ${(e as Error).message}`); }
     }
-  });
-  const resumeOnGesture = () => {
-    if (!ctx || ctx.state !== "suspended") return;
-    ctx.resume().then(
-      () => diag("gesture resume ok"),
-      (e) => diag(`gesture resume failed: ${(e as Error).message}`),
-    );
+    const cbs = pendingResolvers;
+    pendingResolvers = [];
+    for (const cb of cbs) { try { cb(); } catch { /* ignore */ } }
   };
   const opts: AddEventListenerOptions = { capture: true, passive: true };
-  window.addEventListener("pointerdown", resumeOnGesture, opts);
-  window.addEventListener("touchstart", resumeOnGesture, opts);
-  window.addEventListener("keydown", resumeOnGesture, opts);
+  window.addEventListener("pointerdown", handler, opts);
+  window.addEventListener("touchstart", handler, opts);
+  window.addEventListener("keydown", handler, opts);
+  diag("gesture unlock armed · waiting for user tap");
 }
+
+// Resume on foreground — never call resume() here (fails without gesture on iOS).
+// If the context is a zombie (interrupted), destroy and recreate suspended, then
+// arm a gesture listener to unlock on next tap.
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible") return;
+    if (!ctx) return;
+    if ((ctx.state as string) === "interrupted") {
+      diag(`visibilitychange · ctx=interrupted → destroy zombie & recreate`);
+      try { keepAliveOsc?.stop(); } catch { /* ignore */ }
+      try { ctx.close(); } catch { /* ignore */ }
+      ctx = null;
+      masterGain = null;
+      keepAliveOsc = null;
+      gestureListenerArmed = false;
+      // ensureCtx() will create a fresh suspended context on next play call.
+      diag("AudioContext recreated after interrupted · waiting for gesture");
+    }
+    // Do NOT call resume() here — always fails without a gesture on iOS.
+  });
+}
+
 
 export function stopPlayback() {
   if (current) {
@@ -200,6 +233,27 @@ export async function playBase64Audio(audioBase64: string): Promise<void> {
     try { await c.resume(); } catch { /* ignore */ }
     refreshGraph();
   }
+  // Play-gate: never schedule playback into a non-running context.
+  // Queue the decoded buffer and unlock on next user gesture.
+  if ((c.state as string) !== "running") {
+    diag(`⚠️ ctx=${c.state} — audio queued, waiting for gesture`);
+    pendingBuffer = buffer;
+    return new Promise<void>((resolve) => {
+      armGestureUnlock(() => {
+        const buf = pendingBuffer;
+        pendingBuffer = null;
+        if (!buf) { resolve(); return; }
+        scheduleBufferPlayback(buf).then(resolve, () => resolve());
+      });
+    });
+  }
+  return scheduleBufferPlayback(buffer);
+}
+
+/** Schedule playback of an already-decoded AudioBuffer. Assumes ctx is running. */
+function scheduleBufferPlayback(buffer: AudioBuffer): Promise<void> {
+  const c = ensureCtx();
+  const scheduleAt = c.currentTime + 0.1;
   stopPlayback();
   return new Promise<void>((resolve) => {
     let cleaned = false;
@@ -280,6 +334,7 @@ export async function playBase64Audio(audioBase64: string): Promise<void> {
     try {
       const startAt = Math.max(scheduleAt, c.currentTime + 0.02);
       src.start(startAt);
+
     } catch (err) {
       diag(`⚠️ source.start failed: ${(err as Error).message}`);
       resolve();
