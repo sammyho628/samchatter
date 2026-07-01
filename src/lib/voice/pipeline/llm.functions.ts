@@ -215,12 +215,22 @@ function sanitizeQuery(raw: string): string {
     .trim();
 }
 
+const PRODUCT_REC_RE =
+  /(牌子|品牌|型號|邊隻好|邊個牌子|邊部|邊款|which (brand|model))/i;
+
 function refineQuery(rawQuery: string, category: string): string {
   let q = sanitizeQuery(rawQuery);
   if (!q) q = rawQuery.trim();
   if (!q) return q;
   if (SPORTS_RE.test(q) && !/live score|比分|賽果|score/i.test(q)) {
     q = `${q} live score 比分`;
+  }
+  if (
+    category.toLowerCase() === "shopping" &&
+    PRODUCT_REC_RE.test(q) &&
+    !/開箱|評測|用後感|lihkg|uwants/i.test(q)
+  ) {
+    q = `${q} 開箱 評測 用後感`;
   }
   const lower = q.toLowerCase();
   if (HK_HINTS.some((h) => lower.includes(h.toLowerCase()))) return q;
@@ -621,6 +631,36 @@ SYNTHESISER RULES for individual stocks:
   · HK example:  「美圖1357報3.78蚊，跌咗0.02蚊即係跌0.5%。」
   · US example:  「蘋果AAPL報211.45美金，升咗1.23美金即係升0.6%。」
   · If price not found: 「{stock}嘅價格而家搵唔到，遲啲再試吓。」
+
+[產品推薦查詢 — 強制三路並行]
+觸發: 用戶查詢消費品牌子/型號/邊隻好/邊個牌子/推薦（風扇、手機、家電、相機等），
+NOT 純粹查價錢/邊度買.
+
+絕對禁止: 單一發射 web_search(category="shopping") 就當完成任務。
+必須同時發射以下 3 個 parallel tool calls:
+
+  Query 1 (價錢): web_search(category="shopping", priority=1, query="{product} 價錢")
+  Query 2 (本地討論/評測 — 必須用中文): web_search(category="shopping", priority=2,
+    query="{中文口語 query，例如：隨身風扇 邊隻好 開箱 評測}")
+    ⚠️ 呢個 query 參數必須用中文/廣東話撰寫，唔可以用英文（例如 "portable fan
+    brands models" 呢類英文 query 係錯嘅） — 因為 LIHKG/Uwants/DCFever 嘅內容係
+    中文，英文 query 會令搜尋引擎揀錯結果。
+  Query 3 (開放式全網 — 唔好帶 category): web_search(query="{product} review 2026")
+    ⚠️ 呢個 tool call 唔可以帶 category 參數 — 冇 category 就唔會加 site: 篩選，
+    令佢可以搵到 trusted_domains 以外嘅內容，作為 anti-bot / 覆蓋不足嘅後備。
+
+例: 用戶問「幫我搵吓邊隻手提風扇好，邊個牌子？」
+  Tool 1: web_search(category="shopping", priority=1, query="手提風扇 價錢")
+  Tool 2: web_search(category="shopping", priority=2, query="手提風扇 邊隻好 開箱 評測")
+  Tool 3: web_search(query="portable handheld fan review 2026")
+
+[產品名稱鎖 — 強制 — 防捏造]
+只可以講出「確實出現喺以上任何一個 tool result 文字入面」嘅牌子/型號名。
+如果 3 個 tool call 全部都冇提到任何具體牌子/型號 → 絕對禁止用訓練記憶入面嘅牌子
+（例如 "Shark"、"Dyson" 等）填充答案。正確做法：
+  「呢款嘅牌子資料而家搵唔到，你想我再搵多幾個關鍵字，定係想我讀返啲用家評論俾你聽？」
+違反呢條 = 向用戶提供捏造資訊 = critical failure，同數字捏造（見上面 HK 股票數字鎖）同級。
+
 
 [HK STOCKS — 強制雙步驟 — 市場時段分流]
 恆生指數 / 港股 queries ALWAYS fire BOTH tools in a single parallel step.
@@ -1147,7 +1187,7 @@ async function callSynthesiser(
         systemInstruction,
         contents,
         false,
-        600, // synthesiser cap: ~132 s max audio at 3.5 chars/s Cantonese
+        800, // synthesiser cap: raised for 7-9 sentence analytical replies (Fix 43C)
       ),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error("synthesiser LLM timeout 60000ms")), 60000),
@@ -1191,7 +1231,7 @@ async function callSynthesiser(
       m.apiKey,
       messages,
       false,
-      600, // synthesiser cap: ~132 s max audio at 3.5 chars/s Cantonese
+      800, // synthesiser cap: raised for 7-9 sentence analytical replies (Fix 43C)
     ),
     new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error("synthesiser LLM timeout 60000ms")), 60000),
