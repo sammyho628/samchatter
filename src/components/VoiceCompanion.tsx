@@ -648,7 +648,7 @@ export function VoiceCompanion() {
         await runTurn(
           {
             text,
-            systemInstruction: promptRef.current,
+            systemInstruction: promptRef.current + buildNameToken(windowed),
             history: windowed,
             // skipTTS removed — text-mode replies still speak aloud.
           },
