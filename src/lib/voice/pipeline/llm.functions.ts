@@ -333,13 +333,16 @@ async function runTool(
           },
           body: JSON.stringify({ url }),
         },
-        15000,
+        8000,
       );
       const j = (await r.json().catch(() => ({}))) as { summary?: string; error?: string };
       if (!r.ok) return `HTTP ${r.status}: ${j.error ?? ""}`;
       return j.summary ?? "No content returned.";
-    } catch (e) {
-      return `scrape_page threw: ${(e as Error).message}`;
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        return `scrape_page timeout after 8s for ${args.url} — no data retrieved.`;
+      }
+      return `scrape_page error: ${err instanceof Error ? err.message : String(err)}`;
     }
   }
 
