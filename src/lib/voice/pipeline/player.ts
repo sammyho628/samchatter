@@ -243,12 +243,18 @@ export async function playBase64Audio(audioBase64: string): Promise<void> {
         const buf = pendingBuffer;
         pendingBuffer = null;
         if (!buf) { resolve(); return; }
-        playBase64AudioFromBuffer(buf).then(resolve, () => resolve());
+        scheduleBufferPlayback(buf).then(resolve, () => resolve());
       });
     });
   }
-  stopPlayback();
+  return scheduleBufferPlayback(buffer);
+}
 
+/** Schedule playback of an already-decoded AudioBuffer. Assumes ctx is running. */
+function scheduleBufferPlayback(buffer: AudioBuffer): Promise<void> {
+  const c = ensureCtx();
+  const scheduleAt = c.currentTime + 0.1;
+  stopPlayback();
   return new Promise<void>((resolve) => {
     let cleaned = false;
     const src = c.createBufferSource();
@@ -328,6 +334,7 @@ export async function playBase64Audio(audioBase64: string): Promise<void> {
     try {
       const startAt = Math.max(scheduleAt, c.currentTime + 0.02);
       src.start(startAt);
+
     } catch (err) {
       diag(`⚠️ source.start failed: ${(err as Error).message}`);
       resolve();
