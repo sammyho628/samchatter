@@ -215,12 +215,22 @@ function sanitizeQuery(raw: string): string {
     .trim();
 }
 
+const PRODUCT_REC_RE =
+  /(牌子|品牌|型號|邊隻好|邊個牌子|邊部|邊款|which (brand|model))/i;
+
 function refineQuery(rawQuery: string, category: string): string {
   let q = sanitizeQuery(rawQuery);
   if (!q) q = rawQuery.trim();
   if (!q) return q;
   if (SPORTS_RE.test(q) && !/live score|比分|賽果|score/i.test(q)) {
     q = `${q} live score 比分`;
+  }
+  if (
+    category.toLowerCase() === "shopping" &&
+    PRODUCT_REC_RE.test(q) &&
+    !/開箱|評測|用後感|lihkg|uwants/i.test(q)
+  ) {
+    q = `${q} 開箱 評測 用後感`;
   }
   const lower = q.toLowerCase();
   if (HK_HINTS.some((h) => lower.includes(h.toLowerCase()))) return q;
