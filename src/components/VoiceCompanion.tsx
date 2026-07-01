@@ -512,7 +512,8 @@ export function VoiceCompanion() {
         {
           audio: blob,
           mimeType,
-          systemInstruction: promptRef.current,
+          systemInstruction: promptRef.current + buildNameToken(windowed),
+
           history: windowed,
         },
         {
