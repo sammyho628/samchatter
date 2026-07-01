@@ -254,7 +254,7 @@ export async function runTurn(
       // OpenRouter provider holds the edge-function connection open past its own
       // 30 s body-read limit. The race rejects with a "timeout" message so
       // isTransientNetworkError correctly treats it as non-retryable.
-      const SYNTH_CLIENT_TIMEOUT_MS = 35_000;
+      const SYNTH_CLIENT_TIMEOUT_MS = 60_000;
       const syn = await retryOnce(
         "synthesize",
         () =>
