@@ -67,6 +67,28 @@ function sanitizeHistory(turns: GeminiTurn[]): GeminiTurn[] {
     .filter((t) => t.parts.length > 0);
 }
 
+/**
+ * Fix 39: Compute a per-turn name-addressing token based on recent conversation history.
+ * Suppresses name if used in the last 3 assistant (model) turns; permits it otherwise.
+ */
+function buildNameToken(history: GeminiTurn[]): string {
+  const nameVariants = ["明女", "米米", "Wendy"];
+  const assistantTurns = history.filter((t) => t.role === "model").slice(-6);
+  const last3 = assistantTurns.slice(-3);
+  const usedRecently = last3.some((t) =>
+    t.parts.some(
+      (p) =>
+        "text" in p &&
+        typeof p.text === "string" &&
+        nameVariants.some((n) => p.text!.includes(n)),
+    ),
+  );
+  if (usedRecently) {
+    return "\n\n[本 turn 稱呼令牌] 本次回應唔好叫佢名字，直接講話，更自然。";
+  }
+  return "\n\n[本 turn 稱呼令牌] 如果對話流暢嘅話，可以用佢名（明女、米米 或 Wendy）自然地叫佢一次；唔係必須，直接講話一樣可以。";
+
+
 function getTimeGreeting(personaName: string): string {
   const hkHour = parseInt(
     new Date().toLocaleString("en-CA", {
