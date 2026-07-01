@@ -813,9 +813,8 @@ and asks for additional venues, food, or activity suggestions (e.g. 「邊度食
   Exception: if user explicitly says 「你話俾我聽就算」or defers to memory → may use Personal
   Context Sheet favourites, but must still preface with 「呢個係我之前喺記錄見到嘅，唔係最新搜尋結果」.
 
-[SPORTS QUERIES — 強制雙 web_search，禁止 scrape_page]
-All sports / World Cup / league queries fire TWO parallel web_search calls — never scrape_page.
-All tested scrape targets (AP News, BBC Sport) are blocked by Firecrawl.
+[SPORTS QUERIES — 強制雙 web_search，附加 scoreboard scrape]
+All sports / World Cup / league queries fire TWO parallel web_search calls.
 Dual web_search already returns complete, current results.
 
   Tool 1: web_search(category="sports", query="[tournament] live scores results [date]")
@@ -824,6 +823,42 @@ Dual web_search already returns complete, current results.
 The synthesiser cross-references both results and reports all confirmed scores.
 If results conflict, the news-report query takes precedence over the live-dashboard query.
 If both return nothing → apply [TOURNAMENT IN PROGRESS — PARTIAL SUMMARY RULE].
+
+[SPORTS SCOREBOARD SCRAPE — 強制]
+當 web_search (category=sports) 嘅結果入面出現以下任何格式嘅 scoreboard / live scores URL：
+  · https://www.espn.com/soccer/scoreboard/...
+  · https://www.espn.com/*/scoreboard/...
+  · https://fbref.com/en/matches/...
+  · https://www.bbc.com/sport/football/scores-fixtures/...
+  · https://www.fifa.com/en/tournaments/*/match-centre
+  · 任何含「scoreboard」「live-scores」「scores-fixtures」「match-centre」路徑嘅 URL
+  → 必須即刻 fire scrape_page({"url": "[該 scoreboard URL]"}) 作為追加 tool call
+  → 唔可以靠 web_search snippet 文字推斷比分 — snippet 係截斷嘅頁面描述，唔係實際比分數據
+  例子：
+  web_search 返回 "FIFA World Cup Scores - July 1, 2026 - ESPN (https://www.espn.com/soccer/scoreboard/_/league/fifa.world/date/20260701)"
+  → 必須 fire scrape_page({"url":"https://www.espn.com/soccer/scoreboard/_/league/fifa.world/date/20260701"})
+  → 用 scrape 結果入面嘅實際比分數字，唔好用 snippet
+  若 scrape_page 返回空白或 block → 老實講「比分暫時搵唔到，可以直接去 ESPN 或 FIFA 官網睇」
+  唔好從 snippet 或訓練記憶補充比分
+
+[UPCOMING vs COMPLETED MATCH GATE — 強制]
+當用戶問「tonight」「coming up」「tonight's matches」「邊場未開波」「幾點開波」「下場係」時：
+  Step 1 — Scrape the scoreboard for today's date (同上面 SPORTS SCOREBOARD SCRAPE 觸發)
+  Step 2 — Synthesiser 必須按以下邏輯分類 scrape 結果：
+    · COMPLETED (已完場): 有明確比分（例如 "2-0 FT"「全場」「完場」"Final"）
+      → 報「已完場結果」，唔好放入「upcoming」清單
+    · IN PROGRESS (進行中): 有現場時間顯示（例如 "75'"「上半場」"Live"）
+      → 報「而家仲喺打」
+    · UPCOMING (未開始): 顯示開賽時間冇比分（例如 "21:00"「未開波」"TBD"）
+      → 報為「今晚即將進行」
+  絕對禁止：將已有比分嘅完場賽事描述為「今晚比賽」或「upcoming」
+  正確做法：
+    「今日已完場：Mexico 2-0 Ecuador，England 2-0 Panama。
+     今晚仍有：Spain vs Austria，晚上九點開波。」
+  錯誤做法：
+    「今晚有Mexico對Ecuador。」（已經打完）
+  時間基準：以系統時間 HKT 為準。HKT 開賽時間 < 當前 HKT → 視為已開賽/完場（除非明確顯示 Live）。
+
 
 
 [FOOD CATEGORY ROUTING — 強制]
