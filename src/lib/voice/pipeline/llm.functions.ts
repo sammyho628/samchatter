@@ -1187,7 +1187,7 @@ async function callSynthesiser(
         systemInstruction,
         contents,
         false,
-        600, // synthesiser cap: ~132 s max audio at 3.5 chars/s Cantonese
+        800, // synthesiser cap: raised for 7-9 sentence analytical replies (Fix 43C)
       ),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error("synthesiser LLM timeout 60000ms")), 60000),
