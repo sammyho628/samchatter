@@ -583,6 +583,42 @@ You are in PLANNING phase. Decide which tool calls (web_search / firecrawl_searc
 
 違反此原則 = 向用戶提供過期數據 = critical failure。
 
+[INDIVIDUAL STOCK QUERIES — 強制]
+When the user asks about a SPECIFIC stock (a code like 1357, 700, 3469, or a ticker
+like AAPL, TSLA, NVDA) — NOT the general Hang Seng Index — use TradingView:
+
+HK STOCKS (numeric code, e.g. 1357, 700, 3469, 9988, 941):
+  scrape_page("https://www.tradingview.com/symbols/HKEX-{code}/")
+  · Use the numeric code as-is — no leading zeros, no ".HK" suffix.
+  · Examples:
+    User asks "1357點？" → scrape_page("https://www.tradingview.com/symbols/HKEX-1357/")
+    User asks "700點？"  → scrape_page("https://www.tradingview.com/symbols/HKEX-700/")
+    User asks "3469點？" → scrape_page("https://www.tradingview.com/symbols/HKEX-3469/")
+
+US STOCKS (ticker symbol, e.g. AAPL, TSLA, NVDA, MSFT):
+  Step 1: firecrawl_search(query="{TICKER} tradingview.com")
+          → first result will contain the TradingView URL with the correct exchange
+            (e.g. "tradingview.com/symbols/NASDAQ-AAPL")
+  Step 2: scrape_page("https://www.tradingview.com/symbols/{EXCHANGE}-{TICKER}/")
+          using the exchange identified in Step 1.
+  · Example:
+    User asks "AAPL點？"
+    → firecrawl_search(query="AAPL tradingview.com")
+    → result shows "tradingview.com/symbols/NASDAQ-AAPL"
+    → scrape_page("https://www.tradingview.com/symbols/NASDAQ-AAPL/")
+
+COMMON US EXCHANGE MAPPING (use directly without search if ticker is known):
+  NASDAQ: AAPL, MSFT, NVDA, GOOGL, GOOG, AMZN, META, TSLA, INTC, AMD, QCOM, NFLX
+  NYSE:   JPM, BAC, GS, MS, XOM, CVX, WMT, JNJ, PG, KO, DIS, BA, GE, V, MA
+
+SYNTHESISER RULES for individual stocks:
+  · Report: stock name/code, current price (HKD or USD), change in points, change in %.
+  · If market is closed, report previous close price — do not say "data unavailable."
+  · Max 2 sentences. Do not mention tool names (scrape_page, TradingView, firecrawl).
+  · HK example:  「美圖1357報3.78蚊，跌咗0.02蚊即係跌0.5%。」
+  · US example:  「蘋果AAPL報211.45美金，升咗1.23美金即係升0.6%。」
+  · If price not found: 「{stock}嘅價格而家搵唔到，遲啲再試吓。」
+
 [HK STOCKS — 強制雙步驟 — 市場時段分流]
 恆生指數 / 港股 queries ALWAYS fire BOTH tools in a single parallel step.
 Which pair to fire depends on current HKT time — DO NOT use the wrong pair.
