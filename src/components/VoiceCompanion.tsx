@@ -72,7 +72,7 @@ function sanitizeHistory(turns: GeminiTurn[]): GeminiTurn[] {
  * Suppresses name if used in the last 3 assistant (model) turns; permits it otherwise.
  */
 function buildNameToken(history: GeminiTurn[]): string {
-  const nameVariants = ["明女", "米米", "Wendy"];
+  const nameVariants = ["明女", "米米", "wendy", "Wendy"];
   const assistantTurns = history.filter((t) => t.role === "model").slice(-6);
   const last3 = assistantTurns.slice(-3);
   const usedRecently = last3.some((t) =>
