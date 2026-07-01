@@ -233,7 +233,22 @@ export async function playBase64Audio(audioBase64: string): Promise<void> {
     try { await c.resume(); } catch { /* ignore */ }
     refreshGraph();
   }
+  // Play-gate: never schedule playback into a non-running context.
+  // Queue the decoded buffer and unlock on next user gesture.
+  if ((c.state as string) !== "running") {
+    diag(`⚠️ ctx=${c.state} — audio queued, waiting for gesture`);
+    pendingBuffer = buffer;
+    return new Promise<void>((resolve) => {
+      armGestureUnlock(() => {
+        const buf = pendingBuffer;
+        pendingBuffer = null;
+        if (!buf) { resolve(); return; }
+        playBase64AudioFromBuffer(buf).then(resolve, () => resolve());
+      });
+    });
+  }
   stopPlayback();
+
   return new Promise<void>((resolve) => {
     let cleaned = false;
     const src = c.createBufferSource();
