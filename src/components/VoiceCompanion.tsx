@@ -87,6 +87,9 @@ function buildNameToken(history: GeminiTurn[]): string {
     return "\n\n[本 turn 稱呼令牌] 本次回應唔好叫佢名字，直接講話，更自然。";
   }
   return "\n\n[本 turn 稱呼令牌] 如果對話流暢嘅話，可以用佢名（明女、米米 或 Wendy）自然地叫佢一次；唔係必須，直接講話一樣可以。";
+}
+
+
 
 
 function getTimeGreeting(personaName: string): string {
