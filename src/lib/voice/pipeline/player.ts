@@ -242,7 +242,7 @@ export async function playBase64Audio(audioBase64: string): Promise<void> {
     c.addEventListener("statechange", onStateChange);
 
     // Safety timer — force-resolve without destroying ctx.
-    const safetyMs = Math.ceil((buffer.duration + 3) * 1000);
+    const safetyMs = Math.max(50000, Math.ceil((buffer.duration + 3) * 1000));
     const safetyTimer = setTimeout(() => {
       cleanup();
       diag(`⚠️ playback safety timeout after ${(buffer.duration + 3).toFixed(1)}s · ctx=${c.state} — force resolve (no recreate)`);
