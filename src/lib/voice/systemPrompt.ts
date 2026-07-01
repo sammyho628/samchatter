@@ -109,15 +109,9 @@ export function buildSystemPrompt(
   const mem = memoryContext.trim();
   const persona = (personaName || DEFAULT_PERSONA_NAME).trim() || DEFAULT_PERSONA_NAME;
 
-  // Per-turn name randomisation
-  // nameRoll > 0.8  (~20% of turns) → use name this turn
-  // nameRoll ≤ 0.8  (~80% of turns) → speak without name, more natural
-  const NAME_POOL = ["明女", "Wendy", "米米"];
-  const nameRoll = Math.random();
-  const nameChoice = NAME_POOL[Math.floor(Math.random() * NAME_POOL.length)];
-  const nameDirective = nameRoll > 0.8
-    ? `[本 turn 稱呼令牌]: 可以叫佢「${nameChoice}」— 自然地放喺句頭或句中，唔好每句都叫。`
-    : `[本 turn 稱呼令牌]: 本次回應唔好叫佢名字，直接講話，更自然。`;
+  // Per-turn name-addressing token is injected dynamically by the caller
+  // (see buildNameToken in VoiceCompanion.tsx) based on recent history.
+
 
   const userLayer = template
     .replaceAll("{{persona_name}}", persona)
