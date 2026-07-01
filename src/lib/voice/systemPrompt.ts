@@ -109,15 +109,9 @@ export function buildSystemPrompt(
   const mem = memoryContext.trim();
   const persona = (personaName || DEFAULT_PERSONA_NAME).trim() || DEFAULT_PERSONA_NAME;
 
-  // Per-turn name randomisation
-  // nameRoll > 0.8  (~20% of turns) → use name this turn
-  // nameRoll ≤ 0.8  (~80% of turns) → speak without name, more natural
-  const NAME_POOL = ["明女", "Wendy", "米米"];
-  const nameRoll = Math.random();
-  const nameChoice = NAME_POOL[Math.floor(Math.random() * NAME_POOL.length)];
-  const nameDirective = nameRoll > 0.8
-    ? `[本 turn 稱呼令牌]: 可以叫佢「${nameChoice}」— 自然地放喺句頭或句中，唔好每句都叫。`
-    : `[本 turn 稱呼令牌]: 本次回應唔好叫佢名字，直接講話，更自然。`;
+  // Per-turn name-addressing token is injected dynamically by the caller
+  // (see buildNameToken in VoiceCompanion.tsx) based on recent history.
+
 
   const userLayer = template
     .replaceAll("{{persona_name}}", persona)
@@ -156,8 +150,8 @@ SENTENCE BOUNDARY RULE (mandatory — affects TTS chunking and iOS playback):
 時間衰減測試：「呢個答案訓練截止之後可能變咗嗎？」NO → 用記憶；YES → 必須搜尋。
 
 時間: ${currentHKTime} (${dayOfWeek}) ISO:${iso} Asia/Hong_Kong。所有「今日/尋日/聽日」按此計。
-${nameDirective}
 [時段行為 — ${timeSlotLabel}]: ${timeSlotHint}
+
 [預載情境優先 — 強制]: 【hk_weather】或其他【預載】block 係即時本地真相，優先級高過任何 web_search 結果。用戶問今日/聽日/本週天氣或短期展望 → 必須先閱讀【hk_weather】block 內容；如預載已有涵蓋答案，直接回答，禁止重複搜尋。如需搜尋未來天氣 (例如週末) → 必須用抽象展望 query (例如「Hong Kong weather weekend forecast」「香港天氣未來幾日展望」)，絕對禁止搜尋精確日曆日期 (例如「27 June 2026 weather」) — 精確日期 query 只會返回空 snippet。【例外 — 逐日詳細預報強制搜尋】: 如用戶要求「逐日」/「day-by-day」/「7日」/「每日」/「幾日」/「未來幾日」/「呢幾日」/「本週天氣」/「今個星期天氣」天氣詳情，或含「詳細」+「天氣」/「預報」→ 預載只係概覽，唔代表有完整逐日細節；此情況必須 emit scrape_page("https://data.weather.gov.hk/weatherAPI/opendata/weather.php?dataType=fnd&lang=tc") 獲取完整逐日資料，禁止單靠預載直接答，亦禁止用 web_search 替代。
 [天氣主動提及 — 強制限制]:
   主動提及天氣（用戶冇問天氣）只可以在以下情況：
