@@ -59,6 +59,10 @@ export const OPENROUTER_MODELS: { value: string; label: string }[] = [
   { value: "openai/gpt-4o", label: "OpenAI GPT-4o" },
   { value: "google/gemini-2.5-flash", label: "Gemini 2.5 Flash (via OpenRouter)" },
   { value: "x-ai/grok-4", label: "xAI Grok 4 (via OpenRouter)" },
+  { value: "nvidia/nemotron-3-ultra-550b-a55b:free", label: "NVIDIA Nemotron 3 Ultra 550B A55B (free)" },
+  { value: "nvidia/nemotron-3-super-120b-a12b:free", label: "NVIDIA Nemotron 3 Super 120B A12B (free)" },
+  { value: "nvidia/nemotron-3-nano-30b-a3b:free", label: "NVIDIA Nemotron 3 Nano 30B A3B (free)" },
+  { value: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", label: "NVIDIA Nemotron 3 Nano Omni 30B A3B Reasoning (free)" },
 ];
 
 export const DEFAULT_OPENROUTER_MODEL = "qwen/qwen3-max";
