@@ -1101,6 +1101,46 @@ export type SynthesizeInput = GenerateInput & {
 const YAHOO_FINANCE_RE = /finance\.yahoo\.com|yahoo\.com\/finance/i;
 const REUTERS_DOMAIN_RE = /reuters\.com/i;
 
+// Entity-Attribute Anti-Adhesion Guard (Fix 46).
+// Heuristic only — not real coreference resolution. Flags tool results that
+// mention the queried brand/product alongside a *different* brand/product in
+// comparison language, so the synthesiser doesn't silently bind a spec number
+// (speed/battery/price) to the wrong entity when a snippet compares two products
+// in one sentence (e.g. "共田 vs Aecooly" articles).
+const COMPARISON_LANGUAGE_RE =
+  /(vs\.?|對比|比較|雖然.{0,12}但|不如|冇.{0,8}咁|比唔上|相比之下|反觀)/i;
+
+function extractQueryEntity(query: string): string {
+  const stripped = query
+    .replace(
+      /(價錢|邊隻好|開箱|評測|用後感|review|price|手提|風扇|portable|handheld|fan|\d{4})/gi,
+      "",
+    )
+    .trim();
+  return stripped.split(/\s+/).filter(Boolean)[0] ?? "";
+}
+
+function flagEntityAdhesionRisk(query: string, summary: string): string {
+  const targetEntity = extractQueryEntity(query);
+  if (!targetEntity || !COMPARISON_LANGUAGE_RE.test(summary)) return summary;
+
+  // Crude brand-token candidates: capitalized English words (Aecooly, Jisulife)
+  // or 2-4 char Chinese tokens immediately followed by a model-code-like or
+  // "風扇/牌" suffix. False negatives are expected — this fails open by design.
+  const candidates = Array.from(
+    new Set(summary.match(/[A-Z][a-zA-Z]{2,}|[一-龥]{2,4}(?=(F\d|M\d|PM\d)?\s*(風扇|牌))/g) ?? []),
+  ).filter((tok) => tok && !targetEntity.includes(tok) && !tok.includes(targetEntity));
+
+  if (candidates.length === 0) return summary;
+
+  return (
+    `⚠️ [ENTITY-BINDING RISK — 呢段內容同時提及 "${targetEntity}" 同其他牌子/型號` +
+    `（${candidates.slice(0, 3).join("、")}），並含比較語句，規格數字歸屬可能唔清楚。` +
+    `引用呢段入面嘅任何規格數字（風速/續航/價錢等）之前，必須確認個數字同主詞係咪喺同一句，` +
+    `如果唔肯定屬於邊個牌子，就唔好講出嚟。]\n\n${summary}`
+  );
+}
+
 function buildToolResultsBlock(toolResults: ToolCallTrace[]): string {
   if (toolResults.length === 0) return "";
   const filtered = toolResults.map((t) => {
