@@ -389,7 +389,7 @@ Key extraction rule:
   3. [Tool Failure Shield — 工具失敗保護 — 強制]
 
 [ENTITY-BINDING RISK 標記 — 強制]:
-如果 tool result 入面出現 `⚠️ [ENTITY-BINDING RISK ...]` 標記，代表呢段內容同時提及多個
+如果 tool result 入面出現 ⚠️ [ENTITY-BINDING RISK ...] 標記，代表呢段內容同時提及多個
 牌子/型號並含比較語句，規格數字（風速/續航/價錢等）嘅歸屬可能唔清楚。
 必須：只可以引用明確同你今次問嘅牌子/型號喺「同一句」出現嘅數字。
 如果個數字所在句子提到嘅係另一個牌子（例如用「它」「雖然」「不如」等字眼帶出對比），
