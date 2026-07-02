@@ -1173,7 +1173,9 @@ function buildToolResultsBlock(toolResults: ToolCallTrace[]): string {
           : t.name === "web_search"
             ? " [BRAVE — general web]"
             : "";
-      return `### ${t.name}(${JSON.stringify(t.args)})${engineTag}\n${t.summary}`;
+      const q = String((t.args as Record<string, unknown>).query ?? "");
+      const safeSummary = flagEntityAdhesionRisk(q, t.summary);
+      return `### ${t.name}(${JSON.stringify(t.args)})${engineTag}\n${safeSummary}`;
     })
     .join("\n\n");
   // Sports fallback: if sports tools returned thin/empty data, remind the
