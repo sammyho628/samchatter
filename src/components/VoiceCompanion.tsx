@@ -545,6 +545,8 @@ export function VoiceCompanion() {
     );
 
     try {
+      fillerDoneRef.current = Promise.resolve();
+      fillerPlayedThisTurnRef.current = false;
       await runTurn(
         {
           audio: blob,
@@ -559,7 +561,7 @@ export function VoiceCompanion() {
           executeTool: execToolFn,
           synthesize: synthAnswerFn,
           synthesizeSpeech: ttsFn,
-          playAudio: (b64) => playBase64Audio(b64),
+          playAudio: (b64) => fillerDoneRef.current.then(() => playBase64Audio(b64)),
         },
         {
           onTranscribing: () => setStatus("transcribing"),
@@ -567,6 +569,7 @@ export function VoiceCompanion() {
             pushLog("user", t);
             transcriptLinesRef.current.push(`USER: ${t}`);
             persistTurn("user", t);
+            playFillerIfMatched(t);
           },
           onThinking: () => {
             setStatus("thinking");
@@ -605,13 +608,25 @@ export function VoiceCompanion() {
             pushLog("err", msg);
             setErrorMsg(msg);
             setStatus("error");
+            if (fillerPlayedThisTurnRef.current) {
+              void (async () => {
+                try {
+                  const tts = await ttsFn({
+                    data: { text: "唔好意思，搵資料嗰陣出咗少少問題，可唔可以你再問多次？" },
+                  });
+                  await playBase64Audio(tts.audioBase64);
+                } catch {
+                  /* best-effort only — never throw from an error handler */
+                }
+              })();
+            }
           },
         },
       );
     } finally {
       stopKeepAlive();
     }
-  }, [sttFn, planFn, execToolFn, synthAnswerFn, ttsFn, pushLog, persistTurn]);
+  }, [sttFn, planFn, execToolFn, synthAnswerFn, ttsFn, pushLog, persistTurn, playFillerIfMatched]);
 
   const startTalking = useCallback(async () => {
     if (
@@ -682,6 +697,8 @@ export function VoiceCompanion() {
           `🧠 LLM history window: ${windowed.length}/${historyRef.current.length} turns (text mode)`,
         );
 
+        fillerDoneRef.current = Promise.resolve();
+        fillerPlayedThisTurnRef.current = false;
         await runTurn(
           {
             text,
@@ -695,13 +712,14 @@ export function VoiceCompanion() {
             executeTool: execToolFn,
             synthesize: synthAnswerFn,
             synthesizeSpeech: ttsFn,
-            playAudio: (b64) => playBase64Audio(b64),
+            playAudio: (b64) => fillerDoneRef.current.then(() => playBase64Audio(b64)),
           },
           {
             onTranscript: (t) => {
               pushLog("user", `(text) ${t}`);
               transcriptLinesRef.current.push(`USER: ${t}`);
               persistTurn("user", t);
+              playFillerIfMatched(t);
             },
             onThinking: () => {
               setStatus("thinking");
@@ -739,6 +757,18 @@ export function VoiceCompanion() {
               pushLog("err", msg);
               setErrorMsg(msg);
               setStatus("error");
+              if (fillerPlayedThisTurnRef.current) {
+                void (async () => {
+                  try {
+                    const tts = await ttsFn({
+                      data: { text: "唔好意思，搵資料嗰陣出咗少少問題，可唔可以你再問多次？" },
+                    });
+                    await playBase64Audio(tts.audioBase64);
+                  } catch {
+                    /* best-effort only — never throw from an error handler */
+                  }
+                })();
+              }
             },
           },
         );
@@ -761,6 +791,7 @@ export function VoiceCompanion() {
       pushLog,
       persistTurn,
       stopPlayback,
+      playFillerIfMatched,
     ],
   );
 
