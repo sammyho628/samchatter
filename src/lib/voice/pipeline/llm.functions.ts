@@ -667,7 +667,7 @@ NOT 純粹查價錢/邊度買.
 Which pair to fire depends on current HKT time — DO NOT use the wrong pair.
 
 MARKET OPEN (Mon–Fri 09:30–16:00 HKT):
-  Tool 1: firecrawl_search(query="Hang Seng Index live")
+  Tool 1: firecrawl_search(query="Hang Seng Index now")
   Tool 2: scrape_page("https://www.marketwatch.com/investing/index/hsi?countrycode=hk")
   Synthesiser: report the HSI price from the firecrawl_search description (Yahoo Finance metadata format: "22,881.02 -145.66 (-0.63%)") as the live index number.
   Use Tool 2 (MarketWatch) for intraday context: today's open, session high, session low, volume.
@@ -1283,6 +1283,8 @@ async function callSynthesiser(
       .replace(/\[TOOL CALLS\][\s\S]*?\[\/TOOL CALLS\]/gi, "")
       .replace(/\[TOOL RESULTS\][\s\S]*?\[\/TOOL RESULTS\]/gi, "")
       .replace(/\[\s*(web_search|search_places|scrape_page)\s*\([^)]*\)\s*\]/g, "")
+      .replace(/\b(firecrawl_search|web_search|scrape_page|search_places|tradingeconomics|trading economics|marketwatch|market watch)\b/gi, "")
+      .replace(/\s{2,}/g, " ")
       .trim();
     const nextHistory: GeminiTurn[] = [
       ...history,
@@ -1316,6 +1318,8 @@ async function callSynthesiser(
     .replace(/\[TOOL CALLS\][\s\S]*?\[\/TOOL CALLS\]/gi, "")
     .replace(/\[TOOL RESULTS\][\s\S]*?\[\/TOOL RESULTS\]/gi, "")
     .replace(/\[\s*(web_search|search_places|scrape_page)\s*\([^)]*\)\s*\]/g, "")
+    .replace(/\b(firecrawl_search|web_search|scrape_page|search_places|tradingeconomics|trading economics|marketwatch|market watch)\b/gi, "")
+    .replace(/\s{2,}/g, " ")
     .trim();
   const nextHistory: GeminiTurn[] = [
     ...history,
@@ -1346,6 +1350,7 @@ Rules:
 - If DRAFT lacks concrete facts/scores/numbers that TOOL_DATA provides → status=INCOMPLETE
 - If DRAFT is a shallow one-liner for an analytical query → status=LACKS_DEPTH
 - If DRAFT contradicts itself on direction (e.g. price down but says "rise") or uses numbers not present in TOOL_DATA → status=INCOMPLETE
+- If DRAFT states a specific descriptive/qualitative attribute about a place or dish (flavor, dietary suitability, "light/mild", "spicy", "healthy", price tier, atmosphere, etc.) that is NOT evidenced anywhere in TOOL_DATA → status=INCOMPLETE, feedback should say which claim is unsupported
 - Otherwise → status=OK
 
 Respond ONLY as compact JSON: {"status":"OK|INCOMPLETE|LACKS_DEPTH","feedback":"specific missing fact or what to search next, in Cantonese, <=80 chars"}`;
@@ -1398,7 +1403,7 @@ export const synthesizeAnswer = createServerFn({ method: "POST" })
         data.toolResults.some((t) => {
           const cat = (t.args.category ?? "") as string;
           return (
-            ["stocks", "finance", "sports"].includes(cat) ||
+            ["stocks", "finance", "sports", "food", "shopping", "places"].includes(cat) ||
             t.name === "scrape_page"
           );
         }));
@@ -1482,7 +1487,7 @@ export const generateAIResponse = createServerFn({ method: "POST" })
         toolResults.some((t) => {
           const cat = (t.args.category ?? "") as string;
           return (
-            ["stocks", "finance", "sports"].includes(cat) ||
+            ["stocks", "finance", "sports", "food", "shopping", "places"].includes(cat) ||
             t.name === "scrape_page"
           );
         }));
