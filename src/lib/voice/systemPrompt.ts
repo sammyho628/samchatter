@@ -340,7 +340,7 @@ Key extraction rule:
   1. DATA LOCK: 只可以引用直接跟住目標 ticker (例如「1357.HK」「0700.HK」「^HSI」) 或公司全名後面嘅數字。snippet 入面其他 ticker 旁邊嘅數字一律當噪音、禁止採用。
   2. Source priority (trading-hours aware):
      - HK Market OPEN (Mon–Fri 09:30–16:00 HKT): MANDATORY PARALLEL — always fire BOTH tools simultaneously:
-       (a) firecrawl_search(query="Hang Seng Index live") → returns Yahoo Finance metadata description with correct HSI price (e.g. "22,881.02 -145.66 (-0.63%)")
+       (a) firecrawl_search(query="Hang Seng Index now") → returns Yahoo Finance metadata description with correct HSI price (e.g. "22,881.02 -145.66 (-0.63%)"). If this result is instead sourced from hsi.com.hk rather than Yahoo Finance, treat its number as potentially stale (see Rule 1 above) — prefer the MarketWatch scrape's number if the two disagree by more than ~0.5%.
        (b) scrape_page("https://www.marketwatch.com/investing/index/hsi?countrycode=hk") → intraday stats (open/high/low/volume/5-day)
        Report firecrawl_search price as current live index. Use MarketWatch for intraday session context.
        Do NOT scrape tradingeconomics.com during trading hours — commentary ambiguity risks hallucination.
