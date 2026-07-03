@@ -34,6 +34,7 @@ import {
 } from "@/lib/voice/pipeline/player";
 import { APP_VERSION } from "@/lib/version";
 import { getProviderSettings } from "@/lib/voice/providerSettings.functions";
+import { classifyFillerIntent, pickFillerPhrase } from "@/lib/voice/pipeline/fillerIntent";
 
 type Status =
   | "idle"
@@ -197,6 +198,13 @@ export function VoiceCompanion() {
   // Shot 1: instant "你好呀！" audio pre-fetched at mount. Plays immediately on tap
   // while the full personalized greeting loads in the background.
   const shot1AudioRef = useRef<string | null>(null);
+  // Fix 48 — instant filler response. fillerDoneRef resolves once this turn's
+  // filler audio (if any) has finished playing; the real answer's playback is
+  // chained onto it so the two never overlap. fillerPlayedThisTurnRef tracks
+  // whether a filler played this turn, so onError can speak an apology instead
+  // of leaving dead silence after a "wait" promise.
+  const fillerDoneRef = useRef<Promise<void>>(Promise.resolve());
+  const fillerPlayedThisTurnRef = useRef(false);
   const turnCountRef = useRef(0);
   const lastMemorySaveRef = useRef(0);
   const sessionDataRef = useRef<{
@@ -283,6 +291,35 @@ export function VoiceCompanion() {
     },
     [saveTurn, pushLog, loadTurns, saveMemory],
   );
+
+  // Fix 48 — fires a code-generated (never LLM-generated) stall phrase the
+  // moment the transcript is known, if the transcript matches a known
+  // dynamic-knowledge category. Never persisted to DB/history — purely
+  // spoken audio. Never blocks or awaits runTurn()'s own execution.
+  const playFillerIfMatched = useCallback(
+    (transcript: string) => {
+      const category = classifyFillerIntent(transcript);
+      if (!category) {
+        fillerDoneRef.current = Promise.resolve();
+        return;
+      }
+      fillerPlayedThisTurnRef.current = true;
+      const phrase = pickFillerPhrase(category);
+      fillerDoneRef.current = (async () => {
+        try {
+          pushLog("evt", `⏱️ filler · category=${category} · "${phrase}"`);
+          const tts = await ttsFn({ data: { text: phrase } });
+          await playBase64Audio(tts.audioBase64);
+        } catch (e) {
+          pushLog("err", `filler playback failed: ${(e as Error).message}`);
+          // Fail open — never let a filler error block the real answer.
+        }
+      })();
+    },
+    [ttsFn, pushLog],
+  );
+
+
 
 
   useEffect(() => {
