@@ -667,7 +667,7 @@ NOT 純粹查價錢/邊度買.
 Which pair to fire depends on current HKT time — DO NOT use the wrong pair.
 
 MARKET OPEN (Mon–Fri 09:30–16:00 HKT):
-  Tool 1: firecrawl_search(query="Hang Seng Index live")
+  Tool 1: firecrawl_search(query="Hang Seng Index now")
   Tool 2: scrape_page("https://www.marketwatch.com/investing/index/hsi?countrycode=hk")
   Synthesiser: report the HSI price from the firecrawl_search description (Yahoo Finance metadata format: "22,881.02 -145.66 (-0.63%)") as the live index number.
   Use Tool 2 (MarketWatch) for intraday context: today's open, session high, session low, volume.
@@ -1100,6 +1100,14 @@ export type SynthesizeInput = GenerateInput & {
 // Reuters: Refinitiv paywall blocks server IPs — returns navigation shell only, no content.
 const YAHOO_FINANCE_RE = /finance\.yahoo\.com|yahoo\.com\/finance/i;
 const REUTERS_DOMAIN_RE = /reuters\.com/i;
+// OpenRice sometimes returns a bot-detection interstitial instead of actual
+// restaurant content when scraped/searched this way — detect by the
+// combination of the domain and the block-page phrasing so we don't void
+// legitimate OpenRice content that happens to mention the domain name.
+const OPENRICE_DOMAIN_RE = /openrice\.com/i;
+const OPENRICE_BLOCK_PHRASE_RE =
+  /security check in progress|access security.{0,20}inspecting|verify you are human|checking your browser/i;
+const HSI_COM_HK_RE = /hsi\.com\.hk/i;
 
 // Entity-Attribute Anti-Adhesion Guard (Fix 46).
 // Heuristic only — not real coreference resolution. Flags tool results that
@@ -1161,6 +1169,29 @@ function buildToolResultsBlock(toolResults: ToolCallTrace[]): string {
         ...t,
         summary:
           "[Reuters scrape omitted — Refinitiv paywall blocks server IPs, returns navigation shell only. Use web_search or AP Sports / BBC Sport instead.]",
+      };
+    }
+    // Void OpenRice results that returned a bot-detection security-check page
+    // instead of actual restaurant data.
+    if (OPENRICE_DOMAIN_RE.test(t.summary) && OPENRICE_BLOCK_PHRASE_RE.test(t.summary)) {
+      return {
+        ...t,
+        summary:
+          "[OpenRice result voided — returned a bot-detection security-check page, not " +
+          "restaurant data. Rely on search_places or other food sources for this turn.]",
+      };
+    }
+    // hsi.com.hk cached snippet can lag real-time price by ~1%. Flag as
+    // lower-confidence rather than voiding.
+    if (t.name === "firecrawl_search" && HSI_COM_HK_RE.test(t.summary)) {
+      return {
+        ...t,
+        summary:
+          "⚠️ [SOURCE CAUTION — this firecrawl_search result is from hsi.com.hk, whose " +
+          "cached snippet can lag the real-time price by up to ~1%. If a Yahoo Finance-" +
+          "sourced result or MarketWatch scrape is also available this turn, prefer that " +
+          "number instead. Only use this number if no other source returned one.]\n\n" +
+          t.summary,
       };
     }
     return t;
@@ -1252,6 +1283,8 @@ async function callSynthesiser(
       .replace(/\[TOOL CALLS\][\s\S]*?\[\/TOOL CALLS\]/gi, "")
       .replace(/\[TOOL RESULTS\][\s\S]*?\[\/TOOL RESULTS\]/gi, "")
       .replace(/\[\s*(web_search|search_places|scrape_page)\s*\([^)]*\)\s*\]/g, "")
+      .replace(/\b(firecrawl_search|web_search|scrape_page|search_places|tradingeconomics|trading economics|marketwatch|market watch)\b/gi, "")
+      .replace(/\s{2,}/g, " ")
       .trim();
     const nextHistory: GeminiTurn[] = [
       ...history,
@@ -1285,6 +1318,8 @@ async function callSynthesiser(
     .replace(/\[TOOL CALLS\][\s\S]*?\[\/TOOL CALLS\]/gi, "")
     .replace(/\[TOOL RESULTS\][\s\S]*?\[\/TOOL RESULTS\]/gi, "")
     .replace(/\[\s*(web_search|search_places|scrape_page)\s*\([^)]*\)\s*\]/g, "")
+    .replace(/\b(firecrawl_search|web_search|scrape_page|search_places|tradingeconomics|trading economics|marketwatch|market watch)\b/gi, "")
+    .replace(/\s{2,}/g, " ")
     .trim();
   const nextHistory: GeminiTurn[] = [
     ...history,
@@ -1315,6 +1350,7 @@ Rules:
 - If DRAFT lacks concrete facts/scores/numbers that TOOL_DATA provides → status=INCOMPLETE
 - If DRAFT is a shallow one-liner for an analytical query → status=LACKS_DEPTH
 - If DRAFT contradicts itself on direction (e.g. price down but says "rise") or uses numbers not present in TOOL_DATA → status=INCOMPLETE
+- If DRAFT states a specific descriptive/qualitative attribute about a place or dish (flavor, dietary suitability, "light/mild", "spicy", "healthy", price tier, atmosphere, etc.) that is NOT evidenced anywhere in TOOL_DATA → status=INCOMPLETE, feedback should say which claim is unsupported
 - Otherwise → status=OK
 
 Respond ONLY as compact JSON: {"status":"OK|INCOMPLETE|LACKS_DEPTH","feedback":"specific missing fact or what to search next, in Cantonese, <=80 chars"}`;
@@ -1367,7 +1403,7 @@ export const synthesizeAnswer = createServerFn({ method: "POST" })
         data.toolResults.some((t) => {
           const cat = (t.args.category ?? "") as string;
           return (
-            ["stocks", "finance", "sports"].includes(cat) ||
+            ["stocks", "finance", "sports", "food", "shopping", "places"].includes(cat) ||
             t.name === "scrape_page"
           );
         }));
@@ -1451,7 +1487,7 @@ export const generateAIResponse = createServerFn({ method: "POST" })
         toolResults.some((t) => {
           const cat = (t.args.category ?? "") as string;
           return (
-            ["stocks", "finance", "sports"].includes(cat) ||
+            ["stocks", "finance", "sports", "food", "shopping", "places"].includes(cat) ||
             t.name === "scrape_page"
           );
         }));
