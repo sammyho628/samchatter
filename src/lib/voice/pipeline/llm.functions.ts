@@ -1171,6 +1171,29 @@ function buildToolResultsBlock(toolResults: ToolCallTrace[]): string {
           "[Reuters scrape omitted — Refinitiv paywall blocks server IPs, returns navigation shell only. Use web_search or AP Sports / BBC Sport instead.]",
       };
     }
+    // Void OpenRice results that returned a bot-detection security-check page
+    // instead of actual restaurant data.
+    if (OPENRICE_DOMAIN_RE.test(t.summary) && OPENRICE_BLOCK_PHRASE_RE.test(t.summary)) {
+      return {
+        ...t,
+        summary:
+          "[OpenRice result voided — returned a bot-detection security-check page, not " +
+          "restaurant data. Rely on search_places or other food sources for this turn.]",
+      };
+    }
+    // hsi.com.hk cached snippet can lag real-time price by ~1%. Flag as
+    // lower-confidence rather than voiding.
+    if (t.name === "firecrawl_search" && HSI_COM_HK_RE.test(t.summary)) {
+      return {
+        ...t,
+        summary:
+          "⚠️ [SOURCE CAUTION — this firecrawl_search result is from hsi.com.hk, whose " +
+          "cached snippet can lag the real-time price by up to ~1%. If a Yahoo Finance-" +
+          "sourced result or MarketWatch scrape is also available this turn, prefer that " +
+          "number instead. Only use this number if no other source returned one.]\n\n" +
+          t.summary,
+      };
+    }
     return t;
   });
   const body = filtered
