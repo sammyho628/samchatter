@@ -1100,6 +1100,14 @@ export type SynthesizeInput = GenerateInput & {
 // Reuters: Refinitiv paywall blocks server IPs — returns navigation shell only, no content.
 const YAHOO_FINANCE_RE = /finance\.yahoo\.com|yahoo\.com\/finance/i;
 const REUTERS_DOMAIN_RE = /reuters\.com/i;
+// OpenRice sometimes returns a bot-detection interstitial instead of actual
+// restaurant content when scraped/searched this way — detect by the
+// combination of the domain and the block-page phrasing so we don't void
+// legitimate OpenRice content that happens to mention the domain name.
+const OPENRICE_DOMAIN_RE = /openrice\.com/i;
+const OPENRICE_BLOCK_PHRASE_RE =
+  /security check in progress|access security.{0,20}inspecting|verify you are human|checking your browser/i;
+const HSI_COM_HK_RE = /hsi\.com\.hk/i;
 
 // Entity-Attribute Anti-Adhesion Guard (Fix 46).
 // Heuristic only — not real coreference resolution. Flags tool results that
