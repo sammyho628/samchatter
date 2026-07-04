@@ -22,31 +22,31 @@ export type FillerCategory =
 const FILLER_TRIGGERS: Array<{ category: FillerCategory; re: RegExp }> = [
   {
     category: "weather",
-    re: /(天氣點|幾多度|落唔落雨|落雨嗎|使唔使帶遮|打風|黑雨|紅雨|weather)/i,
+    re: /(天氣點|幾多度|落唔落雨|落雨嗎|使唔使帶遮|打風|黑雨|紅雨|weather|forecast|rain|typhoon)/i,
   },
   {
     category: "stocks",
-    re: /(恆指|港股|美股|道指|標普|納指|股價|股市|nasdaq|dow jones|s&p|nvda|tsla|aapl|\d{4}\.hk)/i,
+    re: /(恆指|港股|美股|道指|標普|納指|股價|股市|stock market|hang seng|\bhsi\b|\bstocks?\b|\bshares?\b|nasdaq|dow jones|s&p|nvda|tsla|aapl|\d{4}\.hk)/i,
   },
   {
     category: "sports",
-    re: /(世界盃|波賽|賽果|比分|邊隊贏|邊個贏|world cup|live score)/i,
-  },
-  {
-    category: "shopping",
-    re: /(邊隻好|邊個牌子|牌子|型號|開箱|評測|推介.{0,4}(買|風扇|手機|電器))/i,
-  },
-  {
-    category: "news",
-    re: /(最新消息|新聞|頭條|發生咩事)/i,
+    re: /(世界盃|波賽|賽果|比分|邊隊贏|邊個贏|睇波|有波睇|足球|world cup|live score|match score|football|soccer|who('?s| is) winning)/i,
   },
   {
     category: "food",
-    re: /(邊度食|食乜好|餐廳推介|好唔好食|飲茶)/i,
+    re: /(邊度食|食乜好|餐廳推介|好唔好食|飲茶|打邊爐|火鍋|任食|放題|buffet|restaurant|where to eat|good food)/i,
   },
   {
     category: "places",
-    re: /(邊度好玩|附近.{0,4}(有咩|按摩|spa)|營業時間|幾點開門)/i,
+    re: /(邊度好玩|附近.{0,4}(有咩|按摩|spa)|營業時間|幾點開門|opening hours|nearby|what time.{0,6}open)/i,
+  },
+  {
+    category: "shopping",
+    re: /(邊隻好|邊個牌子|牌子|型號|開箱|評測|推介|介紹|推薦|好唔好用|抵買|抵玩|買咩好|優惠|折扣|promotion|邊款|性價比高|買一送一|新款|which (one|model|brand)|any good|recommend|review|good model)/i,
+  },
+  {
+    category: "news",
+    re: /(最新消息|新聞|頭條|發生咩事|latest news|what'?s happening|breaking news)/i,
   },
 ];
 
