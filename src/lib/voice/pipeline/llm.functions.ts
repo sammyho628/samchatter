@@ -1076,6 +1076,8 @@ async function runPlannerOpenAI(
     true,
     400,
     data.sessionId,
+    "none", // Fix 55 — test disabling reasoning on the planner call. Revert
+            // to `undefined` here if tool-selection or answer quality drops.
   );
   const toolCalls: PlannedToolCall[] = oaCalls.map((c) => {
     let args: Record<string, string> = {};
