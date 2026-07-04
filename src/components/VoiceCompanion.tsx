@@ -1050,7 +1050,15 @@ export function VoiceCompanion() {
         >
           <div className="flex flex-col items-center gap-3 text-center">
             <div className="text-5xl font-black tracking-tight">傾偈</div>
-            <div className="text-base text-white/70">明女正在等緊你...</div>
+            <div className="text-base text-white/70">
+              {new Date().toLocaleDateString("en-GB", {
+                timeZone: "Asia/Hong_Kong",
+                weekday: "long",
+                year: "numeric",
+                month: "long",
+                day: "numeric",
+              })}
+            </div>
           </div>
 
           <button
