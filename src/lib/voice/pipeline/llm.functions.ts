@@ -500,6 +500,7 @@ async function callOpenAIChat(
   withTools: boolean,
   maxTokens: number = 400,
   convId?: string,
+  reasoningEffort?: "none" | "low" | "medium" | "high",
 ): Promise<{
   content: string;
   toolCalls: OAToolCall[];
@@ -511,6 +512,14 @@ async function callOpenAIChat(
     max_tokens: maxTokens,
   };
   if (withTools) body.tools = OPENAI_TOOLS;
+  // xAI reasoning models (grok-4.3) default to reasoning_effort="low" when
+  // unset, which burns hidden reasoning tokens (generated serially, same
+  // latency cost as completion tokens) even on trivial direct-answer turns.
+  // "none" disables reasoning entirely. Field shape for this legacy
+  // /v1/chat/completions endpoint isn't confirmed from xAI's docs — if the
+  // logged usage below still shows nonzero reasoning tokens after this
+  // ships, try `body.reasoning = { effort: reasoningEffort }` instead.
+  if (reasoningEffort) body.reasoning_effort = reasoningEffort;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Authorization: `Bearer ${apiKey}`,
@@ -541,18 +550,18 @@ async function callOpenAIChat(
           tool_calls?: OAToolCall[];
         };
       }>;
-      usage?: {
-        prompt_tokens?: number;
-        prompt_tokens_details?: { cached_tokens?: number };
-      };
+      usage?: Record<string, unknown>;
     }>,
     new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error("OpenAI body read timeout 30000ms")), 30000),
     ),
   ]);
-  const cached = json.usage?.prompt_tokens_details?.cached_tokens ?? 0;
-  const total = json.usage?.prompt_tokens ?? 0;
-  console.log(`[cache] conv=${convId ?? "none"} cached=${cached}/${total} prompt tokens`);
+  // Log the raw usage object rather than guessing field names — lets us
+  // read cached-token counts and reasoning-token counts directly from the
+  // real response shape instead of assuming xAI's exact schema.
+  console.log(
+    `[usage] conv=${convId ?? "none"} reasoningEffort=${reasoningEffort ?? "default"} usage=${JSON.stringify(json.usage ?? {})}`,
+  );
   const msg = json.choices?.[0]?.message;
   return {
     content: (msg?.content ?? "").trim(),
@@ -1067,6 +1076,8 @@ async function runPlannerOpenAI(
     true,
     400,
     data.sessionId,
+    "none", // Fix 55 — test disabling reasoning on the planner call. Revert
+            // to `undefined` here if tool-selection or answer quality drops.
   );
   const toolCalls: PlannedToolCall[] = oaCalls.map((c) => {
     let args: Record<string, string> = {};
