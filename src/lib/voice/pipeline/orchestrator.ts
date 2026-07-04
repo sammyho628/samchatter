@@ -33,6 +33,7 @@ export type TurnDeps = {
       systemInstruction: string;
       history: GeminiTurn[];
       userText: string;
+      sessionId?: string;
     };
   }) => Promise<QueryPlan>;
   executeTool: (input: { data: PlannedToolCall }) => Promise<ToolCallTrace>;
