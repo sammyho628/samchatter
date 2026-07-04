@@ -552,8 +552,8 @@ export function VoiceCompanion() {
           audio: blob,
           mimeType,
           systemInstruction: promptRef.current + buildNameToken(windowed),
-
           history: windowed,
+          sessionId: sessionIdRef.current,
         },
         {
           transcribe: sttFn,
