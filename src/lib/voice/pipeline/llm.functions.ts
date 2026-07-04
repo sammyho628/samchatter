@@ -35,6 +35,7 @@ export type GenerateInput = {
   systemInstruction: string;
   history: GeminiTurn[];
   userText: string;
+  sessionId?: string;
 };
 
 export type PlannedToolCall = { name: string; args: Record<string, string> };
