@@ -33,6 +33,7 @@ export type TurnDeps = {
       systemInstruction: string;
       history: GeminiTurn[];
       userText: string;
+      sessionId?: string;
     };
   }) => Promise<QueryPlan>;
   executeTool: (input: { data: PlannedToolCall }) => Promise<ToolCallTrace>;
@@ -58,6 +59,7 @@ export type TurnInput = {
   systemInstruction: string;
   history: GeminiTurn[];
   skipTTS?: boolean;
+  sessionId?: string;
 };
 
 export type TurnOutput = {
@@ -206,6 +208,7 @@ export async function runTurn(
             systemInstruction: input.systemInstruction,
             history: input.history,
             userText: transcript,
+            sessionId: input.sessionId,
           },
         }),
       cbs.onLog,

@@ -35,6 +35,7 @@ export type GenerateInput = {
   systemInstruction: string;
   history: GeminiTurn[];
   userText: string;
+  sessionId?: string;
 };
 
 export type PlannedToolCall = { name: string; args: Record<string, string> };
@@ -498,6 +499,7 @@ async function callOpenAIChat(
   messages: OAMessage[],
   withTools: boolean,
   maxTokens: number = 400,
+  convId?: string,
 ): Promise<{
   content: string;
   toolCalls: OAToolCall[];
@@ -509,14 +511,19 @@ async function callOpenAIChat(
     max_tokens: maxTokens,
   };
   if (withTools) body.tools = OPENAI_TOOLS;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${apiKey}`,
+  };
+  // xAI prompt caching: routes repeat requests with the same conv id to the
+  // same server so the cached prefix (system prompt + prior history) can
+  // actually be reused. Harmless no-op header for other providers.
+  if (convId) headers["x-grok-conv-id"] = convId;
   const resp = await fetchWithTimeout(
     apiUrl,
     {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
+      headers,
       body: JSON.stringify(body),
     },
     15000,
@@ -534,11 +541,18 @@ async function callOpenAIChat(
           tool_calls?: OAToolCall[];
         };
       }>;
+      usage?: {
+        prompt_tokens?: number;
+        prompt_tokens_details?: { cached_tokens?: number };
+      };
     }>,
     new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error("OpenAI body read timeout 30000ms")), 30000),
     ),
   ]);
+  const cached = json.usage?.prompt_tokens_details?.cached_tokens ?? 0;
+  const total = json.usage?.prompt_tokens ?? 0;
+  console.log(`[cache] conv=${convId ?? "none"} cached=${cached}/${total} prompt tokens`);
   const msg = json.choices?.[0]?.message;
   return {
     content: (msg?.content ?? "").trim(),
@@ -1051,6 +1065,8 @@ async function runPlannerOpenAI(
     cfg.apiKey,
     messages,
     true,
+    400,
+    data.sessionId,
   );
   const toolCalls: PlannedToolCall[] = oaCalls.map((c) => {
     let args: Record<string, string> = {};
