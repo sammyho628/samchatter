@@ -1065,6 +1065,8 @@ async function runPlannerOpenAI(
     cfg.apiKey,
     messages,
     true,
+    400,
+    data.sessionId,
   );
   const toolCalls: PlannedToolCall[] = oaCalls.map((c) => {
     let args: Record<string, string> = {};
