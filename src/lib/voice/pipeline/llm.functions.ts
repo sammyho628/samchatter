@@ -559,9 +559,18 @@ async function callOpenAIChat(
       setTimeout(() => reject(new Error("OpenAI body read timeout 30000ms")), 30000),
     ),
   ]);
-  const cached = json.usage?.prompt_tokens_details?.cached_tokens ?? 0;
-  const total = json.usage?.prompt_tokens ?? 0;
-  console.log(`[cache] conv=${convId ?? "none"} cached=${cached}/${total} prompt tokens`);
+    usage?: Record<string, unknown>;
+    }>,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("OpenAI body read timeout 30000ms")), 30000),
+    ),
+  ]);
+  // Log the raw usage object rather than guessing field names — lets us
+  // read cached-token counts and reasoning-token counts directly from the
+  // real response shape instead of assuming xAI's exact schema.
+  console.log(
+    `[usage] conv=${convId ?? "none"} reasoningEffort=${reasoningEffort ?? "default"} usage=${JSON.stringify(json.usage ?? {})}`,
+  );
   const msg = json.choices?.[0]?.message;
   return {
     content: (msg?.content ?? "").trim(),
