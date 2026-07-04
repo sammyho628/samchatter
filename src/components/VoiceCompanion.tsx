@@ -1012,34 +1012,6 @@ export function VoiceCompanion() {
         </div>
       </div>
 
-      {/* Debug text-mode input — skips STT, fires plan→tools→synth directly. */}
-      <div className="mt-4 w-full max-w-xl">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            const t = textInput;
-            setTextInput("");
-            void sendTextTurn(t);
-          }}
-          className="flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-2"
-        >
-          <span className="text-xs text-white/40">💬 Text:</span>
-          <input
-            type="text"
-            value={textInput}
-            onChange={(e) => setTextInput(e.target.value)}
-            placeholder="Type a message to skip STT (debug)…"
-            className="flex-1 bg-transparent text-sm text-white placeholder-white/30 outline-none"
-          />
-          <button
-            type="submit"
-            disabled={(textBusy && status !== "speaking") || !textInput.trim()}
-            className="rounded-full bg-amber-300 px-3 py-1 text-xs font-bold text-orange-950 disabled:opacity-40"
-          >
-            {status === "speaking" ? "明女講緊…" : textBusy ? "…" : "Send"}
-          </button>
-        </form>
-      </div>
 
       <div className="flex-1" />
 
