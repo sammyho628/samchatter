@@ -704,6 +704,7 @@ export function VoiceCompanion() {
             text,
             systemInstruction: promptRef.current + buildNameToken(windowed),
             history: windowed,
+            sessionId: sessionIdRef.current,
             // skipTTS removed — text-mode replies still speak aloud.
           },
           {
