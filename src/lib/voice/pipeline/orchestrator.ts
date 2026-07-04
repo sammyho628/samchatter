@@ -208,6 +208,7 @@ export async function runTurn(
             systemInstruction: input.systemInstruction,
             history: input.history,
             userText: transcript,
+            sessionId: input.sessionId,
           },
         }),
       cbs.onLog,
