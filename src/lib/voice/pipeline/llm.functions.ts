@@ -500,6 +500,7 @@ async function callOpenAIChat(
   withTools: boolean,
   maxTokens: number = 400,
   convId?: string,
+  reasoningEffort?: "none" | "low" | "medium" | "high",
 ): Promise<{
   content: string;
   toolCalls: OAToolCall[];
@@ -511,6 +512,14 @@ async function callOpenAIChat(
     max_tokens: maxTokens,
   };
   if (withTools) body.tools = OPENAI_TOOLS;
+  // xAI reasoning models (grok-4.3) default to reasoning_effort="low" when
+  // unset, which burns hidden reasoning tokens (generated serially, same
+  // latency cost as completion tokens) even on trivial direct-answer turns.
+  // "none" disables reasoning entirely. Field shape for this legacy
+  // /v1/chat/completions endpoint isn't confirmed from xAI's docs — if the
+  // logged usage below still shows nonzero reasoning tokens after this
+  // ships, try `body.reasoning = { effort: reasoningEffort }` instead.
+  if (reasoningEffort) body.reasoning_effort = reasoningEffort;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     Authorization: `Bearer ${apiKey}`,
