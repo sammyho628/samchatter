@@ -550,16 +550,7 @@ async function callOpenAIChat(
           tool_calls?: OAToolCall[];
         };
       }>;
-      usage?: {
-        prompt_tokens?: number;
-        prompt_tokens_details?: { cached_tokens?: number };
-      };
-    }>,
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("OpenAI body read timeout 30000ms")), 30000),
-    ),
-  ]);
-    usage?: Record<string, unknown>;
+      usage?: Record<string, unknown>;
     }>,
     new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error("OpenAI body read timeout 30000ms")), 30000),
