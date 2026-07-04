@@ -59,6 +59,7 @@ export type TurnInput = {
   systemInstruction: string;
   history: GeminiTurn[];
   skipTTS?: boolean;
+  sessionId?: string;
 };
 
 export type TurnOutput = {
