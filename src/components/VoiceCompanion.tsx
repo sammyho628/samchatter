@@ -938,6 +938,35 @@ export function VoiceCompanion() {
         </div>
       </div>
 
+      {/* Debug text-mode input — skips STT, fires plan→tools→synth directly. */}
+      <div className="mt-4 w-full max-w-xl">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            const t = textInput;
+            setTextInput("");
+            void sendTextTurn(t);
+          }}
+          className="flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-4 py-3"
+        >
+          <span className="text-base text-white/40">💬</span>
+          <input
+            type="text"
+            value={textInput}
+            onChange={(e) => setTextInput(e.target.value)}
+            placeholder="Type a message…"
+            className="flex-1 bg-transparent text-lg text-white placeholder-white/30 outline-none"
+          />
+          <button
+            type="submit"
+            disabled={(textBusy && status !== "speaking") || !textInput.trim()}
+            className="rounded-full bg-amber-300 px-4 py-2 text-base font-bold text-orange-950 disabled:opacity-40"
+          >
+            {status === "speaking" ? "明女講緊…" : textBusy ? "…" : "Send"}
+          </button>
+        </form>
+      </div>
+
       <div className="relative mt-3 flex w-full items-center justify-center">
         <div className="relative aspect-square w-[68vw] max-w-[340px]">
           <WaveformOrb getAnalyser={() => null} active={isActive} tint={tint} />
@@ -1012,34 +1041,6 @@ export function VoiceCompanion() {
         </div>
       </div>
 
-      {/* Debug text-mode input — skips STT, fires plan→tools→synth directly. */}
-      <div className="mt-4 w-full max-w-xl">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            const t = textInput;
-            setTextInput("");
-            void sendTextTurn(t);
-          }}
-          className="flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-2"
-        >
-          <span className="text-xs text-white/40">💬 Text:</span>
-          <input
-            type="text"
-            value={textInput}
-            onChange={(e) => setTextInput(e.target.value)}
-            placeholder="Type a message to skip STT (debug)…"
-            className="flex-1 bg-transparent text-sm text-white placeholder-white/30 outline-none"
-          />
-          <button
-            type="submit"
-            disabled={(textBusy && status !== "speaking") || !textInput.trim()}
-            className="rounded-full bg-amber-300 px-3 py-1 text-xs font-bold text-orange-950 disabled:opacity-40"
-          >
-            {status === "speaking" ? "明女講緊…" : textBusy ? "…" : "Send"}
-          </button>
-        </form>
-      </div>
 
       <div className="flex-1" />
 
@@ -1049,7 +1050,15 @@ export function VoiceCompanion() {
         >
           <div className="flex flex-col items-center gap-3 text-center">
             <div className="text-5xl font-black tracking-tight">傾偈</div>
-            <div className="text-base text-white/70">明女正在等緊你...</div>
+            <div className="text-base text-white/70">
+              {new Date().toLocaleDateString("en-GB", {
+                timeZone: "Asia/Hong_Kong",
+                weekday: "long",
+                year: "numeric",
+                month: "long",
+                day: "numeric",
+              })}
+            </div>
           </div>
 
           <button
