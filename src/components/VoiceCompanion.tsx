@@ -541,8 +541,16 @@ export function VoiceCompanion() {
       blob = r.blob;
       mimeType = r.mimeType;
     } catch (err) {
-      setErrorMsg((err as Error).message);
+      const friendly = "錄音出咗啲問題，可唔可以再試多次？";
+      pushLog("err", `recorder stop: ${(err as Error).name ?? ""} ${(err as Error).message ?? ""}`);
+      setErrorMsg(friendly);
       setStatus("error");
+      void (async () => {
+        try {
+          const tts = await ttsFn({ data: { text: friendly } });
+          await playBase64Audio(tts.audioBase64);
+        } catch { /* best-effort only */ }
+      })();
       return;
     }
     if (blob.size < 1024) {
