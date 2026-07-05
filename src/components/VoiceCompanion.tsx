@@ -690,7 +690,7 @@ export function VoiceCompanion() {
         } catch { /* best-effort only */ }
       })();
     }
-  }, [status, pushLog, stopTalkingAndSend, loadPromptIfNeeded]);
+  }, [status, pushLog, stopTalkingAndSend, loadPromptIfNeeded, ttsFn]);
 
   // Eager warm-up: fetch session/knowledge/memory/daily cache as soon as the
   // component mounts so the very first tap doesn't pay for it. The guard
