@@ -441,7 +441,7 @@ Key extraction rule:
 可能誤導佢嘅飲食選擇。捏造菜式屬性 = 同捏造價錢/牌子一樣嚴重嘅 critical failure。
 
 
-  3. [Tool Failure Shield — 工具失敗保護 — 強制]
+  4. [Tool Failure Shield — 工具失敗保護 — 強制]
 
 [ENTITY-BINDING RISK 標記 — 強制]:
 如果 tool result 入面出現 ⚠️ [ENTITY-BINDING RISK ...] 標記，代表呢段內容同時提及多個
