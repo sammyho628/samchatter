@@ -13,7 +13,7 @@ export const summarizeAndSaveSession = createServerFn({ method: "POST" })
   .handler(async ({ data }) => {
     const { text: summary, usedModel: summaryModel } = await callUtilityChat({
       system:
-        "Summarize this Cantonese voice chat transcript between an AI companion and 明囡 in 2-3 short Traditional Chinese sentences. Capture: what she asked about, what she shared, mood. Skip greetings/filler. Output ONLY the summary text, no preamble.",
+        "Summarize this Cantonese voice chat transcript between an AI companion and 明囡 in 2-3 short Traditional Chinese sentences. Capture: what she asked about, what she shared, mood. Critically, if any SPECIFIC named items were mentioned or recommended (dish names, restaurant names, place names, stock tickers), write them out verbatim (e.g. '薑蔥炒蟹、椒鹽排骨、燜雞翼') rather than paraphrasing into a vague category (e.g. NOT '濃味菜式'). This summary is the only record that survives across days (today's raw conversation history resets daily), and a later system uses it to avoid repeating the exact same recommendations on a future day — vague paraphrasing defeats that purpose. Skip greetings/filler. Output ONLY the summary text, no preamble.",
       user: data.transcript,
       maxTokens: 300,
     });
