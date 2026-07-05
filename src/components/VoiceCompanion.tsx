@@ -679,9 +679,16 @@ export function VoiceCompanion() {
       setStatus("listening");
     } catch (err) {
       stopKeepAlive();
-      setErrorMsg((err as Error).message);
+      const friendly = friendlyMicErrorMessage(err);
+      setErrorMsg(friendly);
       setStatus("error");
-      pushLog("err", `mic: ${(err as Error).message}`);
+      pushLog("err", `mic: ${(err as Error).name ?? ""} ${(err as Error).message ?? ""}`);
+      void (async () => {
+        try {
+          const tts = await ttsFn({ data: { text: friendly } });
+          await playBase64Audio(tts.audioBase64);
+        } catch { /* best-effort only */ }
+      })();
     }
   }, [status, pushLog, stopTalkingAndSend, loadPromptIfNeeded]);
 
