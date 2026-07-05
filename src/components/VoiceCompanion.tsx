@@ -781,18 +781,12 @@ export function VoiceCompanion() {
               pushLog("err", msg);
               setErrorMsg(msg);
               setStatus("error");
-              if (fillerPlayedThisTurnRef.current) {
-                void (async () => {
-                  try {
-                    const tts = await ttsFn({
-                      data: { text: "唔好意思，搵資料嗰陣出咗少少問題，可唔可以你再問多次？" },
-                    });
-                    await playBase64Audio(tts.audioBase64);
-                  } catch {
-                    /* best-effort only — never throw from an error handler */
-                  }
-                })();
-              }
+              void (async () => {
+                try {
+                  const tts = await ttsFn({ data: { text: msg } });
+                  await playBase64Audio(tts.audioBase64);
+                } catch { /* best-effort only — never throw from an error handler */ }
+              })();
             },
           },
         );
