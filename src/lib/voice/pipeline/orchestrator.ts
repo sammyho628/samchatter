@@ -331,7 +331,12 @@ export async function runTurn(
       toolCalls: toolResults,
     };
   } catch (e) {
-    cbs.onError?.((e as Error).message);
+    const raw = (e as Error)?.message ?? String(e);
+    // Raw detail stays in the debug log only — never shown or spoken to the
+    // user. onError always gets a clean, speakable Cantonese sentence so the
+    // caller can safely both display it and TTS it without translation.
+    cbs.onLog?.(`⚠️ turn failed: ${raw}`);
+    cbs.onError?.("唔好意思，啱啱出咗少少問題，可唔可以再講一次？");
     cbs.onDone?.();
     return null;
   }

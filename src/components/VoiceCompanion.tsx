@@ -53,6 +53,20 @@ const STATUS_LABEL: Record<Status, string> = {
   error: "出咗啲問題",
 };
 
+function friendlyMicErrorMessage(err: unknown): string {
+  const name = (err as { name?: string })?.name ?? "";
+  if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+    return "冇攞到個咪嘅權限，可以去手機設定入面畀返權限俾呢個App呀。";
+  }
+  if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+    return "搵唔到個咪，唔知係咪冇接好，你check下呀。";
+  }
+  if (name === "NotReadableError" || name === "TrackStartError") {
+    return "個咪而家俾緊第二個App用緊，關咗嗰個App再試多次啦。";
+  }
+  return "個咪出咗啲問題，可唔可以再試多次？";
+}
+
 const HISTORY_WINDOW = 20;
 
 /** Keep only role=user|model turns whose parts are plain text — drop tool
@@ -527,8 +541,16 @@ export function VoiceCompanion() {
       blob = r.blob;
       mimeType = r.mimeType;
     } catch (err) {
-      setErrorMsg((err as Error).message);
+      const friendly = "錄音出咗啲問題，可唔可以再試多次？";
+      pushLog("err", `recorder stop: ${(err as Error).name ?? ""} ${(err as Error).message ?? ""}`);
+      setErrorMsg(friendly);
       setStatus("error");
+      void (async () => {
+        try {
+          const tts = await ttsFn({ data: { text: friendly } });
+          await playBase64Audio(tts.audioBase64);
+        } catch { /* best-effort only */ }
+      })();
       return;
     }
     if (blob.size < 1024) {
@@ -608,18 +630,12 @@ export function VoiceCompanion() {
             pushLog("err", msg);
             setErrorMsg(msg);
             setStatus("error");
-            if (fillerPlayedThisTurnRef.current) {
-              void (async () => {
-                try {
-                  const tts = await ttsFn({
-                    data: { text: "唔好意思，搵資料嗰陣出咗少少問題，可唔可以你再問多次？" },
-                  });
-                  await playBase64Audio(tts.audioBase64);
-                } catch {
-                  /* best-effort only — never throw from an error handler */
-                }
-              })();
-            }
+            void (async () => {
+              try {
+                const tts = await ttsFn({ data: { text: msg } });
+                await playBase64Audio(tts.audioBase64);
+              } catch { /* best-effort only — never throw from an error handler */ }
+            })();
           },
         },
       );
@@ -663,11 +679,18 @@ export function VoiceCompanion() {
       setStatus("listening");
     } catch (err) {
       stopKeepAlive();
-      setErrorMsg((err as Error).message);
+      const friendly = friendlyMicErrorMessage(err);
+      setErrorMsg(friendly);
       setStatus("error");
-      pushLog("err", `mic: ${(err as Error).message}`);
+      pushLog("err", `mic: ${(err as Error).name ?? ""} ${(err as Error).message ?? ""}`);
+      void (async () => {
+        try {
+          const tts = await ttsFn({ data: { text: friendly } });
+          await playBase64Audio(tts.audioBase64);
+        } catch { /* best-effort only */ }
+      })();
     }
-  }, [status, pushLog, stopTalkingAndSend, loadPromptIfNeeded]);
+  }, [status, pushLog, stopTalkingAndSend, loadPromptIfNeeded, ttsFn]);
 
   // Eager warm-up: fetch session/knowledge/memory/daily cache as soon as the
   // component mounts so the very first tap doesn't pay for it. The guard
@@ -758,18 +781,12 @@ export function VoiceCompanion() {
               pushLog("err", msg);
               setErrorMsg(msg);
               setStatus("error");
-              if (fillerPlayedThisTurnRef.current) {
-                void (async () => {
-                  try {
-                    const tts = await ttsFn({
-                      data: { text: "唔好意思，搵資料嗰陣出咗少少問題，可唔可以你再問多次？" },
-                    });
-                    await playBase64Audio(tts.audioBase64);
-                  } catch {
-                    /* best-effort only — never throw from an error handler */
-                  }
-                })();
-              }
+              void (async () => {
+                try {
+                  const tts = await ttsFn({ data: { text: msg } });
+                  await playBase64Audio(tts.audioBase64);
+                } catch { /* best-effort only — never throw from an error handler */ }
+              })();
             },
           },
         );
