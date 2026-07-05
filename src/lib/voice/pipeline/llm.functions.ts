@@ -993,16 +993,7 @@ EXAMPLES:
   ✓ 用戶問緊本 turn 工具已返回結果裡某個具體場所嘅屬性（例如「呢間幾點開門？」「距離幾遠？」）
     — 只可引用本 turn tool result 裡已出現嘅資料，唔可補充 tool result 冇提及嘅細節
   原因：AI 訓練記憶對深圳/內地/香港具體街邊檔口名稱可靠性極低，
-        任何 directAnswer 本地場所推薦都有高概率係虛構名稱。
-
-[VOICE FORMAT — 所有回覆強制 — 包括 directAnswer]
-samchatter 係聲音介面，唔係 chat UI。所有回覆（包括 directAnswer）必須：
-✗ 禁止 emoji (🔥📊💡🇰🇷 等) — TTS 會讀出符號或跳過，聽落好怪
-✗ 禁止 【標題】格式、bullet points (•/-/*)、numbered list (1. 2. 3.)
-✗ 禁止 markdown (**bold**、## header)
-✓ 連貫自然廣東話口語句子，唔係格式化清單
-✓ 例: 「恆指今日跌2.3%，科技股最差，騰訊跌3%，主要係人民幣拖累。」
-硬上限: 普通查詢 ≤ 3句；分析類（分析/詳細/形勢）≤ 5句。超過必須截短。`;
+        任何 directAnswer 本地場所推薦都有高概率係虛構名稱。`;
 
 
 const ANALYTICAL_RE =
