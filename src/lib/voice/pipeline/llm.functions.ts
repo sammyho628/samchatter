@@ -528,6 +528,7 @@ async function callOpenAIChat(
   // same server so the cached prefix (system prompt + prior history) can
   // actually be reused. Harmless no-op header for other providers.
   if (convId) headers["x-grok-conv-id"] = convId;
+  const t0 = Date.now();
   const resp = await fetchWithTimeout(
     apiUrl,
     {
@@ -556,11 +557,14 @@ async function callOpenAIChat(
       setTimeout(() => reject(new Error("OpenAI body read timeout 30000ms")), 30000),
     ),
   ]);
+  const elapsedMs = Date.now() - t0;
   // Log the raw usage object rather than guessing field names — lets us
   // read cached-token counts and reasoning-token counts directly from the
   // real response shape instead of assuming xAI's exact schema.
+  // elapsedMs = full round-trip (send → body parsed); a cache hit should
+  // show a clear prefill-time drop vs. a cold turn on the same session.
   console.log(
-    `[usage] conv=${convId ?? "none"} reasoningEffort=${reasoningEffort ?? "default"} usage=${JSON.stringify(json.usage ?? {})}`,
+    `[usage] conv=${convId ?? "none"} elapsedMs=${elapsedMs} reasoningEffort=${reasoningEffort ?? "default"} usage=${JSON.stringify(json.usage ?? {})}`,
   );
 
   // TEMPORARY DIAGNOSTIC (Fix 57) — fingerprint the system message so we can
