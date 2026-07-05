@@ -567,25 +567,6 @@ async function callOpenAIChat(
     `[usage] conv=${convId ?? "none"} elapsedMs=${elapsedMs} reasoningEffort=${reasoningEffort ?? "default"} usage=${JSON.stringify(json.usage ?? {})}`,
   );
 
-  // TEMPORARY DIAGNOSTIC (Fix 57) — fingerprint the system message so we can
-  // tell, from logs alone, whether it's genuinely byte-identical between
-  // consecutive turns in the same session. Split into a hash of everything
-  // except the last 300 chars ("body") and the literal last 300 chars
-  // ("tail", where the relocated timestamp + name-token live) so a mismatch
-  // in one vs the other tells us exactly where the problem is. Safe to
-  // remove once we've confirmed the answer.
-  const sysMsg =
-    (messages.find((m) => m.role === "system")?.content as string) ?? "";
-  const sysBody = sysMsg.length > 300 ? sysMsg.slice(0, -300) : sysMsg;
-  const sysTail = sysMsg.length > 300 ? sysMsg.slice(-300) : "";
-  let bodyHash = 0;
-  for (let i = 0; i < sysBody.length; i++) {
-    bodyHash = (Math.imul(31, bodyHash) + sysBody.charCodeAt(i)) | 0;
-  }
-  console.log(
-    `[promptfp] conv=${convId ?? "none"} sysLen=${sysMsg.length} bodyHash=${bodyHash.toString(16)} tail=${JSON.stringify(sysTail)}`,
-  );
-
   const msg = json.choices?.[0]?.message;
   return {
     content: (msg?.content ?? "").trim(),
