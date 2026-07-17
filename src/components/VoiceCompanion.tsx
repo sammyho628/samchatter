@@ -775,6 +775,7 @@ export function VoiceCompanion() {
             onSpeaking: () => {
               setSearching(false);
               setStatus("speaking");
+              beginAnswerGroup();
             },
             onLog: (m) => pushLog("evt", m),
             onDone: () => {
