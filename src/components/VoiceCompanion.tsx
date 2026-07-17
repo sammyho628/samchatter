@@ -622,6 +622,9 @@ export function VoiceCompanion() {
           onSpeaking: () => {
             setSearching(false);
             setStatus("speaking");
+            // Fresh replay group — subsequent TTS chunks accumulate so
+            // Replay covers the full answer, not just the last chunk.
+            beginAnswerGroup();
           },
           onLog: (m) => pushLog("evt", m),
           onDone: () => {
