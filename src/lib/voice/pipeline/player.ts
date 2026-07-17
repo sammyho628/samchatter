@@ -15,7 +15,11 @@ let ctx: AudioContext | null = null;
 let masterGain: GainNode | null = null;
 let keepAliveOsc: OscillatorNode | null = null;
 let current: AudioBufferSourceNode | null = null;
-let lastBuffer: AudioBuffer | null = null;
+// Buffers that make up the current answer, accumulated in order so Replay
+// covers the FULL last answer (multi-sentence TTS produces several buffers).
+// beginAnswerGroup() clears this at the start of each new answer turn so
+// filler audio played earlier in the turn is not included in replay.
+let answerBuffers: AudioBuffer[] = [];
 const listeners = new Set<(has: boolean) => void>();
 
 // Diagnostic logger — subscribed by the UI so audio failures show up in the
@@ -341,33 +345,53 @@ function scheduleBufferPlayback(buffer: AudioBuffer): Promise<void> {
       return;
     }
     current = src;
-    const prevHad = lastBuffer !== null;
-    lastBuffer = buffer;
+    const prevHad = answerBuffers.length > 0;
+    answerBuffers.push(buffer);
     if (!prevHad) for (const l of listeners) l(true);
     diag(`▶ started · duration=${buffer.duration.toFixed(2)}s · ctx=${c.state}`);
   });
 }
 
+/** Called at the start of each new answer turn (from onSpeaking) so the
+ *  next batch of playBase64Audio calls accumulates into a fresh replay group.
+ *  Filler audio played before onSpeaking is NOT included in replay. */
+export function beginAnswerGroup(): void {
+  answerBuffers = [];
+  for (const l of listeners) l(false);
+}
+
 export function replayLast(onEnded?: () => void) {
-  if (!lastBuffer) return;
+  if (answerBuffers.length === 0) return;
   const c = ensureCtx();
   if (c.state === "suspended") {
     c.resume().catch((e) => diag(`replay resume failed: ${(e as Error).message}`));
   }
   stopPlayback();
-  const src = c.createBufferSource();
-  src.buffer = lastBuffer;
-  src.connect(masterGain ?? c.destination);
-  src.onended = () => {
-    if (current === src) current = null;
-    onEnded?.();
+  // Chain buffers sequentially so the FULL last answer plays, not just the
+  // last sentence chunk. Each source's onended starts the next; the caller's
+  // onEnded fires only after the final buffer completes.
+  const buffers = answerBuffers.slice();
+  let i = 0;
+  const playNext = () => {
+    if (i >= buffers.length) {
+      onEnded?.();
+      return;
+    }
+    const src = c.createBufferSource();
+    src.buffer = buffers[i++];
+    src.connect(masterGain ?? c.destination);
+    src.onended = () => {
+      if (current === src) current = null;
+      playNext();
+    };
+    src.start(c.currentTime + 0.05);
+    current = src;
   };
-  src.start(c.currentTime + 0.05);
-  current = src;
+  playNext();
 }
 
 export function hasLastBuffer() {
-  return lastBuffer !== null;
+  return answerBuffers.length > 0;
 }
 
 export function subscribeLastBuffer(fn: (has: boolean) => void): () => void {
