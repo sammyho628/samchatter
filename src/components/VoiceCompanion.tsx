@@ -855,13 +855,18 @@ export function VoiceCompanion() {
       // Drop focus so a subsequent Spacebar press doesn't double-trigger
       // (native button activation + our keydown listener).
       e.currentTarget.blur();
+      // Guard against the synthesized click that follows the splash tap:
+      // pointerdown on splash unmounts the splash mid-gesture, and iOS then
+      // fires the pointerup/click at the talk button now under the finger,
+      // auto-starting the mic while the greeting is still playing.
+      if (greeting) return;
       if (status === "listening") {
         void stopTalkingAndSend();
       } else {
         void startTalking();
       }
     },
-    [status, startTalking, stopTalkingAndSend],
+    [status, startTalking, stopTalkingAndSend, greeting],
   );
 
   const copyDebugLog = useCallback(() => {
