@@ -15,7 +15,11 @@ let ctx: AudioContext | null = null;
 let masterGain: GainNode | null = null;
 let keepAliveOsc: OscillatorNode | null = null;
 let current: AudioBufferSourceNode | null = null;
-let lastBuffer: AudioBuffer | null = null;
+// Buffers that make up the current answer, accumulated in order so Replay
+// covers the FULL last answer (multi-sentence TTS produces several buffers).
+// beginAnswerGroup() clears this at the start of each new answer turn so
+// filler audio played earlier in the turn is not included in replay.
+let answerBuffers: AudioBuffer[] = [];
 const listeners = new Set<(has: boolean) => void>();
 
 // Diagnostic logger — subscribed by the UI so audio failures show up in the
