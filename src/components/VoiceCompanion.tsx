@@ -34,6 +34,7 @@ import {
   beginAnswerGroup,
 } from "@/lib/voice/pipeline/player";
 import { APP_VERSION } from "@/lib/version";
+import { signOut } from "@/components/PasscodeGate";
 import { getProviderSettings } from "@/lib/voice/providerSettings.functions";
 import { classifyFillerIntent, pickFillerPhrase } from "@/lib/voice/pipeline/fillerIntent";
 
@@ -1039,6 +1040,14 @@ export function VoiceCompanion() {
         ) : null}
         <div className="mt-3 flex flex-wrap items-center justify-center gap-3 text-xs text-white/40">
           <span>v{APP_VERSION}</span>
+          <button
+            type="button"
+            onClick={signOut}
+            className="rounded-full border border-white/20 px-3 py-1 text-white/60 hover:bg-white/5"
+            title="Sign out and require passcode again"
+          >
+            Sign out
+          </button>
           <button
             type="button"
             onClick={() => setDebugOpen((v) => !v)}
