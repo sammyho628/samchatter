@@ -1,6 +1,7 @@
 // Provider selection (LLM brain + TTS mouth). Stored in app_settings so the
 // user can change it from /instruction without redeploying.
 import { createServerFn } from "@tanstack/react-start";
+import { requireAppPasscode } from "@/lib/auth/passcode.middleware";
 import { z } from "zod";
 
 export type LlmProvider = "gemini" | "qwen" | "grok" | "openrouter";
@@ -163,11 +164,11 @@ export async function readProvidersServerSide(): Promise<{
   return value;
 }
 
-export const getProviderSettings = createServerFn({ method: "GET" }).handler(
+export const getProviderSettings = createServerFn({ method: "GET" }).middleware([requireAppPasscode]).handler(
   async () => readProvidersServerSide(),
 );
 
-export const saveProviderSettings = createServerFn({ method: "POST" })
+export const saveProviderSettings = createServerFn({ method: "POST" }).middleware([requireAppPasscode])
   .inputValidator((d) =>
     z
       .object({

@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { requireAppPasscode } from "@/lib/auth/passcode.middleware";
 import { z } from "zod";
 import { callUtilityChat, callGreetingChat } from "./modelRouter";
 
@@ -8,7 +9,7 @@ const SummarizeInput = z.object({
   executedSearches: z.array(z.string()).default([]),
 });
 
-export const summarizeAndSaveSession = createServerFn({ method: "POST" })
+export const summarizeAndSaveSession = createServerFn({ method: "POST" }).middleware([requireAppPasscode])
   .inputValidator((d: unknown) => SummarizeInput.parse(d))
   .handler(async ({ data }) => {
     const { text: summary, usedModel: summaryModel } = await callUtilityChat({
@@ -45,7 +46,7 @@ const GreetingInput = z.object({
   daysSinceLastSession: z.number().optional(),
 });
 
-export const generateContextualGreeting = createServerFn({ method: "POST" })
+export const generateContextualGreeting = createServerFn({ method: "POST" }).middleware([requireAppPasscode])
   .inputValidator((d: unknown) => GreetingInput.parse(d))
   .handler(async ({ data }): Promise<string> => {
     const {

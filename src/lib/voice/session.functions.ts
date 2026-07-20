@@ -1,4 +1,5 @@
 import { createServerFn } from "@tanstack/react-start";
+import { requireAppPasscode } from "@/lib/auth/passcode.middleware";
 import {
   DEFAULT_SYSTEM_PROMPT_TEMPLATE,
   DEFAULT_PERSONA_NAME,
@@ -27,7 +28,7 @@ function ttlForTopic(topic: string): number {
   return topic === "us_market_morning" ? US_MARKET_TTL_MS : CACHE_TTL_MS;
 }
 
-export const getVoiceSession = createServerFn({ method: "GET" }).handler(
+export const getVoiceSession = createServerFn({ method: "GET" }).middleware([requireAppPasscode]).handler(
   async () => {
     const { supabaseAdmin } = await import(
       "@/integrations/supabase/client.server"
