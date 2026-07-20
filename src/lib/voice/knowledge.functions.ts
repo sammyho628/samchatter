@@ -1,7 +1,8 @@
 import { createServerFn } from "@tanstack/react-start";
+import { requireAppPasscode } from "@/lib/auth/passcode.middleware";
 import { z } from "zod";
 
-export const listKnowledge = createServerFn({ method: "GET" }).handler(
+export const listKnowledge = createServerFn({ method: "GET" }).middleware([requireAppPasscode]).handler(
   async () => {
     const { supabaseAdmin } = await import(
       "@/integrations/supabase/client.server"
@@ -19,7 +20,7 @@ export const listKnowledge = createServerFn({ method: "GET" }).handler(
   },
 );
 
-export const upsertKnowledge = createServerFn({ method: "POST" })
+export const upsertKnowledge = createServerFn({ method: "POST" }).middleware([requireAppPasscode])
   .inputValidator((d) =>
     z
       .object({
@@ -49,7 +50,7 @@ export const upsertKnowledge = createServerFn({ method: "POST" })
     return { ok: true, id: row.id as number };
   });
 
-export const deleteKnowledge = createServerFn({ method: "POST" })
+export const deleteKnowledge = createServerFn({ method: "POST" }).middleware([requireAppPasscode])
   .inputValidator((d) => z.object({ id: z.number().int() }).parse(d))
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import(

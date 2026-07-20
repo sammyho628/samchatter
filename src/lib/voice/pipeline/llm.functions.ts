@@ -8,6 +8,7 @@
 //   - synthesizeAnswer   → final answer from pre-fetched tool results + critic loop
 //   - generateAIResponse → back-compat wrapper around the three above
 import { createServerFn } from "@tanstack/react-start";
+import { requireAppPasscode } from "@/lib/auth/passcode.middleware";
 import { resolveCriticCaller, resolveLlmModel } from "../modelRouter";
 
 export type GeminiPart =
@@ -1067,7 +1068,7 @@ async function runPlannerOpenAI(
   };
 }
 
-export const planQueries = createServerFn({ method: "POST" })
+export const planQueries = createServerFn({ method: "POST" }).middleware([requireAppPasscode])
   .inputValidator((d: GenerateInput) => d)
   .handler(async ({ data }): Promise<QueryPlan> => {
     const m = await resolveLlmModel();
@@ -1081,7 +1082,7 @@ export const planQueries = createServerFn({ method: "POST" })
 
 // ---------- EXECUTE TOOL ----------
 
-export const executeToolCall = createServerFn({ method: "POST" })
+export const executeToolCall = createServerFn({ method: "POST" }).middleware([requireAppPasscode])
   .inputValidator((d: PlannedToolCall) => d)
   .handler(async ({ data }): Promise<ToolCallTrace> => {
     const summary = await runTool(data.name, data.args);
@@ -1385,7 +1386,7 @@ function aggregateToolData(toolCalls: ToolCallTrace[]): string {
     .join("\n\n---\n\n");
 }
 
-export const synthesizeAnswer = createServerFn({ method: "POST" })
+export const synthesizeAnswer = createServerFn({ method: "POST" }).middleware([requireAppPasscode])
   .inputValidator((d: SynthesizeInput) => d)
   .handler(async ({ data }) => {
     const isAnalytical = ANALYTICAL_RE.test(data.userText);
@@ -1437,7 +1438,7 @@ export const synthesizeAnswer = createServerFn({ method: "POST" })
 // generateAIResponse still exists for any caller using the single-call API.
 // Internally it now runs plan → execute → synthesise sequentially.
 
-export const generateAIResponse = createServerFn({ method: "POST" })
+export const generateAIResponse = createServerFn({ method: "POST" }).middleware([requireAppPasscode])
   .inputValidator((d: GenerateInput) => d)
   .handler(async ({ data }) => {
     const m = await resolveLlmModel();

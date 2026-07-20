@@ -1,9 +1,10 @@
 import { createServerFn } from "@tanstack/react-start";
+import { requireAppPasscode } from "@/lib/auth/passcode.middleware";
 import { z } from "zod";
 
 const PROMPT_KEY = "voice.systemPromptTemplate.v1";
 
-export const getSystemPrompt = createServerFn({ method: "GET" }).handler(
+export const getSystemPrompt = createServerFn({ method: "GET" }).middleware([requireAppPasscode]).handler(
   async () => {
     const { supabaseAdmin } = await import(
       "@/integrations/supabase/client.server"
@@ -21,7 +22,7 @@ export const getSystemPrompt = createServerFn({ method: "GET" }).handler(
   },
 );
 
-export const saveSystemPrompt = createServerFn({ method: "POST" })
+export const saveSystemPrompt = createServerFn({ method: "POST" }).middleware([requireAppPasscode])
   .inputValidator((data) =>
     z.object({ template: z.string().min(1).max(20000) }).parse(data),
   )
@@ -39,7 +40,7 @@ export const saveSystemPrompt = createServerFn({ method: "POST" })
     return { ok: true };
   });
 
-export const resetSystemPrompt = createServerFn({ method: "POST" }).handler(
+export const resetSystemPrompt = createServerFn({ method: "POST" }).middleware([requireAppPasscode]).handler(
   async () => {
     const { supabaseAdmin } = await import(
       "@/integrations/supabase/client.server"

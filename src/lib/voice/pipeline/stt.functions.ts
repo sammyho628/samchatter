@@ -4,8 +4,9 @@
 // triple base64 round-trip (client encode → server decode → upload) that was
 // adding noticeable CPU + 33% payload bloat on every turn.
 import { createServerFn } from "@tanstack/react-start";
+import { requireAppPasscode } from "@/lib/auth/passcode.middleware";
 
-export const transcribeAudio = createServerFn({ method: "POST" })
+export const transcribeAudio = createServerFn({ method: "POST" }).middleware([requireAppPasscode])
   .inputValidator((d: FormData) => {
     if (!(d instanceof FormData)) {
       throw new Error("transcribeAudio expects FormData");

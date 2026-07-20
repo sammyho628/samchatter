@@ -2,6 +2,7 @@
 // Dispatches to either Google Gemini TTS (default) or MiniMax speech-02-hd
 // (Cantonese) based on the provider configured in app_settings.
 import { createServerFn } from "@tanstack/react-start";
+import { requireAppPasscode } from "@/lib/auth/passcode.middleware";
 import { readProvidersServerSide } from "@/lib/voice/providerSettings.functions";
 
 export type SynthesizeInput = {
@@ -213,7 +214,7 @@ async function synthesizeLovableGateway(text: string) {
   return { audioBase64: bytesToBase64(buf), mimeType: "audio/mpeg" };
 }
 
-export const synthesizeSpeech = createServerFn({ method: "POST" })
+export const synthesizeSpeech = createServerFn({ method: "POST" }).middleware([requireAppPasscode])
   .inputValidator((d: SynthesizeInput) => d)
   .handler(async ({ data }) => {
     const text = sanitizeForTTS(data.text.trim());

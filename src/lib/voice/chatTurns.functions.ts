@@ -2,11 +2,12 @@
 // - getTodayChatTurns(): read once on mount, hydrate local React state.
 // - appendChatTurn(): fire-and-forget write after each turn.
 import { createServerFn } from "@tanstack/react-start";
+import { requireAppPasscode } from "@/lib/auth/passcode.middleware";
 import { z } from "zod";
 
 export type StoredTurn = { role: "user" | "model"; text: string };
 
-export const getTodayChatTurns = createServerFn({ method: "GET" }).handler(
+export const getTodayChatTurns = createServerFn({ method: "GET" }).middleware([requireAppPasscode]).handler(
   async () => {
     const { supabaseAdmin } = await import(
       "@/integrations/supabase/client.server"
@@ -41,7 +42,7 @@ const AppendInput = z.object({
   text: z.string().min(1).max(20000),
 });
 
-export const appendChatTurn = createServerFn({ method: "POST" })
+export const appendChatTurn = createServerFn({ method: "POST" }).middleware([requireAppPasscode])
   .inputValidator((d: unknown) => AppendInput.parse(d))
   .handler(async ({ data }) => {
     const { supabaseAdmin } = await import(
