@@ -74,7 +74,12 @@ function LoginScreen({ onUnlock }: { onUnlock: () => void }) {
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      if (/401|invalid passcode/i.test(msg)) {
+      const match = msg.match(/太多次嘗試[^"]*?\d+\s*秒後再試。?/);
+      if (match) {
+        setError(match[0]);
+      } else if (/429|too many/i.test(msg)) {
+        setError("太多次嘗試，請稍後再試。");
+      } else if (/401|invalid passcode/i.test(msg)) {
         setError("Invalid passcode");
       } else {
         setError("Something went wrong. Please try again.");
